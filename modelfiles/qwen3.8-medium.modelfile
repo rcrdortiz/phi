@@ -1,0 +1,8 @@
+# Same 4-bit weights as -fast, but thinking-mode sampling. Use with a thinking
+# budget; temperature 1.0 / top_p 0.95 are Qwen's thinking-mode settings, and
+# running thinking mode at instruct temperatures causes repetition loops.
+FROM qwen3.8:27b-mlx
+PARAMETER num_ctx 65536
+PARAMETER temperature 1.0
+PARAMETER top_p 0.95
+PARAMETER top_k 20

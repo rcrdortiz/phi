@@ -1,0 +1,9 @@
+# Everyday driver: 4-bit MLX weights, instruct-style sampling, thinking off.
+# Sampling values are Qwen's published instruct-mode settings — wrong sampling
+# hurts these models more than quantisation does.
+FROM qwen3.8:27b-mlx
+PARAMETER num_ctx 65536
+PARAMETER temperature 0.7
+PARAMETER top_p 0.8
+PARAMETER top_k 20
+PARAMETER presence_penalty 1.5
