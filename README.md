@@ -130,6 +130,28 @@ session that reconciles `PLAN.md` and `NOTES.md` before continuing.
 
 Commands: `/handoff` (now), `/context` (usage).
 
+### `self-update.ts` — track your own repo
+
+At startup, fetches this repo and fast-forwards if it is behind; new extension
+files are registered automatically. Extensions load once at launch, so an
+update applies on the **next** run — the notification says so.
+
+Constraints, because this runs remote code on every start:
+
+- fast-forward only; never a merge, rebase or force
+- refuses a dirty working tree (your local edits win)
+- refuses a diverged branch (your unpushed commits win)
+- runs `git` and `pi install` only — no build steps, no repo-supplied hooks
+- TUI only, so scripted `--print` runs stay reproducible
+- network calls are time-boxed; offline failures are silent
+
+`/update-extensions` checks on demand. Env: `PI_SELFUPDATE=0` to disable,
+`PI_SELFUPDATE_REPO` to track a different checkout, `PI_SELFUPDATE_MIN_HOURS`
+(default 6) to change how often it checks.
+
+Run `node --experimental-strip-types test-self-update.mjs` — it builds a
+throwaway origin and clone, so it never touches the real repo.
+
 ## Notes from building this
 
 - **`session_start` does not fire in `--print` mode.** Only the extension
