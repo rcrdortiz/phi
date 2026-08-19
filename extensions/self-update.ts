@@ -68,7 +68,7 @@ function stampNow(): void {
 type Outcome =
 	| { kind: "current" }
 	| { kind: "skipped"; why: string }
-	| { kind: "updated"; commits: string; newExtensions: string[] }
+	| { kind: "updated"; commits: string; newExtensions: string[]; removedExtensions: string[] }
 	| { kind: "error"; why: string };
 
 function update(force: boolean): Outcome {
@@ -106,8 +106,10 @@ function update(force: boolean): Outcome {
 	const pulled = git(["merge", "--ff-only", `origin/${branch}`]);
 	if (!pulled.ok) return { kind: "error", why: `fast-forward failed: ${pulled.out.split("\n")[0]}` };
 
-	const added = listExtensions().filter((f) => !before.has(f));
-	return { kind: "updated", commits: log, newExtensions: added };
+	const after = listExtensions();
+	const added = after.filter((f) => !before.has(f));
+	const removed = [...before].filter((f) => !after.includes(f));
+	return { kind: "updated", commits: log, newExtensions: added, removedExtensions: removed };
 }
 
 // ---------------------------------------------------------------- setup
@@ -208,6 +210,23 @@ function listExtensions(): string[] {
 	}
 }
 
+/** Unregister extensions that the update deleted, so pi stops loading them. */
+function unregister(files: string[]): string[] {
+	const done: string[] = [];
+	for (const f of files) {
+		try {
+			execFileSync("pi", ["remove", path.join(REPO, "extensions", f)], {
+				stdio: "pipe",
+				timeout: 30000,
+			});
+			done.push(f);
+		} catch {
+			/* a stale registration is noisy, not fatal */
+		}
+	}
+	return done;
+}
+
 /** Register extension files that did not exist before the update. */
 function register(files: string[]): string[] {
 	const done: string[] = [];
@@ -236,8 +255,10 @@ function summarise(o: Outcome): { text: string; level: "info" | "warning" | "err
 		case "updated": {
 			const n = o.commits.split("\n").filter(Boolean).length;
 			const registered = register(o.newExtensions);
+			const dropped = unregister(o.removedExtensions);
 			const bits = [`pi-local updated (${n} commit${n === 1 ? "" : "s"}) — restart pi to load it.`];
 			if (registered.length) bits.push(`Registered: ${registered.join(", ")}.`);
+			if (dropped.length) bits.push(`Unregistered: ${dropped.join(", ")}.`);
 			bits.push(o.commits.split("\n").slice(0, 5).join("\n"));
 			return { text: bits.join("\n"), level: "info" };
 		}

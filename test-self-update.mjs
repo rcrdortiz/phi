@@ -64,6 +64,31 @@ const gotB = fs.existsSync(path.join(CLONE, "extensions", "b.ts"));
 check("fast-forwards when behind", /updated \(1 commit\)/.test(out) && gotB, out);
 check("tells you a restart is needed", /restart pi/i.test(out), out);
 
+// 2b. An extension deleted upstream is detected for unregistration.
+fs.rmSync(path.join(OTHER, "extensions", "a.ts"));
+sh(OTHER, ["add", "-A"]);
+sh(OTHER, ["commit", "-qm", "remove a extension"]);
+sh(OTHER, ["push", "-q", "origin", "HEAD:master"]);
+out = await run();
+check(
+	"picks up an extension deleted on another machine",
+	!fs.existsSync(path.join(CLONE, "extensions", "a.ts")),
+	out,
+);
+
+// 2c. A lib/ change syncs too (extensions import from ../lib).
+fs.mkdirSync(path.join(OTHER, "lib"), { recursive: true });
+fs.writeFileSync(path.join(OTHER, "lib", "shared.ts"), "export const V = 2\n");
+sh(OTHER, ["add", "-A"]);
+sh(OTHER, ["commit", "-qm", "add shared lib"]);
+sh(OTHER, ["push", "-q", "origin", "HEAD:master"]);
+out = await run();
+check(
+	"syncs lib/ files, not just extensions/",
+	fs.existsSync(path.join(CLONE, "lib", "shared.ts")),
+	out,
+);
+
 // 3. Dirty tree -> refuses
 fs.writeFileSync(path.join(CLONE, "extensions", "a.ts"), "// locally edited\n");
 fs.writeFileSync(path.join(OTHER, "extensions", "c.ts"), "// c\n");

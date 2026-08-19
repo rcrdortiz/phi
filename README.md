@@ -176,10 +176,26 @@ session that reconciles `PLAN.md` and `NOTES.md` before continuing.
 
 Commands: `/handoff` (now), `/context` (usage).
 
+### `incremental-writes.ts` — one write, one checkpoint
+
+Blocks a `write` or `edit` that would create more than **700 lines / 28 KB** in
+a single generation. Not because large files are bad, but because creating one
+in a single uninterruptible generation has no checkpoint: a dropped stream
+costs the whole thing, and the model cannot read back what it already wrote.
+
+Sized from measurement: ~12.8 tokens per line of real JS, against a 16,384
+`maxTokens` ceiling — so ~1,280 lines is the hard truncation limit, and 700
+leaves room for a preamble while keeping a full-size write near two minutes on
+the coder model. Raise it per-run with `--max-write-lines <n>`; `.json`, `.md`,
+`.txt`, `.yaml`, `.sql`, `.csv`, `.svg` and generated paths are exempt.
+
 ### `self-update.ts` — track your own repo
 
-At startup, fetches this repo and fast-forwards if it is behind; new extension
-files are registered automatically. Extensions load once at launch, so an
+At startup, fetches this repo and fast-forwards if it is behind. **This is how
+extensions move between machines**: develop on one, push, and the next pi launch
+elsewhere picks it up. New extension files are registered automatically and
+deleted ones are unregistered; `lib/` changes come along with the pull, since
+extensions import from `../lib/`. Extensions load once at launch, so an
 update applies on the **next** run — the notification says so.
 
 Constraints, because this runs remote code on every start:
