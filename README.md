@@ -22,13 +22,15 @@ pi --provider ollama-local --model qwen3-coder:30b
 fast-forwarding this repo at startup, which needs a real git checkout with an
 `origin`. From a zip you get a snapshot and no updates.
 
-**Know what that means:** with this installed, code pushed to this repo runs on
-your machine from your next pi launch onward. That is the point — you get fixes
-without doing anything — but it is also a standing trust relationship with
-whoever can push here. It only ever runs `git` and `pi install`, never build
-steps or anything else from the repo, and refuses to touch your working tree if
-you have edited anything. Set `PI_SELFUPDATE=0` to turn it off and update by
-hand instead.
+**Updates are offered, never taken.** When there are new commits you get a
+prompt at startup listing them, with *Update now* / *Not now* / *Stop asking*.
+Nothing is pulled until you choose. Taking someone else's commits onto your
+machine should be a decision each time, not consent you gave once at install.
+
+`PI_SELFUPDATE=auto` applies silently if you would rather not be asked;
+`PI_SELFUPDATE=0` disables the check entirely. Whichever you pick, it only ever
+runs `git` and `pi install` — never build steps or anything else from the repo —
+and refuses to touch your working tree if you have edited anything.
 
 Local edits always win: the updater refuses a dirty or diverged tree and tells
 you rather than overwriting your work. Check on demand with
@@ -218,7 +220,8 @@ the coder model. Raise it per-run with `--max-write-lines <n>`; `.json`, `.md`,
 
 ### `self-update.ts` — track your own repo
 
-At startup, fetches this repo and fast-forwards if it is behind. **This is how
+At startup, fetches this repo and — with your say-so — fast-forwards if it is
+behind. **This is how
 extensions move between machines**: develop on one, push, and the next pi launch
 elsewhere picks it up. New extension files are registered automatically and
 deleted ones are unregistered; `lib/` changes come along with the pull, since

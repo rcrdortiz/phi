@@ -40,7 +40,18 @@ const pi = {
 	registerTool: () => {},
 };
 mod.default(pi);
-const ctx = { mode: "tui", ui: { notify: (t) => outcomes.push(t) } };
+let selectAnswer;           // what the user "clicks" in the update prompt
+let selectPrompt;           // what they were shown
+const ctx = {
+	mode: "tui",
+	ui: {
+		notify: (t) => outcomes.push(t),
+		select: async (title, options) => {
+			selectPrompt = { title, options };
+			return typeof selectAnswer === "function" ? selectAnswer(options) : selectAnswer;
+		},
+	},
+};
 const run = async () => {
 	outcomes = [];
 	await pi._handler("", ctx);
@@ -56,6 +67,13 @@ const check = (label, pass, detail = "") => {
 // 1. Already current
 let out = await run();
 check("reports up to date when in sync", /already up to date/i.test(out), out);
+
+// 2. Behind -> the session_start path must ASK before applying.
+const startHandlers = {};
+{
+	const probe = { on: (e, h) => (startHandlers[e] = h), registerCommand: () => {}, registerTool: () => {} };
+	(await import("/Users/rcrd/AI/pi-local/extensions/self-update.ts")).default(probe);
+}
 
 // 2. Behind -> fast-forwards, and finds the new extension file
 const OTHER = path.join(TMP, "other");
@@ -96,6 +114,31 @@ check(
 	fs.existsSync(path.join(CLONE, "lib", "shared.ts")),
 	out,
 );
+
+// 2d. The startup path offers rather than applies, and honours "Not now".
+fs.writeFileSync(path.join(OTHER, "extensions", "offered.ts"), "// offered\n");
+sh(OTHER, ["add", "-A"]);
+sh(OTHER, ["commit", "-qm", "an offered change"]);
+sh(OTHER, ["push", "-q", "origin", "HEAD:master"]);
+selectAnswer = "Not now";
+outcomes = [];
+await startHandlers["session_start"]({}, ctx);
+await new Promise((r) => setTimeout(r, 300));
+check(
+	"startup offers the update instead of applying it",
+	/new commit/.test(selectPrompt?.title ?? "") && (selectPrompt?.options ?? []).includes("Update now"),
+	JSON.stringify(selectPrompt?.options),
+);
+check(
+	'"Not now" leaves the repo untouched',
+	!fs.existsSync(path.join(CLONE, "extensions", "offered.ts")),
+);
+
+// 2e. Accepting applies it.
+selectAnswer = "Update now";
+await startHandlers["session_start"]({}, ctx);
+await new Promise((r) => setTimeout(r, 500));
+check('"Update now" applies the update', fs.existsSync(path.join(CLONE, "extensions", "offered.ts")));
 
 // 3. Dirty tree -> refuses
 fs.writeFileSync(path.join(CLONE, "extensions", "a.ts"), "// locally edited\n");

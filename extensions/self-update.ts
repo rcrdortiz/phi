@@ -14,7 +14,12 @@
  *   - TUI only, so scripted --print runs stay reproducible
  *   - network calls are time-boxed and failures are silent (offline is normal)
  *
+ * Updates are OFFERED, not applied: pulling someone else's commits onto your
+ * machine should be a decision you make each time, not a standing consent you
+ * gave once at install. PI_SELFUPDATE=auto restores silent updating.
+ *
  * Env: PI_SELFUPDATE=0            disable entirely
+ *      PI_SELFUPDATE=auto         apply without asking
  *      PI_SELFUPDATE_REPO=<path>  repo to track (default: this file's repo)
  *      PI_SELFUPDATE_MIN_HOURS=6  minimum gap between checks (0 = every start)
  */
@@ -27,11 +32,13 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ENABLED = process.env.PI_SELFUPDATE !== "0";
+const AUTO_APPLY = process.env.PI_SELFUPDATE === "auto";
 const MIN_HOURS = Number(process.env.PI_SELFUPDATE_MIN_HOURS ?? 6);
 const REPO =
 	process.env.PI_SELFUPDATE_REPO ??
 	path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const STAMP = path.join(REPO, ".git", "pi-last-update-check");
+const OPT_OUT = path.join(REPO, ".git", "pi-selfupdate-off");
 
 function git(args: string[], timeout = 20000): { ok: boolean; out: string } {
 	try {
@@ -67,11 +74,12 @@ function stampNow(): void {
 
 type Outcome =
 	| { kind: "current" }
+	| { kind: "available"; commits: string; branch: string }
 	| { kind: "skipped"; why: string }
 	| { kind: "updated"; commits: string; newExtensions: string[]; removedExtensions: string[] }
 	| { kind: "error"; why: string };
 
-function update(force: boolean): Outcome {
+function update(force: boolean, apply: boolean): Outcome {
 	if (!fs.existsSync(path.join(REPO, ".git"))) {
 		return { kind: "skipped", why: `${REPO} is not a git repo` };
 	}
@@ -101,8 +109,10 @@ function update(force: boolean): Outcome {
 		return { kind: "skipped", why: `uncommitted changes in ${path.basename(REPO)}` };
 	}
 
-	const before = new Set(listExtensions());
 	const log = git(["log", "--oneline", `HEAD..origin/${branch}`]).out;
+	if (!apply) return { kind: "available", commits: log, branch };
+
+	const before = new Set(listExtensions());
 	const pulled = git(["merge", "--ff-only", `origin/${branch}`]);
 	if (!pulled.ok) return { kind: "error", why: `fast-forward failed: ${pulled.out.split("\n")[0]}` };
 
@@ -248,6 +258,10 @@ function summarise(o: Outcome): { text: string; level: "info" | "warning" | "err
 	switch (o.kind) {
 		case "current":
 			return undefined; // silence is the right output for "nothing to do"
+		case "available": {
+			const n = o.commits.split("\n").filter(Boolean).length;
+			return { text: `${n} update(s) available — run /update-extensions to apply.`, level: "info" };
+		}
 		case "skipped":
 			return o.why === "checked recently" ? undefined : { text: `pi-local not updated: ${o.why}`, level: "warning" };
 		case "error":
@@ -271,8 +285,36 @@ export default function selfUpdateExtension(pi: ExtensionAPI) {
 		// Not awaited: a network call should never delay the prompt.
 		void (async () => {
 			try {
-				const msg = summarise(update(false));
-				if (msg) ctx.ui.notify(msg.text, msg.level);
+				if (fs.existsSync(OPT_OUT)) return;
+				const found = update(false, AUTO_APPLY);
+
+				if (found.kind === "available") {
+					// Offer it. The user decides each time whether to take code
+					// from the remote onto their machine.
+					const n = found.commits.split("\n").filter(Boolean).length;
+					const preview = found.commits.split("\n").slice(0, 4).join("\n");
+					const YES = "Update now";
+					const NO = "Not now";
+					const OFF = "Stop asking (disable auto-check)";
+					const choice = await ctx.ui.select(
+						`pi-local: ${n} new commit${n === 1 ? "" : "s"}\n${preview}`,
+						[YES, NO, OFF],
+					);
+					if (choice === OFF) {
+						try {
+							fs.writeFileSync(OPT_OUT, String(Date.now()), "utf8");
+						} catch {
+							/* best effort */
+						}
+						ctx.ui.notify("Auto-check disabled. Use /update-extensions when you want it.", "info");
+					} else if (choice === YES) {
+						const applied = summarise(update(true, true));
+						if (applied) ctx.ui.notify(applied.text, applied.level);
+					}
+				} else {
+					const msg = summarise(found);
+					if (msg) ctx.ui.notify(msg.text, msg.level);
+				}
 				// Local reconciliation is deliberately independent of git: being
 				// offline, or running from a plain copy of the folder, should not
 				// stop a missing variant from being rebuilt.
@@ -288,7 +330,7 @@ export default function selfUpdateExtension(pi: ExtensionAPI) {
 		description: "Check pi-local for updates now and fast-forward if possible",
 		handler: async (_args, ctx) => {
 			ctx.ui.notify("Checking pi-local…", "info");
-			const msg = summarise(update(true));
+			const msg = summarise(update(true, true));
 			const notes = reconcileModels();
 			const lines = [msg?.text ?? "pi-local is already up to date.", ...notes];
 			ctx.ui.notify(lines.join("\n"), msg?.level ?? (notes.length ? "warning" : "info"));
