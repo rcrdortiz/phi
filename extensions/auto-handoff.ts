@@ -25,6 +25,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { requestCompaction, compactionBusy } from "../lib/compaction.ts";
 
 const SOFT = Number(process.env.PI_HANDOFF_PCT ?? 85);
 const HARD = Number(process.env.PI_HANDOFF_HARD ?? 93);
@@ -64,41 +65,29 @@ function writeFile(cwd: string, rel: string, contents: string) {
 
 export default function autoHandoffExtension(pi: ExtensionAPI) {
 	let samples: Sample[] = [];
-	let busy = false;
-	let lastReason = "";
 
 	const compactNow = (ctx: ExtensionContext, reason: string) => {
-		if (busy || typeof ctx.compact !== "function") return;
-		busy = true;
-		lastReason = reason;
-		ctx.ui.notify(`${reason} — compacting.`, "info");
-
-		ctx.compact({
-			customInstructions: INSTRUCTIONS,
-			onError: (err) => {
-				busy = false;
-				ctx.ui.notify(`Compaction failed: ${err.message}`, "error");
-			},
-			onComplete: (result) => {
-				// Keep the summary on disk as well: it survives the session, and
-				// plan-notes re-injects the plan separately on every turn.
+		const started = requestCompaction(ctx, reason, {
+			instructions: INSTRUCTIONS,
+			onSummary: (summary, tokensBefore) => {
 				try {
 					const stamp = new Date().toISOString().replace("T", " ").slice(0, 16);
 					writeFile(
 						ctx.cwd,
 						HANDOFF_FILE,
-						`# Handoff\n\n_${stamp}, at ${result.tokensBefore} tokens (${lastReason})._\n\n${result.summary}\n`,
+						`# Handoff\n\n_${stamp}, at ${tokensBefore} tokens (${reason})._\n\n${summary}\n`,
 					);
 				} catch {
 					/* the compaction itself is what matters */
 				}
 				samples = []; // the curve restarts after a compaction
-				busy = false;
 			},
 		});
+		return started;
 	};
 
 	const evaluate = (ctx: ExtensionContext) => {
+		if (compactionBusy()) return; // another extension is already handling it
 		const usage = ctx.getContextUsage?.();
 		if (!usage?.tokens || !usage.contextWindow) return;
 		samples.push({ tokens: usage.tokens, at: Date.now() });

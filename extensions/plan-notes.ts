@@ -17,6 +17,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { requestCompaction } from "../lib/compaction.ts";
 import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -143,23 +144,17 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		const reset = pendingReset;
 		if (!reset) return;
 		pendingReset = undefined;
-		const message =
-			`Continue the plan. Step ${reset.index + 1} of ${reset.total}: ${reset.text}`;
 
-		if (typeof ctx.newSession === "function") {
-			await ctx.newSession({
-				withSession: async (fresh) => {
-					await fresh.sendUserMessage(message);
-				},
-			});
-			return;
-		}
-		if (typeof ctx.compact === "function") {
-			ctx.compact({ customInstructions: "Keep only what the next plan step needs." });
-			ctx.ui.notify("Context compacted (this session cannot start a fresh one).", "info");
-			return;
-		}
-		ctx.ui.notify("Continuing in this session — context was not reset.", "warning");
+		// A true fresh session is not available here: newSession lives on
+		// ExtensionCommandContext, which only slash-command handlers receive.
+		// Compaction is the reachable equivalent, and the before_agent_start
+		// briefing re-establishes the plan either way. `/next` does the real
+		// reset when you want one.
+		requestCompaction(ctx, `Step ${reset.index} finished`, {
+			instructions:
+				`The next step is: ${reset.text}. Keep only what that step needs — ` +
+				`decisions, constraints and the state of the code. Drop the narrative of how the previous step went.`,
+		});
 	};
 
 	// Swap at the first turn boundary after the step completes, rather than

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import mod from "/Users/rcrd/AI/pi-local/extensions/plan-notes.ts";
+import { resetCompactionState } from "/Users/rcrd/AI/pi-local/lib/compaction.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "plan-"));
 const tools = {}; const handlers = {};
@@ -11,6 +12,7 @@ const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
 
 async function scenario(label, ctxExtras, expect) {
+  resetCompactionState();
   fs.rmSync(path.join(DIR, ".pi"), { recursive: true, force: true });
   const notes = [];
   const base = { cwd: DIR, ui: { notify: (m) => notes.push(m) } };
@@ -24,22 +26,22 @@ async function scenario(label, ctxExtras, expect) {
   expect({ toolOk, notes, r });
 }
 
-// 1. Tool ctx lacks newSession (the reported failure) but the event ctx has it.
-let newSessionCalled = null;
-await scenario("full context", { newSession: async (o) => { newSessionCalled = o; await o.withSession({ sendUserMessage: async (m) => (newSessionCalled = m) }); } },
+// 1. A completed step compacts (newSession is not reachable from a tool or an
+// event handler — it exists only on ExtensionCommandContext).
+let compacted = null;
+await scenario("step boundary", { compact: (o) => (compacted = o) },
   ({ toolOk }) => {
     check("plan_next no longer throws from the tool context", toolOk);
-    check("session resets at the step boundary (turn_end), once", typeof newSessionCalled === "string" && /Step 2 of 2/.test(newSessionCalled), String(newSessionCalled));
+    check("a finished step triggers compaction", compacted !== null);
+    check("the summary is aimed at the next step",
+      /next step is: two/i.test(compacted?.customInstructions ?? ""),
+      (compacted?.customInstructions ?? "").slice(0, 70));
   });
 
-// 2. No newSession anywhere -> falls back to compaction.
-let compacted = false;
-await scenario("compact fallback", { compact: () => (compacted = true) },
-  ({ notes }) => check("falls back to compaction when newSession is absent", compacted && notes.some((n) => /compacted/i.test(n)), notes.join(" | ")));
-
-// 3. Neither available -> warns, does not crash.
-await scenario("no APIs", {}, ({ notes }) =>
-  check("degrades to a warning when neither API exists", notes.some((n) => /was not reset/i.test(n)), notes.join(" | ")));
+// 2. No compaction available -> degrades quietly rather than erroring.
+await scenario("no compact API", {}, ({ notes }) =>
+  check("degrades quietly when the context cannot compact",
+    !notes.some((n) => /error|failed/i.test(n)), notes.join(" | ") || "(silent)"));
 
 // 4. The plan file still advanced in every case.
 const plan = fs.readFileSync(path.join(DIR, ".pi", "PLAN.md"), "utf8");

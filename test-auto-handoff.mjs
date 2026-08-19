@@ -2,12 +2,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import mod from "/Users/rcrd/AI/pi-local/extensions/auto-handoff.ts";
+import { resetCompactionState } from "/Users/rcrd/AI/pi-local/lib/compaction.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-"));
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
 
 function harness(windowSize = 100_000) {
+  resetCompactionState();   // the lock is a shared singleton across extensions
   const handlers = {}; const notes = []; let compacts = 0; let tokens = 0;
   mod({ on: (e, h) => (handlers[e] = h), registerCommand: (n, o) => (handlers["/" + n] = o.handler), registerTool: () => {} });
   const ctx = {
@@ -50,7 +52,7 @@ check("writes the handoff summary", fs.existsSync(path.join(DIR, ".pi", "HANDOFF
 
 // 5. It compacts rather than swapping sessions (no newSession is even needed).
 h = harness();
-h.ctx.newSession = () => { throw new Error("must not swap sessions mid-task"); };
+h.ctx.newSession = () => { throw new Error("must not swap sessions mid-task"); };  // never called: not on this context type
 await h.turn(50_000); await h.turn(45_000);
 check("never swaps sessions mid-task", h.compacts >= 1);
 

@@ -185,7 +185,7 @@ back to its ~2K floor at every step boundary. A `before_agent_start` hook
 appends the plan, the current step and the notes to each turn's system prompt,
 which is what makes a wiped context safe.
 
-`plan_next` resets at the **first turn boundary after the step completes**, not
+`plan_next` compacts at the **first turn boundary after the step completes**, not
 when the whole run settles — during a long agentic run the model may work
 through several more steps before settling, which is the context growth the
 reset exists to prevent.
@@ -236,8 +236,16 @@ Two pressures, two responses:
 
 | when | what happens | why |
 |---|---|---|
-| mid-task | **compact** | swapping sessions here would abort work in flight |
-| plan step done | **session swap** (`plan-notes`) | the only moment a full reset is free |
+| mid-task | **compact**, on a projection | swapping sessions here would abort work in flight |
+| plan step done | **compact**, aimed at the next step | the natural boundary to shed the previous step's narrative |
+| `/next` | **true session reset** | `newSession` is only reachable from a slash command |
+
+**An API constraint worth knowing:** `newSession` exists on
+`ExtensionCommandContext` — slash-command handlers get it, tools and event
+handlers do not. So a genuine fresh session can only be user-initiated. Anything
+automatic compacts instead, and `lib/compaction.ts` holds a shared lock so two
+extensions cannot compact at once (which produced `This operation was aborted`
+followed by `Nothing to compact (session too small)`).
 
 The trigger is a projection. Usage is sampled every turn, which gives a growth
 rate; if the next `PI_HANDOFF_LOOKAHEAD` turns (default 2) would cross
