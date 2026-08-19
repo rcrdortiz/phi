@@ -10,6 +10,38 @@ Everything here follows from that, plus a second measurement: prefill cost
 grows quadratically with prompt length, so the way to stay fast is to keep
 context small — not to buy a bigger window.
 
+## This is not `ollama launch pi`
+
+Ollama ships its own launcher for coding agents (`ollama launch pi`, and the
+same for claude / opencode / codex). That opens a model picker of Ollama's
+recommendations — including `:cloud` models that need a sign-in and are not
+local at all — and it knows nothing about this repo.
+
+If you want the setup described here, ignore that launcher and run:
+
+```sh
+./install.sh
+pi --provider ollama-local --model qwen3-coder:30b
+```
+
+## Where the models come from
+
+Ollama's registry, not Hugging Face — `install.sh` runs `ollama pull` on three
+tags (~67 GB total). Hugging Face is only useful here for GGUF builds; Ollama
+refuses MLX repos from HF ("Repository is not GGUF"), and the MLX builds are
+what make this fast on Apple Silicon.
+
+## What this assumes
+
+Tuned for a **48 GB Apple Silicon Mac**. On different hardware you will want to
+change:
+
+- **the models** — `qwen3.8:27b-mlx` and `:27b-mxfp8` are Apple MLX builds;
+  on Linux/NVIDIA use the GGUF or FP8 tags instead
+- **the memory thresholds** — `PI_MIN_FREE_GB` (30) and `PI_MIN_ACTUAL_GB` (8)
+  will refuse to start on a 16 GB machine, correctly but unhelpfully
+- **the GPU limit** — `install.sh` sets 40 GB, which assumes 48 GB of RAM
+
 ## Install
 
 ```sh
