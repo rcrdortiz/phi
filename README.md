@@ -138,6 +138,13 @@ load on top of its own prefill. This fires an empty request at startup (and on
 `/model`) so the weights are resident by the time you finish typing, and sets
 `keep_alive` (default `2h`) so the model doesn't unload while you think.
 
+**A per-request keep_alive is not enough.** It applies to that request only,
+and pi's own requests do not set one, so the timer falls back to the server
+default of 5 minutes: the model unloads during any pause, and the next message
+either pays a full reload or races the teardown and fails with
+`Post "http://127.0.0.1:PORT/v1/completions": EOF`. `install.sh` sets
+`OLLAMA_KEEP_ALIVE=2h` server-wide, which is what actually keeps it resident.
+
 Env: `PI_OLLAMA_URL`, `PI_KEEP_ALIVE`.
 
 ### `plan-notes.ts` — state on disk, not in context

@@ -6,8 +6,12 @@
  * empty request at session start (and whenever you switch models with /model)
  * so the weights are resident by the time you finish typing.
  *
- * Also sets keep_alive so the model doesn't unload while you think — the
- * default is 5 minutes, which is shorter than a coffee.
+ * It also asks for a long keep_alive, but that alone is NOT enough: keep_alive
+ * is per-request, and pi's own requests do not set it, so the next one resets
+ * the timer to the server default of 5 minutes. A 20GB model then unloads
+ * during any pause, and the next message pays a full reload — or races the
+ * teardown and fails with `Post ".../v1/completions": EOF`. The durable fix is
+ * the server-wide OLLAMA_KEEP_ALIVE, which install.sh sets.
  *
  * Env: PI_OLLAMA_URL (default http://localhost:11434)
  *      PI_KEEP_ALIVE (default 2h)

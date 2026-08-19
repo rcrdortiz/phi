@@ -92,8 +92,11 @@ else
 fi
 
 # Flash attention and a quantised KV cache: measured ~2.3x generation speed at
-# long context. The brew service plist sets these; Ollama.app does not, so it
-# needs a login agent that exports them before the app starts.
+# long context. OLLAMA_KEEP_ALIVE matters as much: the default is 5 minutes, and
+# a per-request keep_alive does not stick because the next request without one
+# resets it — so a 20GB model unloads during any pause and the next message pays
+# a full reload. The brew service plist sets the first two; Ollama.app sets
+# none, so it needs a login agent that exports them before the app starts.
 step "Ollama performance settings"
 if [[ $APP_RUNNING -eq 1 ]]; then
   mkdir -p "$(dirname "$ENV_PLIST")"
@@ -104,7 +107,7 @@ if [[ $APP_RUNNING -eq 1 ]]; then
   <key>Label</key><string>local.ollama-env</string>
   <key>ProgramArguments</key><array>
     <string>/bin/sh</string><string>-c</string>
-    <string>launchctl setenv OLLAMA_FLASH_ATTENTION 1; launchctl setenv OLLAMA_KV_CACHE_TYPE q8_0</string>
+    <string>launchctl setenv OLLAMA_FLASH_ATTENTION 1; launchctl setenv OLLAMA_KV_CACHE_TYPE q8_0; launchctl setenv OLLAMA_KEEP_ALIVE 2h</string>
   </array>
   <key>RunAtLoad</key><true/>
 </dict></plist>
@@ -113,9 +116,11 @@ PLIST
   launchctl load -w "$ENV_PLIST" 2>/dev/null || true
   launchctl setenv OLLAMA_FLASH_ATTENTION 1
   launchctl setenv OLLAMA_KV_CACHE_TYPE q8_0
+  launchctl setenv OLLAMA_KEEP_ALIVE 2h
   ok "login agent installed (restart Ollama.app for it to take effect)"
 else
-  ok "brew service already exports OLLAMA_FLASH_ATTENTION and OLLAMA_KV_CACHE_TYPE"
+  launchctl setenv OLLAMA_KEEP_ALIVE 2h 2>/dev/null || true
+  ok "brew service exports the performance vars; keep-alive set to 2h"
 fi
 
 # ---------------------------------------------------------------- gpu limit
