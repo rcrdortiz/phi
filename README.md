@@ -149,6 +149,28 @@ Moves the two things worth remembering out of the conversation:
   gotcha / decision)
 
 Tools: `plan_write`, `note_add`, `plan_status`, `plan_next`.
+
+**Revising a plan asks first.** If `plan_write` would drop steps, it explains
+the change and waits:
+
+```
+Change the plan?
+
+No longer doing:
+  - add enemies
+  - add sound
+Adding:
+  + add power-ups
+  + add music
+
+Is that correct?
+```
+
+Declining leaves the plan untouched and tells the model the revision was
+refused, so it discusses rather than quietly proceeding. Steps repeated in the
+revision keep their completed state — and their recorded summary — so a change
+of direction never makes finished work look outstanding. Pure additions do not
+interrupt, and non-interactive runs apply without prompting.
 Commands: `/plan`, `/notes`, `/next`.
 
 `plan_next` marks the step done and starts a **fresh session** — context drops

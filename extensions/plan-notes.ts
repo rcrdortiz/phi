@@ -77,6 +77,26 @@ function currentStep(steps: Step[]): { index: number; step?: Step } {
 	return { index: i, step: i === -1 ? undefined : steps[i] };
 }
 
+/** Compare a proposed plan against the current one. Matching is on trimmed,
+ *  case-insensitive text: a model rewording a step slightly should not look
+ *  like dropping one and adding another. */
+function planDiff(existing: Step[], proposed: string[]) {
+	// plan_next appends "text — what was done" to a completed step, so match on
+	// the part before that separator; otherwise every finished step looks both
+	// dropped and re-added when the plan is revised.
+	const key = (t: string) =>
+		t.split(" \u2014 ")[0].trim().toLowerCase().replace(/\s+/g, " ");
+	const proposedKeys = new Set(proposed.map(key));
+	const existingKeys = new Set(existing.map((s) => key(s.text)));
+
+	return {
+		droppedDone: existing.filter((s) => s.done && !proposedKeys.has(key(s.text))),
+		droppedPending: existing.filter((s) => !s.done && !proposedKeys.has(key(s.text))),
+		kept: existing.filter((s) => proposedKeys.has(key(s.text))),
+		added: proposed.filter((t) => !existingKeys.has(key(t))),
+	};
+}
+
 /** The briefing a fresh session needs: the plan, the notes, the current step. */
 function briefing(ctx: { cwd: string }): string {
 	const planText = readFileSafe(planPath(ctx));
@@ -170,6 +190,8 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		promptGuidelines: [
 			`Use plan_write before starting multi-step work, so progress survives a context reset.`,
 			`Keep each step small enough to finish and verify on its own.`,
+			`If the agreed direction changes, call plan_write again with the revised steps BEFORE continuing — never keep working against a plan that no longer matches what was agreed.`,
+			`Steps that still apply should be repeated verbatim in the revision; their completed state is preserved automatically.`,
 		],
 		parameters: Type.Object({
 			goal: Type.String({ description: "One sentence describing the overall objective" }),
@@ -178,7 +200,51 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			}),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
-			const steps: Step[] = params.steps.map((t: string) => ({ done: false, text: t }));
+			const existing = parsePlan(readFileSafe(planPath(ctx)));
+			const d = planDiff(existing, params.steps);
+			const losesWork = d.droppedDone.length > 0 || d.droppedPending.length > 0;
+
+			// Replacing a plan quietly is how a session ends up working from a
+			// plan nobody agreed to. Anything that drops steps gets explained
+			// and confirmed; pure additions do not need a decision.
+			if (existing.length && losesWork && ctx.mode === "tui" && typeof ctx.ui.confirm === "function") {
+				const lines: string[] = [];
+				if (d.droppedPending.length)
+					lines.push(`No longer doing:\n${d.droppedPending.map((s) => `  - ${s.text}`).join("\n")}`);
+				if (d.droppedDone.length)
+					lines.push(
+						`Dropping from the record (already done):\n${d.droppedDone.map((s) => `  - ${s.text}`).join("\n")}`,
+					);
+				if (d.kept.length) lines.push(`Keeping: ${d.kept.length} step(s)`);
+				if (d.added.length) lines.push(`Adding:\n${d.added.map((t) => `  + ${t}`).join("\n")}`);
+				lines.push("", "Is that correct?");
+
+				const ok = await ctx.ui.confirm("Change the plan?", lines.join("\n"));
+				if (!ok) {
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									"Plan unchanged — the user did not accept the revision. " +
+									"Discuss the change with them before rewriting the plan.",
+							},
+						],
+						isError: true,
+					};
+				}
+			}
+
+			// Steps that survive keep their completed state: a revision should
+			// not make finished work look outstanding again.
+			const norm = (t: string) => t.split(" \u2014 ")[0].trim().toLowerCase().replace(/\s+/g, " ");
+			const doneText = new Map(existing.filter((s) => s.done).map((s) => [norm(s.text), s.text]));
+			const steps: Step[] = params.steps.map((t: string) => {
+				const prior = doneText.get(norm(t));
+				// Keep the completed step's original wording, which carries its
+				// summary — the revision should not erase what was recorded.
+				return prior ? { done: true, text: prior } : { done: false, text: t };
+			});
 			writeFileSafe(planPath(ctx), renderPlan(params.goal, steps));
 			return {
 				content: [
