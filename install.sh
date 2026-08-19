@@ -33,9 +33,12 @@ warn() { echo "  ${yl}!${r} $*"; }
 die()  { echo "  ${rd}✗${r} $*"; exit 1; }
 ask()  { [[ $ASSUME_YES -eq 1 ]] && return 0; read -r -p "  $1 [y/N] " a; [[ "$a" =~ ^[Yy] ]]; }
 
-# GPU memory ceiling. macOS defaults to ~75% of RAM; 40GB on a 48GB machine
-# leaves enough for the OS while letting a 31GB model hold a real context.
-WIRED_LIMIT_MB=40960
+# GPU memory ceiling. macOS defaults to ~75% of RAM. We take ~83%, leaving
+# ~8GB for the OS on a 48GB machine, and scale it rather than hardcoding: on a
+# 32GB Mac, 40GB would be nonsense.
+TOTAL_MB=$(( $(sysctl -n hw.memsize) / 1048576 ))
+WIRED_LIMIT_MB=$(( TOTAL_MB * 83 / 100 ))
+(( WIRED_LIMIT_MB > TOTAL_MB - 8192 )) && WIRED_LIMIT_MB=$(( TOTAL_MB - 8192 ))
 GPU_PLIST=/Library/LaunchDaemons/local.iogpu-wired-limit.plist
 ENV_PLIST="$HOME/Library/LaunchAgents/local.ollama-env.plist"
 

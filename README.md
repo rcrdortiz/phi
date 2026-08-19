@@ -10,6 +10,31 @@ Everything here follows from that, plus a second measurement: prefill cost
 grows quadratically with prompt length, so the way to stay fast is to keep
 context small — not to buy a bigger window.
 
+## If someone shared this with you
+
+```sh
+git clone https://github.com/rcrdortiz/pi-local.git
+cd pi-local && ./install.sh
+pi --provider ollama-local --model qwen3-coder:30b
+```
+
+**Clone it — do not download a zip.** The extensions keep themselves current by
+fast-forwarding this repo at startup, which needs a real git checkout with an
+`origin`. From a zip you get a snapshot and no updates.
+
+**Know what that means:** with this installed, code pushed to this repo runs on
+your machine from your next pi launch onward. That is the point — you get fixes
+without doing anything — but it is also a standing trust relationship with
+whoever can push here. It only ever runs `git` and `pi install`, never build
+steps or anything else from the repo, and refuses to touch your working tree if
+you have edited anything. Set `PI_SELFUPDATE=0` to turn it off and update by
+hand instead.
+
+Local edits always win: the updater refuses a dirty or diverged tree and tells
+you rather than overwriting your work. Check on demand with
+`/update-extensions`, and set `PI_SELFUPDATE_MIN_HOURS=0` if the default
+six-hour gap is too slow.
+
 ## This is not `ollama launch pi`
 
 Ollama ships its own launcher for coding agents (`ollama launch pi`, and the
@@ -40,7 +65,9 @@ change:
   on Linux/NVIDIA use the GGUF or FP8 tags instead
 - **the memory thresholds** — `PI_MIN_FREE_GB` (30) and `PI_MIN_ACTUAL_GB` (8)
   will refuse to start on a 16 GB machine, correctly but unhelpfully
-- **the GPU limit** — `install.sh` sets 40 GB, which assumes 48 GB of RAM
+- **the GPU limit** — `install.sh` now scales it to ~83% of installed memory
+  (39 GB on a 48 GB Mac, 24 GB on a 32 GB one), so it no longer assumes this
+  machine
 
 ## Install
 
