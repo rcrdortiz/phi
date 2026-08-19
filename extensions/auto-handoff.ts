@@ -61,6 +61,11 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 					`# Handoff\n\n_Written ${stamp} at ${result.tokensBefore} context tokens._\n\n${result.summary}\n`,
 				);
 
+				if (typeof ctx.newSession !== "function") {
+					busy = false;
+					ctx.ui.notify(`Summary written to ${HANDOFF_FILE}; this session cannot start a fresh one.`, "warning");
+					return;
+				}
 				void ctx
 					.newSession({
 						withSession: async (fresh) => {

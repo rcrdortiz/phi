@@ -127,7 +127,14 @@ back to its ~2K floor at every step boundary. A `before_agent_start` hook
 appends the plan, the current step and the notes to each turn's system prompt,
 which is what makes a wiped context safe.
 
-Env: `PI_PLAN_FILE`, `PI_NOTES_FILE`.
+`plan_next` does not reset the session itself: the context handed to a tool
+comes from an optional factory and can lack `newSession` (observed as
+`ctx.newSession is not a function`). It records the intent and the reset happens
+on `agent_settled`, which runs with the mode's full context — falling back to
+compaction, and then to a warning, so a missing API costs context size rather
+than correctness.
+
+Env: `PI_PLAN_FILE`, `PI_NOTES_FILE`. Test: `node --experimental-strip-types test-plan-notes.mjs`.
 
 ### `smart-edit.ts` — edits a local model can actually land
 

@@ -110,7 +110,37 @@ function briefing(ctx: { cwd: string }): string {
 
 // ---------------------------------------------------------------- extension
 
+type PendingReset = { index: number; total: number; text: string };
+
 export default function planNotesExtension(pi: ExtensionAPI) {
+	let pendingReset: PendingReset | undefined;
+
+	// Perform a queued step-boundary reset once the turn has fully settled.
+	// Falls back to compaction, and finally to doing nothing at all — the
+	// before_agent_start briefing keeps the model oriented either way, so a
+	// missing API costs context size, never correctness.
+	pi.on("agent_settled", async (_event, ctx) => {
+		const reset = pendingReset;
+		if (!reset) return;
+		pendingReset = undefined;
+		const message =
+			`Continue the plan. Step ${reset.index + 1} of ${reset.total}: ${reset.text}`;
+
+		if (typeof ctx.newSession === "function") {
+			await ctx.newSession({
+				withSession: async (fresh) => {
+					await fresh.sendUserMessage(message);
+				},
+			});
+			return;
+		}
+		if (typeof ctx.compact === "function") {
+			ctx.compact({ customInstructions: "Keep only what the next plan step needs." });
+			ctx.ui.notify("Context compacted (this session cannot start a fresh one).", "info");
+			return;
+		}
+		ctx.ui.notify("Continuing in this session — context was not reset.", "warning");
+	});
 	// Every turn starts by restating where we are. Cheap (a few hundred tokens)
 	// and it is what makes a wiped context safe.
 	pi.on("before_agent_start", async (event, ctx) => {
@@ -269,21 +299,21 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 				};
 			}
 
-			// Fresh session: context drops back to the system-prompt floor, and
-			// before_agent_start re-injects the plan and notes on the first turn.
-			void ctx.newSession({
-				withSession: async (fresh) => {
-					await fresh.sendUserMessage(
-						`Continue the plan. Step ${next.index + 1} of ${steps.length}: ${next.step!.text}`,
-					);
-				},
-			});
+			// Queue the reset rather than performing it here: the context handed to
+			// a tool comes from an optional factory and may lack newSession
+			// ("ctx.newSession is not a function"). The agent_settled handler
+			// below runs with the mode's full context, so it can do the swap.
+			pendingReset = {
+				index: next.index,
+				total: steps.length,
+				text: next.step.text,
+			};
 
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Step ${index + 1} done. Starting a fresh session for step ${next.index + 1}: ${next.step.text}`,
+						text: `Step ${index + 1} done. Next: step ${next.index + 1} of ${steps.length} — ${next.step.text}. Context resets when this turn ends.`,
 					},
 				],
 				details: { completed: index, next: next.index },
@@ -327,13 +357,12 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 				ctx.ui.notify("Plan complete.", "info");
 				return;
 			}
-			await ctx.newSession({
-				withSession: async (fresh) => {
-					await fresh.sendUserMessage(
-						`Continue the plan. Step ${next.index + 1} of ${steps.length}: ${next.step!.text}`,
-					);
-				},
-			});
+			const message = `Continue the plan. Step ${next.index + 1} of ${steps.length}: ${next.step!.text}`;
+			if (typeof ctx.newSession === "function") {
+				await ctx.newSession({ withSession: async (fresh) => void (await fresh.sendUserMessage(message)) });
+			} else {
+				ctx.ui.notify(`Step marked done. ${message}`, "info");
+			}
 		},
 	});
 }
