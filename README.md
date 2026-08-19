@@ -149,9 +149,16 @@ breaks the file**, so a bad edit costs one error message instead of a corrupted
 file. Misses report the closest lines; ambiguous matches are refused with line
 numbers rather than guessed at.
 
+**It retires the built-in `edit` tool at startup**, because leaving it
+available means the model keeps reaching for it and keeps getting "Could not
+find the exact text". Set `PI_KEEP_BUILTIN_EDIT=1` to keep both.
+
+Why the built-in tool fails: it *does* fuzzy-match, but only trailing
+whitespace, smart quotes, dashes and Unicode forms — then falls back to a plain
+`indexOf`. **Leading indentation must be byte-exact**, and that is the one thing
+a local model does not reproduce reliably.
+
 Run `node --experimental-strip-types test-smart-edit.mjs` to exercise it.
-Consider `pi --exclude-tools edit` so the model cannot fall back to the
-exact-match tool.
 
 ### `auto-handoff.ts` — compact at a threshold, then start clean
 

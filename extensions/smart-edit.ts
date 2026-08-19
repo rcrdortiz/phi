@@ -26,7 +26,10 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-const MAX_PREVIEW = 12;
+// The built-in edit tool needs byte-exact indentation, which is the failure
+// this extension exists to remove. Leaving it available means the model keeps
+// reaching for it and keeps getting "Could not find the exact text".
+const KEEP_BUILTIN_EDIT = process.env.PI_KEEP_BUILTIN_EDIT === "1";
 
 function resolve(cwd: string, p: string): string {
 	return path.isAbsolute(p) ? p : path.join(cwd, p);
@@ -361,5 +364,24 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	void MAX_PREVIEW;
+	// Retire the built-in edit tool in favour of edit_block. Done at runtime so
+	// it needs no CLI flag; set PI_KEEP_BUILTIN_EDIT=1 to keep both.
+	let retired = false;
+	const retireBuiltinEdit = (notify?: (m: string, l: "info") => void) => {
+		if (retired || KEEP_BUILTIN_EDIT) return;
+		let all;
+		try {
+			all = pi.getAllTools();
+		} catch {
+			return;
+		}
+		if (!all?.some((t) => t.name === "edit")) return;
+		pi.setActiveTools(all.map((t) => t.name).filter((n) => n !== "edit"));
+		retired = true;
+		notify?.("Using edit_block instead of the built-in edit tool.", "info");
+	};
+
+	pi.on("session_start", async (_event, ctx) => retireBuiltinEdit(ctx.ui.notify));
+	// session_start does not fire in --print mode; this covers those runs.
+	pi.on("before_agent_start", async () => retireBuiltinEdit());
 }
