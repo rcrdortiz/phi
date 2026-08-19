@@ -22,6 +22,14 @@ sh(CLONE, ["branch", "--set-upstream-to=origin/master"]);
 
 process.env.PI_SELFUPDATE_REPO = CLONE;
 process.env.PI_SELFUPDATE_MIN_HOURS = "0";
+// The updater shells out to `pi install` for new extensions. In a test that
+// would write registrations for temp files into the real user settings, which
+// then dangle once the temp dir is gone. Shadow `pi` with a no-op for the
+// duration of the run.
+const BIN = path.join(TMP, "bin");
+fs.mkdirSync(BIN);
+fs.writeFileSync(path.join(BIN, "pi"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+process.env.PATH = `${BIN}:${process.env.PATH}`;
 const mod = await import("/Users/rcrd/AI/pi-local/extensions/self-update.ts");
 
 // Grab the update() logic by registering against a stub and invoking /update.
