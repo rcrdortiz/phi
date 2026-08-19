@@ -191,6 +191,16 @@ Constraints, because this runs remote code on every start:
 - TUI only, so scripted `--print` runs stay reproducible
 - network calls are time-boxed; offline failures are silent
 
+It also reconciles what the repo *describes* against what is actually
+installed, independently of git — so this still works offline or from a plain
+copy of the folder:
+
+- a variant whose `modelfiles/*.modelfile` changed is rebuilt (`ollama create`
+  is cheap: variants share the base model's blobs)
+- a variant deleted outside pi is rebuilt
+- a **missing base model is reported, never downloaded** — those are 18–31 GB
+  and should not start on their own at session startup
+
 `/update-extensions` checks on demand. Env: `PI_SELFUPDATE=0` to disable,
 `PI_SELFUPDATE_REPO` to track a different checkout, `PI_SELFUPDATE_MIN_HOURS`
 (default 6) to change how often it checks.

@@ -20,6 +20,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -109,6 +110,93 @@ function update(force: boolean): Outcome {
 	return { kind: "updated", commits: log, newExtensions: added };
 }
 
+// ---------------------------------------------------------------- setup
+
+const HASHES = path.join(REPO, ".git", "pi-modelfile-hashes.json");
+
+function ollama(args: string[], timeout = 120000): { ok: boolean; out: string } {
+	try {
+		return { ok: true, out: execFileSync("ollama", args, { encoding: "utf8", timeout, stdio: "pipe" }).trim() };
+	} catch (e) {
+		const err = e as { stderr?: Buffer; message?: string };
+		return { ok: false, out: (err.stderr?.toString() || err.message || "").trim() };
+	}
+}
+
+function installedModels(): Set<string> {
+	const r = ollama(["list"], 20000);
+	if (!r.ok) return new Set();
+	return new Set(
+		r.out
+			.split("\n")
+			.slice(1)
+			.map((l) => l.split(/\s+/)[0]?.replace(/:latest$/, ""))
+			.filter(Boolean) as string[],
+	);
+}
+
+function readHashes(): Record<string, string> {
+	try {
+		return JSON.parse(fs.readFileSync(HASHES, "utf8"));
+	} catch {
+		return {};
+	}
+}
+
+/**
+ * Bring the local Ollama state in line with the repo: rebuild any variant whose
+ * modelfile changed, and report base models that are missing. Rebuilds are
+ * cheap (they share the base model's blobs); downloads are not, so those are
+ * reported rather than started.
+ */
+function reconcileModels(): string[] {
+	const dir = path.join(REPO, "modelfiles");
+	if (!fs.existsSync(dir)) return [];
+
+	const notes: string[] = [];
+	const present = installedModels();
+	const hashes = readHashes();
+	const missingBases = new Set<string>();
+	let changed = false;
+
+	for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".modelfile"))) {
+		const name = f.replace(/\.modelfile$/, "");
+		const body = fs.readFileSync(path.join(dir, f), "utf8");
+		const hash = createHash("sha256").update(body).digest("hex").slice(0, 16);
+
+		const base = /^FROM\s+(\S+)/m.exec(body)?.[1];
+		if (base && !present.has(base.replace(/:latest$/, ""))) {
+			missingBases.add(base);
+			continue; // cannot build a variant whose base is absent
+		}
+		if (hashes[name] === hash && present.has(name)) continue;
+
+		const built = ollama(["create", name, "-f", path.join(dir, f)]);
+		if (built.ok) {
+			hashes[name] = hash;
+			changed = true;
+			notes.push(`rebuilt ${name}`);
+		} else {
+			notes.push(`could not build ${name}: ${built.out.split("\n")[0]}`);
+		}
+	}
+
+	if (changed) {
+		try {
+			fs.writeFileSync(HASHES, JSON.stringify(hashes, null, 1), "utf8");
+		} catch {
+			/* a lost hash file only means one redundant rebuild next time */
+		}
+	}
+	if (missingBases.size) {
+		notes.push(
+			`missing base model(s): ${[...missingBases].join(", ")} — run: ` +
+				[...missingBases].map((m) => `ollama pull ${m}`).join(" && "),
+		);
+	}
+	return notes;
+}
+
 function listExtensions(): string[] {
 	try {
 		return fs
@@ -164,6 +252,11 @@ export default function selfUpdateExtension(pi: ExtensionAPI) {
 			try {
 				const msg = summarise(update(false));
 				if (msg) ctx.ui.notify(msg.text, msg.level);
+				// Local reconciliation is deliberately independent of git: being
+				// offline, or running from a plain copy of the folder, should not
+				// stop a missing variant from being rebuilt.
+				const notes = reconcileModels();
+				if (notes.length) ctx.ui.notify(notes.join("\n"), "warning");
 			} catch {
 				/* never let the updater break a session */
 			}
@@ -174,9 +267,10 @@ export default function selfUpdateExtension(pi: ExtensionAPI) {
 		description: "Check pi-local for updates now and fast-forward if possible",
 		handler: async (_args, ctx) => {
 			ctx.ui.notify("Checking pi-local…", "info");
-			const outcome = update(true);
-			const msg = summarise(outcome);
-			ctx.ui.notify(msg ? msg.text : "pi-local is already up to date.", msg?.level ?? "info");
+			const msg = summarise(update(true));
+			const notes = reconcileModels();
+			const lines = [msg?.text ?? "pi-local is already up to date.", ...notes];
+			ctx.ui.notify(lines.join("\n"), msg?.level ?? (notes.length ? "warning" : "info"));
 		},
 	});
 }
