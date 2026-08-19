@@ -97,6 +97,30 @@ which is what makes a wiped context safe.
 
 Env: `PI_PLAN_FILE`, `PI_NOTES_FILE`.
 
+### `smart-edit.ts` — edits a local model can actually land
+
+The built-in `edit` tool needs byte-exact `oldText`. A 30B model cannot reliably
+reproduce indentation, so matches fail — and a failing match tends to push it
+into blind `sed`/`awk` splicing, which corrupts the file and makes the next
+match harder. Observed on a real file: a `};` indented 2 spaces that the model
+kept matching at 5, and seven lines left at odd indents by its own repair
+attempts.
+
+- `edit_block` — matches on line **content**, ignoring indentation, then
+  re-indents the replacement to the file's own style
+- `replace_lines` — deterministic line-range replacement with an `expect` guard
+- `view_lines` — numbered view for targeting ranges
+- `/syntax <file>` — check a file by hand
+
+Every write is syntax-checked (js/cjs/mjs/json/py/php) and **reverted if it
+breaks the file**, so a bad edit costs one error message instead of a corrupted
+file. Misses report the closest lines; ambiguous matches are refused with line
+numbers rather than guessed at.
+
+Run `node --experimental-strip-types test-smart-edit.mjs` to exercise it.
+Consider `pi --exclude-tools edit` so the model cannot fall back to the
+exact-match tool.
+
 ### `auto-handoff.ts` — compact at a threshold, then start clean
 
 At `PI_HANDOFF_PCT` (default 85) of the context window, summarises the session
