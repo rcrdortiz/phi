@@ -8,73 +8,40 @@ const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-"));
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
 
-const R = 16384;                                   // pi's reserveTokens
-const piTrigger = (w) => ((w - R) / w) * 100;      // pi compacts above this
-const soft = (w) => Math.max(35, piTrigger(w) - 8);
+resetCompactionState();
+const handlers = {}, cmds = [], notes = [];
+let compactCalls = 0;
+mod({
+  on: (e, h) => (handlers[e] = h),
+  registerCommand: (n, o) => { cmds.push(n); handlers["/" + n] = o.handler; },
+  registerTool: () => {},
+});
+const ctx = {
+  cwd: DIR,
+  ui: { notify: (t) => notes.push(t) },
+  getContextUsage: () => ({ tokens: 40_000, contextWindow: 65_536, percent: 61 }),
+  compact: (o) => { compactCalls++; o.onComplete?.({ summary: "state summary", tokensBefore: 40_000 }); },
+};
 
-function harness(windowSize = 100_000) {
-  resetCompactionState();   // the lock is a shared singleton across extensions
-  const handlers = {}; const notes = []; let compacts = 0; let tokens = 0;
-  mod({ on: (e, h) => (handlers[e] = h), registerCommand: (n, o) => (handlers["/" + n] = o.handler), registerTool: () => {} });
-  const ctx = {
-    cwd: DIR,
-    ui: { notify: (t) => notes.push(t) },
-    getContextUsage: () => ({ tokens, contextWindow: windowSize, percent: (tokens / windowSize) * 100 }),
-    compact: (opts) => { compacts++; opts.onComplete?.({ summary: "S", tokensBefore: tokens }); tokens = Math.floor(tokens * 0.3); },
-  };
-  return {
-    notes, ctx, handlers,
-    get compacts() { return compacts; },
-    async turn(delta) { tokens += delta; await handlers["turn_end"]({}, ctx); return tokens; },
-  };
-}
+// 1. No turn-by-turn compaction any more: pi owns the timing.
+check("no longer hooks turn_end", handlers["turn_end"] === undefined, Object.keys(handlers).filter(k => !k.startsWith("/")).join(", "));
 
-// 1. Steady slow growth: no premature compaction well below the line.
-let h = harness();
-for (let i = 0; i < 6; i++) await h.turn(2_000);   // reaches 12%
-check("does not compact while far from the limit", h.compacts === 0,
-  `at ${(h.ctx.getContextUsage().percent).toFixed(0)}%, soft is ${soft(100_000).toFixed(0)}%`);
+// 2. pi's own compaction still lands on disk.
+await handlers["session_compact"]({ compactionEntry: { summary: "pi's summary", tokensBefore: 54_784 } }, ctx);
+const hp = path.join(DIR, ".pi", "HANDOFF.md");
+check("records pi's compaction to disk", fs.existsSync(hp) && /pi's summary/.test(fs.readFileSync(hp, "utf8")),
+  fs.existsSync(hp) ? fs.readFileSync(hp, "utf8").split("\n")[2] : "missing");
 
-// 2. Big jumps: must act on the projection BEFORE crossing 85%.
-h = harness();
-await h.turn(20_000); await h.turn(20_000);        // 40%
-const before = h.ctx.getContextUsage().percent;
-await h.turn(20_000);                              // 60% — next two turns would blow past 85%
-check(
-  "compacts on the forecast, before the threshold is crossed",
-  h.compacts === 1 && before < soft(100_000),
-  `${h.notes[0] ?? ""}`,
-);
+// 3. /handoff still compacts on demand, with our instructions.
+resetCompactionState();
+await handlers["/handoff"]("", ctx);
+check("/handoff compacts on demand", compactCalls === 1);
+check("/handoff writes its own summary", /state summary/.test(fs.readFileSync(hp, "utf8")));
 
-// 3. A single huge jump still triggers the hard limit.
-h = harness();
-await h.turn(90_000);
-check("hard limit catches a single oversized turn", h.compacts === 1, h.notes[0] ?? "");
-
-// 4. The summary is written to disk.
-check("writes the handoff summary", fs.existsSync(path.join(DIR, ".pi", "HANDOFF.md")),
-  fs.existsSync(path.join(DIR, ".pi", "HANDOFF.md")) ? fs.readFileSync(path.join(DIR, ".pi", "HANDOFF.md"), "utf8").split("\n")[2] : "");
-
-// 4b. We must act BELOW pi's own trigger, or pi always gets there first and our
-// request comes back as "Already compacted".
-check(
-  "our threshold sits below pi's own compaction point",
-  soft(100_000) < piTrigger(100_000),
-  `ours ${soft(100_000).toFixed(0)}% < pi ${piTrigger(100_000).toFixed(0)}%`,
-);
-
-// 5. It compacts rather than swapping sessions (no newSession is even needed).
-h = harness();
-h.ctx.newSession = () => { throw new Error("must not swap sessions mid-task"); };  // never called: not on this context type
-await h.turn(50_000); await h.turn(45_000);
-check("never swaps sessions mid-task", h.compacts >= 1);
-
-// 6. /context reports the growth rate and remaining turns.
-h = harness();
-await h.turn(5_000); await h.turn(5_000);
-h.notes.length = 0;
-await h.handlers["/context"]("", h.ctx);
-check("/context reports rate and remaining room", /tokens\/turn/.test(h.notes.join(" ")), h.notes.join(" ").split("\n").slice(-1)[0]);
+// 4. /context reports pi's trigger, not ours.
+notes.length = 0;
+await handlers["/context"]("", ctx);
+check("/context reports pi's compaction point", /pi compacts above 75%/.test(notes.join(" ")), notes.join(" ").split("\n")[1]);
 
 fs.rmSync(DIR, { recursive: true, force: true });
 const failed = results.filter((r) => !r).length;

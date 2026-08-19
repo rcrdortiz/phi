@@ -230,24 +230,11 @@ a local model does not reproduce reliably.
 
 Run `node --experimental-strip-types test-smart-edit.mjs` to exercise it.
 
-### `auto-handoff.ts` — compact on a forecast, not a threshold
+### `auto-handoff.ts` — record compactions, do not compete for them
 
-Two pressures, two responses:
-
-| when | what happens | why |
-|---|---|---|
-| mid-task | **compact**, on a projection | swapping sessions here would abort work in flight |
-| plan step done | **compact**, aimed at the next step | the natural boundary to shed the previous step's narrative |
-| `/next` | **true session reset** | `newSession` is only reachable from a slash command |
-
-**An API constraint worth knowing:** `newSession` exists on
-`ExtensionCommandContext` — slash-command handlers get it, tools and event
-handlers do not. So a genuine fresh session can only be user-initiated. Anything
-automatic compacts instead, and `lib/compaction.ts` holds a shared lock so two
-extensions cannot compact at once, and it also tracks **pi's own** automatic
-compaction through `session_before_compact` / `session_compact` — otherwise an
-extension asks for a compaction pi has already done and the session fills with
-errors that are not problems:
+pi already compacts automatically above `contextWindow - reserveTokens`
+(16384 — 75% of a 64K window). This extension used to run its own
+threshold-based compaction on top, which produced nothing but collisions:
 
 ```
 Error: This operation was aborted
@@ -255,46 +242,17 @@ Error: Compaction failed: Nothing to compact (session too small)
 Error: Compaction failed: Already compacted
 ```
 
-Those three outcomes all mean "the context is already small", so they are
-swallowed rather than reported.
+A second mechanism watching the same number can only be early or late, and it
+was late — pi always got there first. That logic is gone. What remains:
 
-The trigger is a projection, and the thresholds derive from **pi's own**. pi
-auto-compacts above `contextWindow - reserveTokens` (16384) — 75% of a 64K
-window. A fixed threshold above that never fires first: pi gets there, and our
-request arrives as `Compaction failed: Already compacted`. We therefore aim
-`PI_HANDOFF_MARGIN` (8) points below pi's trigger, so our summary instructions
-are the ones actually used:
-
-| window | we act at | pi acts at |
+| trigger | who | on what |
 |---|---|---|
-| 32K | 42% / 48% | 50% |
-| 64K | 67% / 73% | 75% |
-| 128K | 80% / 86% | 88% |
+| context size | **pi** | tokens, with overflow recovery it owns |
+| plan step finished | `plan-notes` | meaning — a boundary pi cannot see |
+| `/handoff` | you | when you want it |
 
-Usage is sampled every turn, giving a growth rate; if the next
-`PI_HANDOFF_LOOKAHEAD` (2) turns would cross the soft line, it compacts now. A
-level check alone is too late by definition — one turn reading three files can
-jump 20% in a single step.
+Every compaction, whoever caused it, is written to `.pi/HANDOFF.md` so the
+summary survives the session. `/context` shows usage and how much room is left
+before pi compacts.
 
-The summary is written to `.pi/HANDOFF.md` as well as compacted into the
-session, structured as state rather than narrative: done / in progress /
-constraints & decisions / dead ends.
 
-`/context` shows usage, the measured growth per turn, and how many turns of
-room are left. `/handoff` compacts on demand.
-
-## Notes from building this
-
-- **`session_start` does not fire in `--print` mode.** Only the extension
-  factory is guaranteed to run in every mode, which is why the memory gate
-  lives there.
-- **`ctx.ui.confirm()` blocks forever outside the TUI.** Gate any dialog on
-  `ctx.mode === "tui"`.
-- **`before_agent_start` returns `systemPrompt` / `message`,** not the
-  `additionalContext` the docs imply. Check `dist/core/extensions/types.d.ts`
-  in the installed package rather than trusting prose.
-- Model sizes and the roster live in `lib/ollama-models.ts`, imported by both
-  `ollama-local.ts` and `memory-guard.ts` — defined twice, they drift.
-- Ollama reuses the KV cache across turns, so only *new* tokens are prefilled:
-  a first turn costing 26s was followed by turns costing 0.4s. Anything that
-  changes the start of the prompt (a `/clear`, a model switch) throws that away.
