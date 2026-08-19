@@ -19,7 +19,8 @@ async function scenario(label, ctxExtras, expect) {
   await tools.plan_write.execute("1", { goal: "g", steps: ["one", "two"] }, undefined, undefined, toolCtx);
   const r = await tools.plan_next.execute("2", {}, undefined, undefined, toolCtx);
   const toolOk = !r.isError;
-  await handlers["agent_settled"]({}, eventCtx);
+  await handlers["turn_end"]({}, eventCtx);   // fires first, at the step boundary
+  await handlers["agent_settled"]({}, eventCtx); // backstop must be a no-op
   expect({ toolOk, notes, r });
 }
 
@@ -28,7 +29,7 @@ let newSessionCalled = null;
 await scenario("full context", { newSession: async (o) => { newSessionCalled = o; await o.withSession({ sendUserMessage: async (m) => (newSessionCalled = m) }); } },
   ({ toolOk }) => {
     check("plan_next no longer throws from the tool context", toolOk);
-    check("session reset happens on agent_settled", typeof newSessionCalled === "string" && /Step 2 of 2/.test(newSessionCalled), String(newSessionCalled));
+    check("session resets at the step boundary (turn_end), once", typeof newSessionCalled === "string" && /Step 2 of 2/.test(newSessionCalled), String(newSessionCalled));
   });
 
 // 2. No newSession anywhere -> falls back to compaction.

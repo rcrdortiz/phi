@@ -156,6 +156,11 @@ back to its ~2K floor at every step boundary. A `before_agent_start` hook
 appends the plan, the current step and the notes to each turn's system prompt,
 which is what makes a wiped context safe.
 
+`plan_next` resets at the **first turn boundary after the step completes**, not
+when the whole run settles — during a long agentic run the model may work
+through several more steps before settling, which is the context growth the
+reset exists to prevent.
+
 `plan_next` does not reset the session itself: the context handed to a tool
 comes from an optional factory and can lack `newSession` (observed as
 `ctx.newSession is not a function`). It records the intent and the reset happens
@@ -196,63 +201,28 @@ a local model does not reproduce reliably.
 
 Run `node --experimental-strip-types test-smart-edit.mjs` to exercise it.
 
-### `auto-handoff.ts` — compact at a threshold, then start clean
+### `auto-handoff.ts` — compact on a forecast, not a threshold
 
-At `PI_HANDOFF_PCT` (default 85) of the context window, summarises the session
-with a brief aimed at state rather than narrative — done / remaining / why /
-constraints / dead ends — writes it to `.pi/HANDOFF.md`, and starts a fresh
-session that reconciles `PLAN.md` and `NOTES.md` before continuing.
+Two pressures, two responses:
 
-Commands: `/handoff` (now), `/context` (usage).
+| when | what happens | why |
+|---|---|---|
+| mid-task | **compact** | swapping sessions here would abort work in flight |
+| plan step done | **session swap** (`plan-notes`) | the only moment a full reset is free |
 
-### `incremental-writes.ts` — one write, one checkpoint
+The trigger is a projection. Usage is sampled every turn, which gives a growth
+rate; if the next `PI_HANDOFF_LOOKAHEAD` turns (default 2) would cross
+`PI_HANDOFF_PCT` (85), it compacts *now*. A fixed threshold is checked too late
+by definition — one turn that reads three files can jump 20% in a single step,
+which is how a session reaches 90% having never been seen at 85%.
+`PI_HANDOFF_HARD` (93) compacts immediately regardless of the forecast.
 
-Blocks a `write` or `edit` that would create more than **700 lines / 28 KB** in
-a single generation. Not because large files are bad, but because creating one
-in a single uninterruptible generation has no checkpoint: a dropped stream
-costs the whole thing, and the model cannot read back what it already wrote.
+The summary is written to `.pi/HANDOFF.md` as well as compacted into the
+session, structured as state rather than narrative: done / in progress /
+constraints & decisions / dead ends.
 
-Sized from measurement: ~12.8 tokens per line of real JS, against a 16,384
-`maxTokens` ceiling — so ~1,280 lines is the hard truncation limit, and 700
-leaves room for a preamble while keeping a full-size write near two minutes on
-the coder model. Raise it per-run with `--max-write-lines <n>`; `.json`, `.md`,
-`.txt`, `.yaml`, `.sql`, `.csv`, `.svg` and generated paths are exempt.
-
-### `self-update.ts` — track your own repo
-
-At startup, fetches this repo and — with your say-so — fast-forwards if it is
-behind. **This is how
-extensions move between machines**: develop on one, push, and the next pi launch
-elsewhere picks it up. New extension files are registered automatically and
-deleted ones are unregistered; `lib/` changes come along with the pull, since
-extensions import from `../lib/`. Extensions load once at launch, so an
-update applies on the **next** run — the notification says so.
-
-Constraints, because this runs remote code on every start:
-
-- fast-forward only; never a merge, rebase or force
-- refuses a dirty working tree (your local edits win)
-- refuses a diverged branch (your unpushed commits win)
-- runs `git` and `pi install` only — no build steps, no repo-supplied hooks
-- TUI only, so scripted `--print` runs stay reproducible
-- network calls are time-boxed; offline failures are silent
-
-It also reconciles what the repo *describes* against what is actually
-installed, independently of git — so this still works offline or from a plain
-copy of the folder:
-
-- a variant whose `modelfiles/*.modelfile` changed is rebuilt (`ollama create`
-  is cheap: variants share the base model's blobs)
-- a variant deleted outside pi is rebuilt
-- a **missing base model is reported, never downloaded** — those are 18–31 GB
-  and should not start on their own at session startup
-
-`/update-extensions` checks on demand. Env: `PI_SELFUPDATE=0` to disable,
-`PI_SELFUPDATE_REPO` to track a different checkout, `PI_SELFUPDATE_MIN_HOURS`
-(default 6) to change how often it checks.
-
-Run `node --experimental-strip-types test-self-update.mjs` — it builds a
-throwaway origin and clone, so it never touches the real repo.
+`/context` shows usage, the measured growth per turn, and how many turns of
+room are left. `/handoff` compacts on demand.
 
 ## Notes from building this
 

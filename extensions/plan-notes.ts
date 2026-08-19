@@ -119,7 +119,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 	// Falls back to compaction, and finally to doing nothing at all — the
 	// before_agent_start briefing keeps the model oriented either way, so a
 	// missing API costs context size, never correctness.
-	pi.on("agent_settled", async (_event, ctx) => {
+	const performReset = async (ctx: ExtensionContext) => {
 		const reset = pendingReset;
 		if (!reset) return;
 		pendingReset = undefined;
@@ -140,7 +140,16 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			return;
 		}
 		ctx.ui.notify("Continuing in this session — context was not reset.", "warning");
-	});
+	};
+
+	// Swap at the first turn boundary after the step completes, rather than
+	// waiting for the whole run to settle: during a long agentic run the model
+	// may work through several more steps before settling, which is exactly the
+	// context growth the reset exists to prevent. turn_end is still a safe
+	// point — no tool call is half-finished.
+	pi.on("turn_end", async (_event, ctx) => performReset(ctx));
+	// Backstop, in case a run ends without a final turn_end.
+	pi.on("agent_settled", async (_event, ctx) => performReset(ctx));
 	// Every turn starts by restating where we are. Cheap (a few hundred tokens)
 	// and it is what makes a wiped context safe.
 	pi.on("before_agent_start", async (event, ctx) => {
