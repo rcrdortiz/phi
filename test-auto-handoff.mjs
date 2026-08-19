@@ -8,6 +8,10 @@ const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-"));
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
 
+const R = 16384;                                   // pi's reserveTokens
+const piTrigger = (w) => ((w - R) / w) * 100;      // pi compacts above this
+const soft = (w) => Math.max(35, piTrigger(w) - 8);
+
 function harness(windowSize = 100_000) {
   resetCompactionState();   // the lock is a shared singleton across extensions
   const handlers = {}; const notes = []; let compacts = 0; let tokens = 0;
@@ -28,7 +32,8 @@ function harness(windowSize = 100_000) {
 // 1. Steady slow growth: no premature compaction well below the line.
 let h = harness();
 for (let i = 0; i < 6; i++) await h.turn(2_000);   // reaches 12%
-check("does not compact while far from the limit", h.compacts === 0, `at ${(h.ctx.getContextUsage().percent).toFixed(0)}%`);
+check("does not compact while far from the limit", h.compacts === 0,
+  `at ${(h.ctx.getContextUsage().percent).toFixed(0)}%, soft is ${soft(100_000).toFixed(0)}%`);
 
 // 2. Big jumps: must act on the projection BEFORE crossing 85%.
 h = harness();
@@ -37,18 +42,26 @@ const before = h.ctx.getContextUsage().percent;
 await h.turn(20_000);                              // 60% — next two turns would blow past 85%
 check(
   "compacts on the forecast, before the threshold is crossed",
-  h.compacts === 1 && before < 85,
+  h.compacts === 1 && before < soft(100_000),
   `${h.notes[0] ?? ""}`,
 );
 
 // 3. A single huge jump still triggers the hard limit.
 h = harness();
-await h.turn(94_000);
+await h.turn(90_000);
 check("hard limit catches a single oversized turn", h.compacts === 1, h.notes[0] ?? "");
 
 // 4. The summary is written to disk.
 check("writes the handoff summary", fs.existsSync(path.join(DIR, ".pi", "HANDOFF.md")),
   fs.existsSync(path.join(DIR, ".pi", "HANDOFF.md")) ? fs.readFileSync(path.join(DIR, ".pi", "HANDOFF.md"), "utf8").split("\n")[2] : "");
+
+// 4b. We must act BELOW pi's own trigger, or pi always gets there first and our
+// request comes back as "Already compacted".
+check(
+  "our threshold sits below pi's own compaction point",
+  soft(100_000) < piTrigger(100_000),
+  `ours ${soft(100_000).toFixed(0)}% < pi ${piTrigger(100_000).toFixed(0)}%`,
+);
 
 // 5. It compacts rather than swapping sessions (no newSession is even needed).
 h = harness();

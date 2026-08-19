@@ -17,9 +17,16 @@
  * Checks are event-driven (every turn) but the projection is only acted on when
  * it matters, so the further from the limit, the less it does.
  *
- * Env: PI_HANDOFF_PCT=85     compact when a projected turn would exceed this
- *      PI_HANDOFF_HARD=93    compact immediately at this level regardless
- *      PI_HANDOFF_LOOKAHEAD=2  how many turns ahead to project
+ * Thresholds are derived from pi's own, not fixed. pi compacts automatically at
+ * `contextWindow - reserveTokens` (16384 by default) — 75% of a 64K window. A
+ * fixed 85% threshold therefore never fired first: pi always got there, and our
+ * request arrived afterwards as `Compaction failed: Already compacted`. We aim
+ * a margin BELOW pi's trigger so our summary instructions are the ones used.
+ *
+ * Env: PI_HANDOFF_MARGIN=8      points below pi's trigger to act
+ *      PI_RESERVE_TOKENS=16384  pi's reserve, if you have changed it
+ *      PI_HANDOFF_LOOKAHEAD=2   how many turns ahead to project
+ *      PI_HANDOFF_PCT / PI_HANDOFF_HARD  override the derived values outright
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -27,9 +34,22 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { requestCompaction, compactionBusy, trackExternalCompactions } from "../lib/compaction.ts";
 
-const SOFT = Number(process.env.PI_HANDOFF_PCT ?? 85);
-const HARD = Number(process.env.PI_HANDOFF_HARD ?? 93);
+const RESERVE = Number(process.env.PI_RESERVE_TOKENS ?? 16384);
+const MARGIN = Number(process.env.PI_HANDOFF_MARGIN ?? 8);
 const LOOKAHEAD = Number(process.env.PI_HANDOFF_LOOKAHEAD ?? 2);
+
+/** pi compacts above this; we must act below it or we are always second. */
+function piTriggerPct(contextWindow: number): number {
+	return ((contextWindow - RESERVE) / contextWindow) * 100;
+}
+function softPct(contextWindow: number): number {
+	if (process.env.PI_HANDOFF_PCT) return Number(process.env.PI_HANDOFF_PCT);
+	return Math.max(35, piTriggerPct(contextWindow) - MARGIN);
+}
+function hardPct(contextWindow: number): number {
+	if (process.env.PI_HANDOFF_HARD) return Number(process.env.PI_HANDOFF_HARD);
+	return Math.max(40, piTriggerPct(contextWindow) - 2);
+}
 const HANDOFF_FILE = process.env.PI_HANDOFF_FILE || ".pi/HANDOFF.md";
 const NOTES_FILE = process.env.PI_NOTES_FILE || ".pi/NOTES.md";
 
@@ -100,6 +120,8 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 		samples.push({ tokens: usage.tokens, at: Date.now() });
 		if (samples.length > 12) samples.shift();
 
+		const SOFT = softPct(usage.contextWindow);
+		const HARD = hardPct(usage.contextWindow);
 		const pct = usage.percent ?? (usage.tokens / usage.contextWindow) * 100;
 		if (pct >= HARD) {
 			compactNow(ctx, `Context at ${pct.toFixed(0)}%`);
@@ -115,7 +137,7 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 		if (projected >= SOFT && pct < SOFT) {
 			compactNow(
 				ctx,
-				`Context ${pct.toFixed(0)}%, growing ~${Math.round(rate)} tokens/turn — ${LOOKAHEAD} more would pass ${SOFT}%`,
+				`Context ${pct.toFixed(0)}%, growing ~${Math.round(rate)} tokens/turn — ${LOOKAHEAD} more would pass ${SOFT.toFixed(0)}%`,
 			);
 		} else if (pct >= SOFT) {
 			compactNow(ctx, `Context at ${pct.toFixed(0)}%`);
@@ -142,12 +164,15 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 			}
 			const rate = ratePerTurn(samples);
 			const pct = u.percent ?? (u.tokens / u.contextWindow) * 100;
+			const SOFT = softPct(u.contextWindow);
+			const HARD = hardPct(u.contextWindow);
 			const lines = [
 				`${u.tokens.toLocaleString()} / ${u.contextWindow.toLocaleString()} tokens (${pct.toFixed(0)}%)`,
-				`compacts at ${SOFT}% projected, ${HARD}% hard`,
+				`we compact at ${SOFT.toFixed(0)}% projected / ${HARD.toFixed(0)}% hard; ` +
+					`pi's own compaction fires at ${piTriggerPct(u.contextWindow).toFixed(0)}%`,
 			];
 			if (rate !== undefined) {
-				const room = u.contextWindow * (SOFT / 100) - u.tokens;
+				const room = u.contextWindow * (softPct(u.contextWindow) / 100) - u.tokens;
 				const turns = rate > 0 ? Math.max(0, Math.floor(room / rate)) : Infinity;
 				lines.push(
 					`growing ~${Math.round(rate)} tokens/turn — about ${Number.isFinite(turns) ? turns : "many"} turn(s) of room`,

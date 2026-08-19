@@ -258,12 +258,23 @@ Error: Compaction failed: Already compacted
 Those three outcomes all mean "the context is already small", so they are
 swallowed rather than reported.
 
-The trigger is a projection. Usage is sampled every turn, which gives a growth
-rate; if the next `PI_HANDOFF_LOOKAHEAD` turns (default 2) would cross
-`PI_HANDOFF_PCT` (85), it compacts *now*. A fixed threshold is checked too late
-by definition — one turn that reads three files can jump 20% in a single step,
-which is how a session reaches 90% having never been seen at 85%.
-`PI_HANDOFF_HARD` (93) compacts immediately regardless of the forecast.
+The trigger is a projection, and the thresholds derive from **pi's own**. pi
+auto-compacts above `contextWindow - reserveTokens` (16384) — 75% of a 64K
+window. A fixed threshold above that never fires first: pi gets there, and our
+request arrives as `Compaction failed: Already compacted`. We therefore aim
+`PI_HANDOFF_MARGIN` (8) points below pi's trigger, so our summary instructions
+are the ones actually used:
+
+| window | we act at | pi acts at |
+|---|---|---|
+| 32K | 42% / 48% | 50% |
+| 64K | 67% / 73% | 75% |
+| 128K | 80% / 86% | 88% |
+
+Usage is sampled every turn, giving a growth rate; if the next
+`PI_HANDOFF_LOOKAHEAD` (2) turns would cross the soft line, it compacts now. A
+level check alone is too late by definition — one turn reading three files can
+jump 20% in a single step.
 
 The summary is written to `.pi/HANDOFF.md` as well as compacted into the
 session, structured as state rather than narrative: done / in progress /
