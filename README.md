@@ -244,8 +244,19 @@ Two pressures, two responses:
 `ExtensionCommandContext` — slash-command handlers get it, tools and event
 handlers do not. So a genuine fresh session can only be user-initiated. Anything
 automatic compacts instead, and `lib/compaction.ts` holds a shared lock so two
-extensions cannot compact at once (which produced `This operation was aborted`
-followed by `Nothing to compact (session too small)`).
+extensions cannot compact at once, and it also tracks **pi's own** automatic
+compaction through `session_before_compact` / `session_compact` — otherwise an
+extension asks for a compaction pi has already done and the session fills with
+errors that are not problems:
+
+```
+Error: This operation was aborted
+Error: Compaction failed: Nothing to compact (session too small)
+Error: Compaction failed: Already compacted
+```
+
+Those three outcomes all mean "the context is already small", so they are
+swallowed rather than reported.
 
 The trigger is a projection. Usage is sampled every turn, which gives a growth
 rate; if the next `PI_HANDOFF_LOOKAHEAD` turns (default 2) would cross

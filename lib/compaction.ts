@@ -32,13 +32,40 @@ let lastAt = 0;
 /** Compactions closer together than this are the double-fire we are preventing. */
 const MIN_GAP_MS = 20_000;
 
-/** "Nothing to compact" is a normal outcome, not a failure worth reporting. */
+/** Outcomes that mean "no compaction was needed", not "something went wrong".
+ *  Reporting these as failures is pure noise: the context is small, which is
+ *  the goal. "Already compacted" shows up when pi's own automatic compaction
+ *  got there first. */
 function isBenign(message: string): boolean {
-	return /nothing to compact|too small|aborted/i.test(message);
+	return /nothing to compact|too small|aborted|already compacted/i.test(message);
 }
 
 export function compactionBusy(): boolean {
 	return inFlight;
+}
+
+/**
+ * Track pi's OWN compactions as well as ours.
+ *
+ * pi compacts automatically when it approaches the window, and it does not tell
+ * this lock. Without these hooks an extension can request a compaction moments
+ * after pi already ran one, which fails with "Already compacted" — visible in a
+ * session as an error and a warning for something that is not a problem.
+ *
+ * Call once from a single extension; the hooks update the shared state.
+ */
+export function trackExternalCompactions(pi: {
+	on: (event: string, handler: (event: unknown, ctx: unknown) => Promise<unknown> | unknown) => void;
+}): void {
+	pi.on("session_before_compact", async () => {
+		inFlight = true;
+		return undefined;
+	});
+	pi.on("session_compact", async () => {
+		inFlight = false;
+		lastAt = Date.now();
+		return undefined;
+	});
 }
 
 /** Clear the shared state. For tests: the lock is a module-level singleton by

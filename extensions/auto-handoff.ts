@@ -25,7 +25,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { requestCompaction, compactionBusy } from "../lib/compaction.ts";
+import { requestCompaction, compactionBusy, trackExternalCompactions } from "../lib/compaction.ts";
 
 const SOFT = Number(process.env.PI_HANDOFF_PCT ?? 85);
 const HARD = Number(process.env.PI_HANDOFF_HARD ?? 93);
@@ -65,6 +65,13 @@ function writeFile(cwd: string, rel: string, contents: string) {
 
 export default function autoHandoffExtension(pi: ExtensionAPI) {
 	let samples: Sample[] = [];
+
+	// pi compacts on its own schedule too. Without this the lock only knows
+	// about our requests, and we ask for a compaction pi has already done.
+	trackExternalCompactions(pi as never);
+	pi.on("session_compact", async () => {
+		samples = []; // the growth curve restarts, whoever compacted
+	});
 
 	const compactNow = (ctx: ExtensionContext, reason: string) => {
 		const started = requestCompaction(ctx, reason, {

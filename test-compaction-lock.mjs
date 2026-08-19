@@ -43,6 +43,37 @@ await handoffH["turn_end"]({}, ctx);   // within the cooldown window
 check("cooldown prevents an immediate re-compaction", compactCalls === 1, `calls=${compactCalls}`);
 check("no error text shown to the user", !notes.some((n) => /failed|aborted|too small/i.test(n)), notes.join(" | "));
 
+// 5. pi's own compaction must suppress ours: no "Already compacted".
+{
+  const { resetCompactionState } = await import("/Users/rcrd/AI/pi-local/lib/compaction.ts");
+  resetCompactionState();
+  compactCalls = 0; notes = []; tokens = 62_000;
+  // pi announces its own compaction through these events.
+  await handoffH["session_before_compact"]?.({}, ctx);
+  await handoffH["turn_end"]({}, ctx);
+  check("does not request a compaction while pi is running one", compactCalls === 0, `calls=${compactCalls}`);
+
+  await handoffH["session_compact"]?.({}, ctx);
+  await handoffH["turn_end"]({}, ctx);
+  check("does not immediately re-compact after pi just did", compactCalls === 0, `calls=${compactCalls}`);
+}
+
+// 6. A benign failure never reaches the user.
+{
+  const { resetCompactionState, requestCompaction } = await import("/Users/rcrd/AI/pi-local/lib/compaction.ts");
+  for (const msg of ["Already compacted", "Nothing to compact (session too small)", "This operation was aborted"]) {
+    resetCompactionState();
+    notes = [];
+    requestCompaction(
+      { ui: { notify: (t) => notes.push(t) }, compact: (o) => o.onError(new Error(msg)) },
+      "test",
+      { announce: false },
+    );
+    check(`"${msg.slice(0, 24)}…" is not surfaced as a failure`,
+      !notes.some((n) => /failed/i.test(n)), notes.join(" | ") || "(silent)");
+  }
+}
+
 fs.rmSync(DIR, { recursive: true, force: true });
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
