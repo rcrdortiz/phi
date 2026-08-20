@@ -99,6 +99,10 @@ only thing that actually switches it off on Ollama's OpenAI-compatible endpoint
 is `reasoning_effort: "none"`, sent via `samplingParams` — measured at 3
 completion tokens versus 39 for the same trivial question.
 
+Measured on "Is 1009 prime?": `none` 10 completion tokens, `low` 357,
+`medium` 377. The levels above `none` differ far less than their names suggest,
+so `low` buys most of the benefit of thinking at slightly lower cost.
+
 Registers the local Ollama models as a Pi provider. Context windows here match
 the `num_ctx` baked into each Ollama variant, so Pi never sends more than the
 model was loaded with.
@@ -107,7 +111,7 @@ model was loaded with.
 |---|---|---|---|
 | `qwen3-coder:30b` | 18 GB (MoE, 3B active) | 64K | fastest generation |
 | `qwen3.8-fast` | 18 GB (4-bit MLX) | 64K | everyday work |
-| `qwen3.8-medium` | 18 GB (4-bit MLX) | 64K | thinking enabled |
+| `qwen3.8-medium` | 18 GB (4-bit MLX) | 64K | light thinking (`reasoning_effort: low`) |
 | `qwen3.8-reasoning` | 31 GB (8-bit mxfp8) | 64K | best quality, needs the machine to itself |
 
 ### `memory-guard.ts` — refuse to start without room

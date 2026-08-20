@@ -53,12 +53,12 @@ export const MODELS: LocalModel[] = [
 	},
 	{
 		id: "qwen3.8-medium",
-		name: "Qwen3.8 27B medium (thinking)",
+		name: "Qwen3.8 27B medium (light thinking)",
 		reasoning: true,
 		contextWindow: 65536,
 		maxTokens: 16384,
 		weightsGb: 18,
-		reasoningEffort: "medium",
+		reasoningEffort: "low",
 	},
 	{
 		id: "qwen3.8-reasoning",
