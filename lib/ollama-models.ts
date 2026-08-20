@@ -1,6 +1,10 @@
 /**
  * The local model roster, in one place.
  *
+ * One model. qwen3-coder:30b and qwen3.8-8MLX were removed: the MoE was only
+ * ahead on an empty context and fell behind by ~15K, and the 8-bit build needs
+ * the machine to itself, which is the opposite of what this setup is for.
+ *
  * ollama-local.ts registers these as a provider; memory-guard.ts uses the same
  * list to work out which of them actually fit in the memory available right
  * now, and to switch to one. Defining them twice is how the two drift apart.
@@ -57,16 +61,6 @@ export interface LocalModel {
 
 export const MODELS: LocalModel[] = [
 	{
-		id: "qwen3-coder:30b",
-		vision: false,
-		name: "Qwen3 Coder 30B (MoE — fastest)",
-		reasoning: false,
-		contextWindow: 65536,
-		maxTokens: 16384,
-		weightsGb: 18,
-		defaultThinking: "off",
-	},
-	{
 		id: "qwen3.8-4MLX",
 		vision: true,
 		name: "Qwen3.8 27B — 4-bit MLX",
@@ -75,16 +69,6 @@ export const MODELS: LocalModel[] = [
 		maxTokens: 16384,
 		weightsGb: 18,
 		defaultThinking: "off",
-	},
-	{
-		id: "qwen3.8-8MLX",
-		vision: true,
-		name: "Qwen3.8 27B — 8-bit MLX (needs the machine to itself)",
-		reasoning: true,
-		contextWindow: 51200,
-		maxTokens: 16384,
-		weightsGb: 31,
-		defaultThinking: "high",
 	},
 ];
 
@@ -97,10 +81,11 @@ export function toPiModel(m: LocalModel, level?: string) {
 		provider: PROVIDER,
 		baseUrl: BASE_URL,
 		reasoning: m.reasoning,
-		// Qwen3.8 reports the `vision` capability; qwen3-coder does not, so this
-		// follows the roster rather than being set for every local model.
-		// Cost is ~1015 pixels per token, independent of file size or format,
-		// so tool-budget caps images by DIMENSION. Compression saves nothing.
+		// Kept as a per-model flag rather than a provider-wide constant: not every
+		// local model has vision, and silently sending an image to one that does
+		// not is a confusing failure. Cost is ~1015 pixels per token, independent
+		// of file size or format, so tool-budget caps images by DIMENSION.
+		// Compression saves nothing.
 		input: (m.vision ? ["text", "image"] : ["text"]) as ("text" | "image")[],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: m.contextWindow,

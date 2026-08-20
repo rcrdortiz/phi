@@ -14,7 +14,7 @@ process.env.PI_SELFUPDATE_MIN_HOURS = "0";
 const VARIANT = "pi-recon-test";
 fs.writeFileSync(
 	path.join(REPO, "modelfiles", `${VARIANT}.modelfile`),
-	"FROM qwen3-coder:30b\nPARAMETER num_ctx 8192\n",
+	"FROM qwen3.8:27b-mlx\nPARAMETER num_ctx 8192\n",
 );
 
 const mod = await import("/Users/rcrd/AI/pi-local/extensions/self-update.ts");
@@ -40,7 +40,7 @@ out = await run();
 check("does not rebuild when nothing changed", !/rebuilt/.test(out), out || "(silent)");
 
 // 3. Modelfile edited -> rebuilt.
-fs.writeFileSync(path.join(REPO, "modelfiles", `${VARIANT}.modelfile`), "FROM qwen3-coder:30b\nPARAMETER num_ctx 4096\n");
+fs.writeFileSync(path.join(REPO, "modelfiles", `${VARIANT}.modelfile`), "FROM qwen3.8:27b-mlx\nPARAMETER num_ctx 4096\n");
 out = await run();
 check("rebuilds after the modelfile changes", /rebuilt pi-recon-test/.test(out), out);
 

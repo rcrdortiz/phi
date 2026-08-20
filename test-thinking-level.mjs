@@ -12,17 +12,22 @@ check('"off" maps to Ollama\'s "none"', fast.thinkingLevelMap.off === "none");
 // only ["off"] when it is false, so Shift+Tab is a no-op, /effort clamps to off
 // and thinkingLevelMap is never consulted. Both qwen3.8 quantisations are the
 // same thinking-capable base, so both must declare it.
-for (const id of ["qwen3.8-4MLX", "qwen3.8-8MLX"]) {
-  check(`${id} declares reasoning support`, MODELS.find((m) => m.id === id)?.reasoning === true);
+for (const m of MODELS) {
+  check(`${m.id} declares reasoning support`, m.reasoning === true);
 }
 // Sampling is no longer baked per variant — it is derived from the level, and
 // defaults to the model's own starting level.
 check("sampling matches the model's default level",
   fast.samplingParams?.temperature === 0.7 && fast.samplingParams?.presence_penalty === 1.5,
   JSON.stringify(fast.samplingParams));
-const reasoning = toPiModel(MODELS.find((m) => m.id === "qwen3.8-8MLX"));
+// Built here rather than looked up in the roster: this asserts that sampling
+// follows the LEVEL, which must hold for any model, not just whichever entry
+// happens to default to high today.
+const reasoning = toPiModel({ ...MODELS[0], id: "synthetic-high", defaultThinking: "high" });
 check("a thinking-default model gets thinking sampling",
   reasoning.samplingParams?.temperature === 1.0, JSON.stringify(reasoning.samplingParams));
+check("and an instruct-default one does not",
+  toPiModel({ ...MODELS[0], defaultThinking: "off" }).samplingParams?.temperature === 0.7);
 
 // 2. Selecting a model applies that tier's default.
 const handlers = {}, notes = [];
@@ -40,8 +45,11 @@ const ctx = { ui: { notify: (t) => notes.push(t) }, model: { id: "qwen3.8-4MLX" 
 await handlers["model_select"]({ model: { id: "qwen3.8-4MLX" } }, ctx);
 check("selecting fast turns thinking off", level === "off", `level=${level}`);
 
-await handlers["model_select"]({ model: { id: "qwen3.8-8MLX" } }, ctx);
-check("selecting reasoning uses high", level === "high", `level=${level}`);
+// A model with no roster entry must not clobber the current level: the map is
+// a per-model DEFAULT, not a reset.
+level = "medium";
+await handlers["model_select"]({ model: { id: "some-other-provider-model" } }, ctx);
+check("an unknown model leaves the level alone", level === "medium", `level=${level}`);
 
 // 3. /effort sets and reports.
 notes.length = 0;

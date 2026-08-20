@@ -64,30 +64,28 @@ flags are a one-time bootstrap, never a permanent invocation, and on a machine
 that has already run pi they do nothing a bare `pi` would not do. Pass them only
 to override the saved default for a single run.
 
-## Which model, and why it depends on the machine
+## One model, and why
 
-There are two Qwen3.8 builds here and the choice between them is not really
-about quality. It is about whether this machine has a second job.
+`qwen3.8-4MLX` (18 GB, 4-bit MLX) is the only model here, and the roster is
+deliberately short.
 
-**`qwen3.8-4MLX` (18 GB, 4-bit) is the default because it shares.** Weights
-plus a full 50K KV cache come to ~24.9 GB, leaving ~23 GB of a 48 GB machine
-for the desktop, so you can run a session without closing anything first. You give up some
-accuracy against the 8-bit build. In return the agent is something you leave
-running next to your work rather than an errand you make room for.
+**It shares the machine.** Weights plus a full 50K KV cache come to ~24.9 GB,
+leaving ~23 GB of a 48 GB Mac for the desktop, so a session is something you
+leave running next to your work rather than an errand you make room for.
 
-**`qwen3.8-8MLX` (31 GB, 8-bit) is for when the machine has nothing else to
-do.** Weights plus a full 50K cache come to roughly 37.5 GB, against a 40 GB GPU
-wired limit and 48 GB installed. There is no room left for a desktop, and that
-is fine if there is no desktop: a dedicated AI box, a spare Mac, a mini you
-have SSHed into. Quality becomes the only axis worth optimising, so take it.
+Two models were removed after measuring them:
 
-Switching is `/model`, mid-session, and `memory-guard.ts` does not take your
-word for it: it weighs the selected model's weights plus cache against actually
-free memory at startup and on every switch, then offers the models that fit.
+- **`qwen3.8-8MLX` (31 GB, 8-bit)** needed the machine to itself — weights plus a
+  50K cache come to ~37.5 GB against a 40 GB GPU wired limit. That is the
+  opposite of what this setup is for.
+- **`qwen3-coder:30b`** (MoE, 3B active) was fastest on an empty context at
+  ~95 tok/s, but decode fell to ~25 by 15K while the 4-bit dense build was still
+  ahead. Its advantage lived exactly where real sessions do not.
 
-`qwen3-coder:30b` sits outside this axis. It is an MoE with 3B active, so it
-generates fastest of the three and has no thinking mode at all. Reach for it
-when the work is mechanical and volume matters more than judgement.
+A short roster is a correctness property, not only a tidiness one. This codebase
+has direct evidence that giving a model more than one way to do the same job
+costs reliability: the built-in `read` coexisting with `view_lines` produced 17
+malformed calls before it was retired.
 
 ## Where the models come from
 
@@ -101,7 +99,7 @@ what make this fast on Apple Silicon.
 Tuned for a **48 GB Apple Silicon Mac**. On different hardware you will want to
 change:
 
-- **the models** — `qwen3.8:27b-mlx` and `:27b-mxfp8` are Apple MLX builds;
+- **the model** — `qwen3.8:27b-mlx` is an Apple MLX build;
   on Linux/NVIDIA use the GGUF or FP8 tags instead
 - **the memory thresholds** — `PI_MIN_FREE_GB` (30) and `PI_MIN_ACTUAL_GB` (8)
   will refuse to start on a 16 GB machine, correctly but unhelpfully
@@ -150,9 +148,7 @@ model was loaded with.
 
 | model | weights | ctx | notes |
 |---|---|---|---|
-| `qwen3-coder:30b` | 18 GB (MoE, 3B active) | 64K | fastest generation |
-| `qwen3.8-4MLX` | 18 GB (4-bit MLX) | 64K | default; shares the machine with your work |
-| `qwen3.8-8MLX` | 31 GB (8-bit mxfp8) | 64K | best quality; wants the machine to itself |
+| `qwen3.8-4MLX` | 18 GB (4-bit MLX) | 50K | the only model; shares the machine with your work |
 
 ### `thinking-level.ts` — change how hard it thinks, mid-session
 
@@ -171,7 +167,7 @@ Measured on the same prompt, so the useful distinction is really *thinking or
 not*: `none` to `low` is a 35× jump, `low` to `medium` is 5%.
 
 Each model also starts at its own default when selected (`qwen3.8-4MLX` off,
-`qwen3.8-8MLX` high) rather than inheriting the previous model's level (`PI_THINKING_DEFAULTS=0` to keep whatever is current). Changing level
+its default) rather than inheriting the previous model's level (`PI_THINKING_DEFAULTS=0` to keep whatever is current). Changing level
 reports what it costs, and warns when free memory is low, since more thinking
 fills the context faster and the KV cache grows with it.
 

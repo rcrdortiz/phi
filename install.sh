@@ -43,9 +43,7 @@ GPU_PLIST=/Library/LaunchDaemons/local.iogpu-wired-limit.plist
 ENV_PLIST="$HOME/Library/LaunchAgents/local.ollama-env.plist"
 
 BASE_MODELS=(
-  "qwen3-coder:30b"     # 18GB MoE, 3B active — fastest generation
-  "qwen3.8:27b-mlx"     # 18GB 4-bit MLX     — base for -fast and -medium
-  "qwen3.8:27b-mxfp8"   # 31GB 8-bit MLX     — base for -reasoning
+  "qwen3.8:27b-mlx"     # 18GB 4-bit MLX — the only base; qwen3.8-4MLX builds on it
 )
 
 # ---------------------------------------------------------------- preflight
@@ -60,8 +58,6 @@ TOTAL_GB=$(( $(sysctl -n hw.memsize) / 1073741824 ))
 ok "${TOTAL_GB} GB unified memory"
 if (( TOTAL_GB < 32 )); then
   warn "Under 32GB: the 27B models will not fit. Expect to use smaller ones."
-elif (( TOTAL_GB < 48 )); then
-  warn "Under 48GB: qwen3.8-8MLX (31GB weights) will be a tight fit."
 fi
 
 command -v node >/dev/null || die "node required (brew install node)"
@@ -91,25 +87,19 @@ else
   done
 fi
 
-# Flash attention and a quantised KV cache apply to the GGUF engine ONLY.
-# Measured 2026-08-20: qwen3-coder:30b loads 21.615 GB at q8_0 and 20.357 GB at
-# q4_0 with num_ctx 51200, so the setting is honoured there. The MLX models
-# ignore it completely — qwen3.8-4MLX costs 136.5 KB/token either way, verified
-# with the flag set in the server process env, not just via launchctl. The MLX
-# runner is a separate subprocess and these are llama.cpp options.
+# OLLAMA_KEEP_ALIVE is the one that matters: the default is 5 minutes, and a
+# per-request keep_alive does not stick because the next request without one
+# resets it — so an 18GB model unloads during any pause and the next message
+# pays a full reload. OLLAMA_MAX_LOADED_MODELS=1 is a memory guard.
 #
-# So they are kept for qwen3-coder, and are NOT a lever for the default model.
-# Note launchctl setenv alone is not enough to change this: a running Ollama.app
-# does not pick up the new value, which will silently invalidate any A/B test.
+# OLLAMA_FLASH_ATTENTION and OLLAMA_KV_CACHE_TYPE are deliberately NOT set.
+# They are llama.cpp runner options and the MLX runner ignores them: measured
+# 2026-08-20, qwen3.8-4MLX costs 136.5 KB/token at q8_0 and 136.5 at q4_0, with
+# the flag confirmed in the server's own process environment. They applied only
+# to the GGUF model that used to be in this roster.
 #
-# OLLAMA_KEEP_ALIVE matters more: the default is 5 minutes, and
-# a per-request keep_alive does not stick because the next request without one
-# resets it — so a 20GB model unloads during any pause and the next message pays
-# a full reload. The brew service plist sets the first two; Ollama.app sets
-# none, so it needs a login agent that exports them before the app starts.
-# OLLAMA_MAX_LOADED_MODELS=1 is a memory guard: the default lets Ollama keep
-# several models resident, and two 18GB models plus their caches do not fit in
-# 48GB. Combined with a 2h keep-alive, the default is actively dangerous.
+# The brew service plist sets nothing relevant; Ollama.app sets none of these,
+# so it needs a login agent that exports them before the app starts.
 step "Ollama performance settings"
 if [[ $APP_RUNNING -eq 1 ]]; then
   mkdir -p "$(dirname "$ENV_PLIST")"
@@ -120,22 +110,20 @@ if [[ $APP_RUNNING -eq 1 ]]; then
   <key>Label</key><string>local.ollama-env</string>
   <key>ProgramArguments</key><array>
     <string>/bin/sh</string><string>-c</string>
-    <string>launchctl setenv OLLAMA_FLASH_ATTENTION 1; launchctl setenv OLLAMA_KV_CACHE_TYPE q8_0; launchctl setenv OLLAMA_KEEP_ALIVE 2h; launchctl setenv OLLAMA_MAX_LOADED_MODELS 1</string>
+    <string>launchctl setenv OLLAMA_KEEP_ALIVE 2h; launchctl setenv OLLAMA_MAX_LOADED_MODELS 1</string>
   </array>
   <key>RunAtLoad</key><true/>
 </dict></plist>
 PLIST
   launchctl unload "$ENV_PLIST" 2>/dev/null || true
   launchctl load -w "$ENV_PLIST" 2>/dev/null || true
-  launchctl setenv OLLAMA_FLASH_ATTENTION 1
-  launchctl setenv OLLAMA_KV_CACHE_TYPE q8_0
   launchctl setenv OLLAMA_KEEP_ALIVE 2h
   launchctl setenv OLLAMA_MAX_LOADED_MODELS 1
   ok "login agent installed (restart Ollama.app for it to take effect)"
 else
   launchctl setenv OLLAMA_KEEP_ALIVE 2h 2>/dev/null || true
   launchctl setenv OLLAMA_MAX_LOADED_MODELS 1 2>/dev/null || true
-  ok "brew service exports the performance vars; keep-alive set to 2h"
+  ok "keep-alive set to 2h"
 fi
 
 # ---------------------------------------------------------------- gpu limit
@@ -182,7 +170,7 @@ else
   done
   if (( ${#MISSING[@]} )); then
     echo "  To download: ${MISSING[*]}"
-    echo "  ${d}That is roughly 67 GB in total and will take a while.${r}"
+    echo "  ${d}That is roughly 18 GB and will take a while.${r}"
     if ask "Download now?"; then
       for m in "${MISSING[@]}"; do
         echo "  pulling $m"
