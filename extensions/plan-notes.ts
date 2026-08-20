@@ -20,6 +20,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { requestCompaction } from "../lib/compaction.ts";
+import { EXPIRING_CATEGORY, NOTE_MAX_CHARS, narrationReason, pruneExpiring, trimNote } from "../lib/notes.ts";
 import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -33,7 +34,10 @@ const NOTES_FILE = process.env.PI_NOTES_FILE || ".pi/NOTES.md";
 const DONE_FILE = process.env.PI_PLAN_DONE_FILE || ".pi/PLAN-DONE.md";
 const KEEP_DONE = Number(process.env.PI_PLAN_KEEP_DONE ?? 3);
 
-const CATEGORIES = ["technical", "product", "design", "gotcha", "decision"] as const;
+// `state` is the only one with a lifetime: notes about the CURRENT condition of
+// the work, dropped at the next step boundary because that is when "currently"
+// stops being true. Everything else is meant to stay true and stays put.
+const CATEGORIES = ["technical", "product", "design", "gotcha", "decision", EXPIRING_CATEGORY] as const;
 
 // Finishing a step should not hand control back and wait for "continue".
 // Disable with PI_PLAN_AUTOCONTINUE=0; PI_PLAN_MAX_AUTO caps how many steps run
@@ -351,11 +355,13 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		label: "Add note",
 		description:
 			`Append a durable finding to ${NOTES_FILE} — something a future session would need to know. ` +
-			`Categories: ${CATEGORIES.join(", ")}.`,
+			`Categories: ${CATEGORIES.join(", ")}. Use "${EXPIRING_CATEGORY}" for observations about the current ` +
+			`condition of the work; those are dropped at the next step boundary. Keep it to one or two sentences.`,
 		promptSnippet: `Record a finding in ${NOTES_FILE} (technical/product/design/gotcha/decision)`,
 		promptGuidelines: [
 			`Use note_add for anything that would be expensive to rediscover: a constraint, a gotcha, a decision and its reason.`,
-			`Do not use note_add for narration of what you just did — only for things that stay true afterwards.`,
+			`Do not use note_add for narration of what you just did — only for things that stay true afterwards. Step summaries belong in plan_next.`,
+			`If a finding is only true right now ("3 tests still fail", "this file has not been rewritten yet"), use category "${EXPIRING_CATEGORY}" so it expires instead of rotting into a false statement.`,
 		],
 		parameters: Type.Object({
 			category: Type.String({ description: `One of: ${CATEGORIES.join(", ")}` }),
@@ -363,14 +369,37 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const p = notesPath(ctx);
+
+			// Progress reports are refused rather than trimmed: plan_next already
+			// records what a step accomplished, in the plan, where it is archived
+			// after three steps. A note saying the same thing is a second copy
+			// that nothing prunes, and it was 9 of the 26 notes in the file that
+			// motivated this. Refusing costs one retry and teaches the boundary.
+			const narration = narrationReason(params.note);
+			if (narration) {
+				return {
+					content: [{
+						type: "text",
+						text:
+							`Not recorded: ${narration}. ${NOTES_FILE} is for things that stay true afterwards, ` +
+							`and it is re-read at the start of every session. Pass the summary to plan_next instead, ` +
+							`which records it against the step. If there is a durable constraint or gotcha ` +
+							`underneath this, note that part on its own.`,
+					}],
+					isError: true,
+				};
+			}
+
+			const { text: noteText, trimmed } = trimNote(params.note);
 			const cat = (CATEGORIES as readonly string[]).includes(params.category.toLowerCase())
 				? params.category.toLowerCase()
 				: "technical";
+
 			let text = readFileSafe(p);
 			if (!text.trim()) text = `# Notes\n`;
 
 			const heading = `## ${cat}`;
-			const entry = `- ${params.note.trim()}`;
+			const entry = `- ${noteText}`;
 			if (text.includes(heading)) {
 				// append under the existing category heading
 				const lines = text.split("\n");
@@ -385,8 +414,14 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			}
 			writeFileSafe(p, text.endsWith("\n") ? text : `${text}\n`);
 			return {
-				content: [{ type: "text", text: `Noted under ${cat}.` }],
-				details: { category: cat },
+				content: [{
+					type: "text",
+					text:
+						`Noted under ${cat}.` +
+						(trimmed ? ` Trimmed to ${NOTE_MAX_CHARS} characters — keep notes to one or two sentences.` : "") +
+						(cat === EXPIRING_CATEGORY ? " This one is dropped at the next step boundary." : ""),
+				}],
+				details: { category: cat, trimmed },
 			};
 		},
 	});
@@ -452,6 +487,13 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 				done: true,
 				text: params.summary ? `${step.text} — ${params.summary}` : step.text,
 			};
+
+			// The step boundary is exactly when "currently" stops being true, so
+			// state notes go here. Two notes in the observed file had rotted into
+			// false statements this would have retired on time.
+			const notesText = readFileSafe(notesPath(ctx));
+			const pruned = pruneExpiring(notesText);
+			if (pruned.removed) writeFileSafe(notesPath(ctx), pruned.text);
 			writeFileSafe(p, renderPlan(planGoal(text), archiveCompleted(ctx, steps)));
 
 			const next = currentStep(steps);

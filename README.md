@@ -547,3 +547,45 @@ is history, and history belongs in a file you open on purpose. The briefing and
 it deliberately instead of being handed it every time.
 
 `PI_PLAN_KEEP_DONE` changes how many stay; `PI_PLAN_DONE_FILE` moves the archive.
+
+### `notes.ts` — what belongs in NOTES.md, and for how long
+
+The notes file from the pang-clone work: 26 notes, 14,723 characters, ~4,090
+tokens, re-injected into **every** fresh session by `briefing()`. Reading them
+found three different things sharing one bucket and one lifetime:
+
+| | |
+|---|---|
+| **9 of 26** | progress narration: "Step 1 done:", "delivered across 6 steps" |
+| **2 of 26** | actively **false** by the time they were read |
+| ~6 of 26 | genuine invariants worth keeping forever |
+
+The false ones matter most. One said `test/run.html` was still the old
+Space-Invaders suite; another said 6 tests were failing. A later note recorded
+the rewrite and 44/44 passing. Both were true when written, both rotted, and
+both were still being fed to every new session.
+
+**Why not an LRU.** It cannot work mechanically: `briefing()` injects the whole
+file every time, so every note is "used" on every turn and there is no access
+signal to sort by — an LRU degenerates into insertion order. And it optimises
+the wrong axis. Recency is uncorrelated with which of those three kinds a note
+is, so it would keep fresh narration and evict the oldest invariant. The part of
+the human-memory analogy that does transfer is consolidation and decay, not
+recency: what stays true hardens, observations about a passing situation fade.
+So lifetime is a property of the KIND of note, declared when it is written.
+
+Three rules:
+
+- **Narration is refused**, not trimmed. `plan_next` already records what a step
+  accomplished, in the plan, where it is archived after three steps. A note
+  saying it again is a second copy nothing prunes. Refusing costs one retry and
+  teaches the boundary.
+- **`state` is a category with a lifetime.** Observations about the current
+  condition of the work are dropped at the next step boundary, because that is
+  exactly when "currently" stops being true. Both rotted notes would have
+  retired on time.
+- **350 characters per note** (`PI_NOTE_MAX_CHARS`). The file averaged 565
+  against a "one or two sentences" instruction, so the instruction alone did not
+  hold. Over-long notes are trimmed at a sentence boundary rather than refused:
+  a refusal risks a loop with a model that cannot reliably self-shorten, and the
+  point of a note is nearly always in its first sentence.
