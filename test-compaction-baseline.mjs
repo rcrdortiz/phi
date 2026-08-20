@@ -1,7 +1,7 @@
 // Set BEFORE the module is loaded: ESM hoists static imports above assignments,
 // so a plain `import` here would read the default 20s gap and block the test.
 process.env.PI_COMPACT_MIN_GAP_MS = "0";
-const { requestCompaction, resetCompactionState, trackExternalCompactions, keepRecentTokens } =
+const { requestCompaction, resetCompactionState, trackExternalCompactions, keepRecentTokens, observeContext } =
   await import("/Users/rcrd/AI/pi-local/lib/compaction.ts");
 
 const results = [];
@@ -23,8 +23,9 @@ resetCompactionState();
 tokens = Math.round(KEEP * 1.05);
 check("below keepRecent, no compaction is attempted", requestCompaction(ctx, "x") === false,
   `${tokens} tokens vs keepRecent ${KEEP}`);
-tokens = Math.round(KEEP * 1.5);
-check("well above keepRecent, it compacts", requestCompaction(ctx, "x") === true, `${tokens} tokens`);
+tokens = Math.round(KEEP * 2);
+check("well above keepRecent, it compacts", requestCompaction(ctx, "x") === true,
+  `${tokens} tokens against keepRecent ${KEEP}`);
 
 // THE REGRESSION: after a compaction, total context is still large, but almost
 // all of it is summary + the recent tail pi would keep anyway.
@@ -35,18 +36,18 @@ check("the first request after a compaction only sets the baseline", requestComp
 
 tokens = 21700;                                   // the size from the failing screenshot
 check("a large TOTAL is not enough on its own", requestCompaction(ctx, "x") === false,
-  `${tokens} total, but only ${tokens - 16000} since the last compaction (needs > ${Math.round(KEEP * 1.1)})`);
+  `${tokens} total, but only ${tokens - 16000} since the last compaction (needs > ${Math.round(KEEP * 1.5)})`);
 
 // Past the trigger an unforced request stands down for pi, so this exercises
 // the baseline arithmetic through the watchdog's path, which is the caller that
 // actually reaches it at this depth.
-tokens = 16000 + Math.round(KEEP * 1.3);
+tokens = 16000 + Math.round(KEEP * 2);
 check("enough NEW content does compact", requestCompaction(ctx, "x", { force: true }) === true,
   `${tokens - 16000} tokens since the last compaction`);
 
 // Failure must not strand an unattended run.
 resetCompactionState();
-tokens = Math.round(KEEP * 1.5);
+tokens = Math.round(KEEP * 2);      // clear of the 1.5x margin, not exactly on it
 let continued = 0;
 requestCompaction(ctx, "x", { onDone: () => continued++ });
 lastOpts.onError?.(new Error("Nothing to compact (session too small)"));
@@ -54,10 +55,27 @@ check("onDone fires when the compaction is refused", continued === 1,
   "a refused compaction must not stop the plan");
 
 resetCompactionState();
+tokens = Math.round(KEEP * 2);
 continued = 0;
 requestCompaction(ctx, "x", { onDone: () => continued++ });
 lastOpts.onComplete?.({ summary: "s", tokensBefore: 100 });
 check("onDone fires on success too", continued === 1);
+
+// --- the system-prompt floor ---------------------------------------------
+// pi's keepRecentTokens counts session MESSAGES; getContextUsage reports the
+// whole context, system prompt included. Without subtracting that floor a
+// two-thirds-full window can hold almost no summarisable history.
+resetCompactionState();
+observeContext(6000);          // the floor: system prompt + first exchange
+tokens = 11000;
+check("a context that is mostly system prompt does not compact",
+  requestCompaction(ctx, "x", { force: true }) === false,
+  `11000 total - 6000 floor = 5000 of messages, under keepRecent ${KEEP} x1.5`);
+resetCompactionState();
+observeContext(6000);
+tokens = 6000 + Math.round(KEEP * 1.8);
+check("enough MESSAGES does compact", requestCompaction(ctx, "x", { force: true }) === true,
+  `${tokens - 6000} of messages against keepRecent ${KEEP}`);
 
 // --- the mid-run watchdog ------------------------------------------------
 // pi checks for auto-compaction "at agent_end and before prompt submission".

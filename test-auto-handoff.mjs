@@ -37,8 +37,14 @@ check("the watchdog stays quiet below the trigger", compactCalls === 0, "9k, und
 
 resetCompactionState();
 compactCalls = 0;
+// The watchdog samples every turn, so by the time the context is deep it has
+// already seen the session floor — the system prompt it must not count as
+// summarisable history. Feeding only the deep reading would leave the floor
+// unset and is not how it runs.
+await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: 6_000, contextWindow: 65_536 }) });
+check("the watchdog is quiet while the context is mostly system prompt", compactCalls === 0, "6k floor");
 await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: 20_000, contextWindow: 65_536 }) });
-check("the watchdog fires past the knee", compactCalls === 1, "20k — decode is a third of peak there");
+check("the watchdog fires past the knee", compactCalls === 1, "20k, 14k of it messages");
 
 // 2. pi's own compaction still lands on disk.
 await handlers["session_compact"]({ compactionEntry: { summary: "pi's summary", tokensBefore: 54_784 } }, ctx);

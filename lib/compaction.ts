@@ -32,7 +32,7 @@
  * to change two more numbers somewhere else.
  */
 const RESERVE_FRACTION = 0.25;
-const KEEP_RECENT_FRACTION = 0.3;
+const KEEP_RECENT_FRACTION = 0.35;
 
 /**
  * Compact at a DEPTH, not at a share of the window.
@@ -95,7 +95,7 @@ export function keepRecentTokens(contextWindow: number): number {
 	// Derived from the TRIGGER, not the window. Deriving it from the window is
 	// how it ends up larger than the trigger itself, at which point there is
 	// never anything older to summarise and compaction silently stops happening.
-	return Math.round(compactAtTokens(contextWindow) * KEEP_RECENT_FRACTION * (1 / 0.6));
+	return Math.round(compactAtTokens(contextWindow) * KEEP_RECENT_FRACTION);
 }
 
 export interface CompactableContext {
@@ -130,6 +130,28 @@ let lastAt = 0;
  */
 let baseline = 0;
 let baselineStale = false;
+
+/**
+ * Smallest context reading seen this session — effectively the system prompt.
+ *
+ * pi's keepRecentTokens is measured over SESSION MESSAGES. getContextUsage
+ * reports the whole context, which also carries the system prompt: pi's base
+ * instructions, the tool schemas, and plan-notes' briefing. On this setup that
+ * floor is several thousand tokens, so a 12,000-token context can hold only
+ * ~6,000 of messages — at which point pi walks back, hits keepRecentTokens
+ * before it runs out of messages, and answers "Nothing to compact (session too
+ * small)" for a session that looks two-thirds full.
+ *
+ * Subtracting the floor turns the reading into something comparable with the
+ * number pi actually uses. It is observed rather than configured because it
+ * varies with the briefing, which grows and shrinks as the plan does.
+ */
+let sessionFloor = Number.POSITIVE_INFINITY;
+
+/** Record a context reading. Call on every turn, not only when acting. */
+export function observeContext(tokens: number): void {
+	if (tokens > 0 && tokens < sessionFloor) sessionFloor = tokens;
+}
 
 /** Compactions closer together than this are the double-fire we are preventing.
  *  Tunable because a fast plan step can legitimately finish inside the window,
@@ -182,6 +204,7 @@ export function resetCompactionState(): void {
 	lastAt = 0;
 	baseline = 0;
 	baselineStale = false;
+	sessionFloor = Number.POSITIVE_INFINITY;
 }
 
 /**
@@ -224,6 +247,10 @@ export function requestCompaction(
 	// stand down.
 	const usage = ctx.getContextUsage?.();
 	if (usage?.tokens && usage.contextWindow) {
+		// Deliberately NOT observing here. The floor has to be sampled while the
+		// session is small, and this function only runs when it is not — a call
+		// that observed its own reading would set the floor to the very number it
+		// is judging, making `since` zero and refusing every time.
 		// The first reading after a compaction establishes the new baseline.
 		// Refusing this one costs nothing: we just compacted.
 		if (baselineStale) {
@@ -244,8 +271,22 @@ export function requestCompaction(
 		// Nothing has accumulated since the last compaction that pi would not
 		// keep anyway, so there is no older history to summarise. Asking here is
 		// what produces "Nothing to compact (session too small)".
-		const since = usage.tokens - baseline;
-		if (since <= keepRecentTokens(usage.contextWindow) * 1.1) return false;
+		//
+		// Measured against the session floor before the first compaction, so the
+		// system prompt is not counted as summarisable history.
+		// No floor observed yet — a --print run, or a caller that reaches this
+		// before any turn has ended — means we cannot separate prompt from
+		// messages. Fall back to counting everything, which can only make us ask
+		// when we might not have needed to. Falling back to `usage.tokens`
+		// instead would make `since` zero and silently disable compaction.
+		const base = baseline > 0 ? baseline : Number.isFinite(sessionFloor) ? Math.min(sessionFloor, usage.tokens) : 0;
+		const since = usage.tokens - base;
+		// 1.5 rather than a hair over 1.0, because pi cuts at a message boundary
+		// and not at an exact token count: it walks back to keepRecentTokens and
+		// then rounds to the nearest cut point, which can swallow the little that
+		// was left. Asking with a thin margin is how "Nothing to compact" gets
+		// reported for a session that arithmetically had something.
+		if (since <= keepRecentTokens(usage.contextWindow) * 1.5) return false;
 	}
 
 	inFlight = true;
