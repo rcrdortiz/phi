@@ -8,7 +8,12 @@ minutes and 18 seconds before the first token.
 
 Everything here follows from that, plus a second measurement: prefill cost
 grows quadratically with prompt length, so the way to stay fast is to keep
-context small — not to buy a bigger window.
+context small, not to buy a bigger window.
+
+The point of staying that cheap is that the agent runs on the machine you are
+already working on. Not a rented GPU, not a spare box in a cupboard: the same
+Mac that has your editor, your browser and Slack open right now. Which model
+you pick follows directly from that.
 
 ## If someone shared this with you
 
@@ -50,6 +55,31 @@ If you want the setup described here, ignore that launcher and run:
 ./install.sh
 pi --provider ollama-local --model qwen3-coder:30b
 ```
+
+## Which model, and why it depends on the machine
+
+There are two Qwen3.8 builds here and the choice between them is not really
+about quality. It is about whether this machine has a second job.
+
+**`qwen3.8-4MLX` (18 GB, 4-bit) is the default because it shares.** Weights
+plus a full 64K KV cache still leave a working desktop's worth of memory free,
+so you can run a session without closing anything first. You give up some
+accuracy against the 8-bit build. In return the agent is something you leave
+running next to your work rather than an errand you make room for.
+
+**`qwen3.8-8MLX` (31 GB, 8-bit) is for when the machine has nothing else to
+do.** Weights plus a full 64K cache come to roughly 44 GB, against a 39 GB GPU
+wired limit and 48 GB installed. There is no room left for a desktop, and that
+is fine if there is no desktop: a dedicated AI box, a spare Mac, a mini you
+have SSHed into. Quality becomes the only axis worth optimising, so take it.
+
+Switching is `/model`, mid-session, and `memory-guard.ts` does not take your
+word for it: it weighs the selected model's weights plus cache against actually
+free memory at startup and on every switch, then offers the models that fit.
+
+`qwen3-coder:30b` sits outside this axis. It is an MoE with 3B active, so it
+generates fastest of the three and has no thinking mode at all. Reach for it
+when the work is mechanical and volume matters more than judgement.
 
 ## Where the models come from
 
@@ -93,11 +123,14 @@ Idempotent — re-run it any time; it skips what is already in place. What it do
 
 ### `ollama-local.ts` — the models
 
-Thinking is controlled here, and it is not obvious: **Qwen3.8 thinks by
-default**, and pi's `reasoning: false` only stops pi *asking* for thinking. The
-only thing that actually switches it off on Ollama's OpenAI-compatible endpoint
-is `reasoning_effort: "none"`, sent via `samplingParams` — measured at 3
-completion tokens versus 39 for the same trivial question.
+Thinking is controlled here, and it is not obvious in two directions.
+**Qwen3.8 thinks by default**, so the only thing that actually switches it off
+on Ollama's OpenAI-compatible endpoint is `reasoning_effort: "none"`, sent via
+`samplingParams`: measured at 3 completion tokens versus 39 for the same
+trivial question. And pi's `reasoning` flag is a capability gate, not a
+default. Set it false and pi clamps every level to `off`, Shift+Tab stops
+responding and `thinkingLevelMap` is never consulted, so a model that can think
+must declare it true and start wherever `defaultThinking` says.
 
 Measured on "Is 1009 prime?": `none` 10 completion tokens, `low` 357,
 `medium` 377. The levels above `none` differ far less than their names suggest,
@@ -110,8 +143,8 @@ model was loaded with.
 | model | weights | ctx | notes |
 |---|---|---|---|
 | `qwen3-coder:30b` | 18 GB (MoE, 3B active) | 64K | fastest generation |
-| `qwen3.8-4MLX` | 18 GB (4-bit MLX) | 64K | everyday work; Shift+Tab adds thinking |
-| `qwen3.8-8MLX` | 31 GB (8-bit mxfp8) | 64K | best quality, needs the machine to itself |
+| `qwen3.8-4MLX` | 18 GB (4-bit MLX) | 64K | default; shares the machine with your work |
+| `qwen3.8-8MLX` | 31 GB (8-bit mxfp8) | 64K | best quality; wants the machine to itself |
 
 ### `thinking-level.ts` — change how hard it thinks, mid-session
 
@@ -129,9 +162,8 @@ status line shows it beside the model. What was missing was the wiring —
 Measured on the same prompt, so the useful distinction is really *thinking or
 not*: `none` to `low` is a 35× jump, `low` to `medium` is 5%.
 
-Each model also starts at its tier's default when selected — `fast` off,
-`reasoning` high — rather than inheriting the previous model's
-level (`PI_THINKING_DEFAULTS=0` to keep whatever is current). Changing level
+Each model also starts at its own default when selected (`qwen3.8-4MLX` off,
+`qwen3.8-8MLX` high) rather than inheriting the previous model's level (`PI_THINKING_DEFAULTS=0` to keep whatever is current). Changing level
 reports what it costs, and warns when free memory is low, since more thinking
 fills the context faster and the KV cache grows with it.
 
