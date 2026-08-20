@@ -17,7 +17,11 @@
  * so everything automatic compacts instead.
  */
 
+/** pi's own reserve: it compacts above contextWindow - RESERVE. */
+const RESERVE = Number(process.env.PI_RESERVE_TOKENS ?? 16384);
+
 export interface CompactableContext {
+	getContextUsage?: () => { tokens: number | null; contextWindow: number } | undefined;
 	compact?: (options: {
 		customInstructions?: string;
 		onComplete?: (result: { summary: string; tokensBefore: number }) => void;
@@ -91,6 +95,16 @@ export function requestCompaction(
 	if (inFlight) return false;
 	if (Date.now() - lastAt < MIN_GAP_MS) return false;
 	if (typeof ctx.compact !== "function") return false;
+
+	// If usage is already at or above pi's own trigger, pi is compacting — or is
+	// about to, or is in overflow recovery. Asking now lands in the middle of
+	// that and comes back as "Already compacted" after "This operation was
+	// aborted". Our compactions are an optimisation; when pi has taken over,
+	// stand down.
+	const usage = ctx.getContextUsage?.();
+	if (usage?.tokens && usage.contextWindow && usage.tokens >= usage.contextWindow - RESERVE) {
+		return false;
+	}
 
 	inFlight = true;
 	if (options.announce !== false) ctx.ui.notify(`${reason} — compacting.`, "info");

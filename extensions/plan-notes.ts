@@ -383,7 +383,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 				content: [
 					{
 						type: "text",
-						text: `Step ${index + 1} done. Next: step ${next.index + 1} of ${steps.length} — ${next.step.text}. Context resets when this turn ends.`,
+						text: `Step ${index + 1} done. Next: step ${next.index + 1} of ${steps.length} — ${next.step.text}. Context is compacted when this turn ends.`,
 					},
 				],
 				details: { completed: index, next: next.index },

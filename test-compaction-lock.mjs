@@ -49,7 +49,32 @@ await handoffH["session_compact"]({ compactionEntry: { summary: "pi", tokensBefo
 await planH["turn_end"]({}, ctx);
 check("cooldown prevents an immediate follow-up", compactCalls === 0, `calls=${compactCalls}`);
 
-// 5. Benign outcomes never reach the user as failures.
+// 5. When usage is already past pi's trigger, we must not ask at all — pi is
+// compacting or in overflow recovery, and a request there is what produced
+// "This operation was aborted" followed by "Already compacted".
+{
+  resetCompactionState();
+  compactCalls = 0;
+  const overflowing = {
+    ...ctx,
+    // 73,211 of a 65,536 window: exactly the state in the reported failure.
+    getContextUsage: () => ({ tokens: 73_211, contextWindow: 65_536, percent: 112 }),
+  };
+  await tools.plan_write.execute("5", { goal: "g", steps: ["five", "six"] }, undefined, undefined, overflowing);
+  await tools.plan_next.execute("6", {}, undefined, undefined, overflowing);
+  await planH["turn_end"]({}, overflowing);
+  check("stands down when pi has already taken over", compactCalls === 0, `calls=${compactCalls}`);
+
+  // Just below the trigger, we still act.
+  resetCompactionState();
+  const roomy = { ...ctx, getContextUsage: () => ({ tokens: 40_000, contextWindow: 65_536, percent: 61 }) };
+  await tools.plan_write.execute("7", { goal: "g", steps: ["seven", "eight"] }, undefined, undefined, roomy);
+  await tools.plan_next.execute("8", {}, undefined, undefined, roomy);
+  await planH["turn_end"]({}, roomy);
+  check("still compacts when there is room below pi's trigger", compactCalls === 1, `calls=${compactCalls}`);
+}
+
+// 6. Benign outcomes never reach the user as failures.
 for (const msg of ["Already compacted", "Nothing to compact (session too small)", "This operation was aborted"]) {
   resetCompactionState();
   notes = [];

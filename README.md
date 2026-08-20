@@ -251,6 +251,11 @@ was late — pi always got there first. That logic is gone. What remains:
 | plan step finished | `plan-notes` | meaning — a boundary pi cannot see |
 | `/handoff` | you | when you want it |
 
+Our compactions **stand down when pi has taken over**: if usage is already at or
+above pi's trigger, pi is compacting or in overflow recovery, and asking there
+is what produced `This operation was aborted` followed by `Already compacted`.
+Ours are an optimisation — a semantic boundary pi cannot see — not a duty.
+
 Every compaction, whoever caused it, is written to `.pi/HANDOFF.md` so the
 summary survives the session. `/context` shows usage and how much room is left
 before pi compacts.
