@@ -22,14 +22,15 @@ export interface LocalModel {
 	 *  authoritative at runtime; this is the fallback when it cannot be read. */
 	weightsGb: number;
 	/**
-	 * Qwen3.8 thinks by DEFAULT. `reasoning: false` only stops pi asking for
-	 * thinking — it does not tell Ollama to switch it off, so a "fast" model
-	 * still burns hundreds of tokens deliberating. Measured on Ollama's
-	 * OpenAI-compatible endpoint, `reasoning_effort` is the only thing that
-	 * works: "none" produced 3 completion tokens where the default produced 39.
-	 * Any other value enables thinking.
+	 * Where this model starts on pi's thinking scale. Shift+Tab cycles it live;
+	 * this is only the default applied when the model is selected.
+	 *
+	 * Qwen3.8 thinks by DEFAULT, and `reasoning: false` only stops pi asking for
+	 * thinking — it does not tell Ollama to switch it off. On Ollama's
+	 * OpenAI-compatible endpoint `reasoning_effort` is the control that works:
+	 * "none" produced 3 completion tokens where the default produced 39.
 	 */
-	reasoningEffort: "none" | "low" | "medium" | "high";
+	defaultThinking: "off" | "low" | "medium" | "high";
 }
 
 export const MODELS: LocalModel[] = [
@@ -40,7 +41,7 @@ export const MODELS: LocalModel[] = [
 		contextWindow: 65536,
 		maxTokens: 16384,
 		weightsGb: 18,
-		reasoningEffort: "none",
+		defaultThinking: "off",
 	},
 	{
 		id: "qwen3.8-fast",
@@ -49,7 +50,7 @@ export const MODELS: LocalModel[] = [
 		contextWindow: 65536,
 		maxTokens: 16384,
 		weightsGb: 18,
-		reasoningEffort: "none",
+		defaultThinking: "off",
 	},
 	{
 		id: "qwen3.8-medium",
@@ -58,7 +59,7 @@ export const MODELS: LocalModel[] = [
 		contextWindow: 65536,
 		maxTokens: 16384,
 		weightsGb: 18,
-		reasoningEffort: "low",
+		defaultThinking: "low",
 	},
 	{
 		id: "qwen3.8-reasoning",
@@ -67,7 +68,7 @@ export const MODELS: LocalModel[] = [
 		contextWindow: 65536,
 		maxTokens: 16384,
 		weightsGb: 31,
-		reasoningEffort: "high",
+		defaultThinking: "high",
 	},
 ];
 
@@ -84,7 +85,16 @@ export function toPiModel(m: LocalModel) {
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: m.contextWindow,
 		maxTokens: m.maxTokens,
-		// Sent with every request; this is what actually controls thinking.
-		samplingParams: { reasoning_effort: m.reasoningEffort },
+		// Wires pi's thinking scale to Ollama's reasoning_effort, so Shift+Tab
+		// changes it live instead of it being fixed per model. A level mapped to
+		// null is hidden from the cycle; xhigh and max only appear if mapped,
+		// and Qwen3.8 has no distinct behaviour beyond high, so they are left out.
+		thinkingLevelMap: {
+			off: "none",
+			minimal: "low",
+			low: "low",
+			medium: "medium",
+			high: "high",
+		},
 	};
 }

@@ -110,9 +110,33 @@ model was loaded with.
 | model | weights | ctx | notes |
 |---|---|---|---|
 | `qwen3-coder:30b` | 18 GB (MoE, 3B active) | 64K | fastest generation |
-| `qwen3.8-fast` | 18 GB (4-bit MLX) | 64K | everyday work |
-| `qwen3.8-medium` | 18 GB (4-bit MLX) | 64K | light thinking (`reasoning_effort: low`) |
+| `qwen3.8-fast` | 18 GB (4-bit MLX) | 64K | everyday work, thinking off |
+| `qwen3.8-medium` | 18 GB (4-bit MLX) | 64K | light thinking by default |
 | `qwen3.8-reasoning` | 31 GB (8-bit mxfp8) | 64K | best quality, needs the machine to itself |
+
+### `thinking-level.ts` — change how hard it thinks, mid-session
+
+pi already has the control: **Shift+Tab** cycles the thinking level and the
+status line shows it beside the model. What was missing was the wiring —
+`lib/ollama-models.ts` now maps pi's scale onto Ollama's `reasoning_effort`:
+
+| pi level | sent as | effect |
+|---|---|---|
+| `off` | `none` | ~10 completion tokens on a simple question |
+| `low` | `low` | ~357 tokens |
+| `medium` | `medium` | ~377 — barely above low |
+| `high` | `high` | most deliberation, slowest first answer |
+
+Measured on the same prompt, so the useful distinction is really *thinking or
+not*: `none` to `low` is a 35× jump, `low` to `medium` is 5%.
+
+Each model also starts at its tier's default when selected — `fast` off,
+`medium` low, `reasoning` high — rather than inheriting the previous model's
+level (`PI_THINKING_DEFAULTS=0` to keep whatever is current). Changing level
+reports what it costs, and warns when free memory is low, since more thinking
+fills the context faster and the KV cache grows with it.
+
+`/effort` shows the current level; `/effort low` sets it.
 
 ### `memory-guard.ts` — refuse to start without room
 
