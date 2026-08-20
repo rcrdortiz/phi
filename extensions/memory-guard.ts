@@ -21,10 +21,21 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
 import { MODELS, toPiModel } from "../lib/ollama-models.ts";
 
-const MIN_FREE_GB = Number(process.env.PI_MIN_FREE_GB ?? 30);
+// 28 GB is the model's measured peak plus a little: 18.49 GB of weights on a
+// clean load (flat regardless of num_ctx — MLX allocates its cache lazily) and
+// 25.79 GB with a full 64K context, measured by filling it. Below this the
+// machine has to swap to finish a long session, and a swapping local model does
+// not fail — it slows to nothing while still looking like it is thinking.
+const MIN_FREE_GB = Number(process.env.PI_MIN_FREE_GB ?? 28);
 const MIN_ACTUAL_GB = Number(process.env.PI_MIN_ACTUAL_GB ?? 8);
-const KV_KB_PER_TOKEN = Number(process.env.PI_KV_KB_PER_TOKEN ?? 150);
-const HEADROOM_GB = 4;
+// Measured across the full window (2.5K -> 64K), not extrapolated from a narrow
+// sample: a 1.5K->14K sample reads 136.5 and over-predicts the peak by ~1.2 GB,
+// because growth is not quite linear. This is the whole-range figure.
+const KV_KB_PER_TOKEN = Number(process.env.PI_KV_KB_PER_TOKEN ?? 113);
+// Small, because the two numbers it pads are now measured rather than guessed.
+// At 4 GB the per-model check demanded ~31 GB free for a model whose real peak
+// is 27, which refuses to start on a machine that would have been fine.
+const HEADROOM_GB = 1;
 
 function sh(cmd: string, args: string[]): string {
 	try {

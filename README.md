@@ -21,8 +21,8 @@ fast-forwarding this repo at startup, which needs a real checkout with an
 
 ## What you need
 
-- Apple Silicon, **48 GB minimum**. The model is 18 GB and its context cache
-  grows to ~6.5 GB; below 48 GB there is nothing left for a desktop.
+- Apple Silicon, **48 GB minimum**. The model peaks at ~26 GB with a full
+  context; below 48 GB there is nothing left for a desktop.
 - Homebrew, node, and Ollama. `install.sh` handles the rest and is safe to
   re-run.
 
@@ -31,10 +31,22 @@ Ollama's keep-alive. Both survive reboots.
 
 ## The model
 
-One model, `qwen3.8-4MLX` — Qwen3.8 27B at 4-bit MLX, 18 GB, **50K context**.
+One model, `qwen3.8-4MLX` — Qwen3.8 27B at 4-bit MLX, **64K context**.
 
-Weights plus a full 50K cache come to ~24.9 GB, leaving ~23 GB for your
-desktop. That number is the design constraint, not a coincidence.
+The size of that window is set by the goal, not by taste. Measured on a clean
+load with nothing else resident:
+
+| | |
+|---|---|
+| weights | 18.49 GB (flat — the MLX runner allocates its cache lazily) |
+| at 2.5K tokens | 18.66 GB |
+| at a full 64K | **25.79 GB** |
+| left for your desktop | **~22 GB** |
+
+That last row is the design constraint. `memory-guard` refuses to start below
+28 GB free for the same reason: under that, finishing a long session means
+swapping, and a swapping local model does not fail — it slows to nothing while
+looking like it is still thinking.
 
 **Thinking is set to `high` by default, and that is the recommendation.** On a
 27B at 4-bit the thinking pass is where the quality comes from, and this setup
@@ -85,7 +97,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_NOTE_MAX_CHARS` | `350` | cap on one note |
 | `PI_PLAN_KEEP_DONE` | `3` | completed steps kept in the plan |
 | `PI_PLAN_AUTOCONTINUE` | `1` | run steps unattended |
-| `PI_MIN_FREE_GB` | `30` | memory floor before pi refuses to start |
+| `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |
 | `PI_TOKEN_RATE` | `1` | show decode speed |
 
 ## Why things are the way they are
