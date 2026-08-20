@@ -74,7 +74,21 @@ check("cooldown prevents an immediate follow-up", compactCalls === 0, `calls=${c
   check("still compacts when there is room below pi's trigger", compactCalls === 1, `calls=${compactCalls}`);
 }
 
-// 6. Benign outcomes never reach the user as failures.
+// 6. A short task has nothing to compact — asking produces an error for a
+// session that is perfectly fine, so we must not ask.
+{
+  resetCompactionState();
+  compactCalls = 0;
+  const small = { ...ctx, getContextUsage: () => ({ tokens: 12_000, contextWindow: 65_536, percent: 18 }) };
+  await tools.plan_write.execute("9", { goal: "g", steps: ["nine", "ten"] }, undefined, undefined, small);
+  await tools.plan_next.execute("10", {}, undefined, undefined, small);
+  notes = [];
+  await planH["turn_end"]({}, small);
+  check("does not compact a short session", compactCalls === 0, `calls=${compactCalls}`);
+  check("and says nothing about it", !notes.some((n) => /compact/i.test(n)), notes.join(" | ") || "(silent)");
+}
+
+// 7. Benign outcomes never reach the user as failures.
 for (const msg of ["Already compacted", "Nothing to compact (session too small)", "This operation was aborted"]) {
   resetCompactionState();
   notes = [];

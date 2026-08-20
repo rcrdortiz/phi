@@ -251,9 +251,16 @@ was late — pi always got there first. That logic is gone. What remains:
 | plan step finished | `plan-notes` | meaning — a boundary pi cannot see |
 | `/handoff` | you | when you want it |
 
-Our compactions **stand down when pi has taken over**: if usage is already at or
-above pi's trigger, pi is compacting or in overflow recovery, and asking there
-is what produced `This operation was aborted` followed by `Already compacted`.
+Our compactions only run in the band where they are useful, derived from pi's
+own settings — for a 64K window, **between ~24,000 and ~49,152 tokens**:
+
+- **below** `keepRecentTokens × 1.2` there is nothing older to summarise, and
+  asking returns `Nothing to compact (session too small)` — a short task simply
+  does not need one
+- **above** `contextWindow - reserveTokens` pi has taken over (compacting, or in
+  overflow recovery), and asking returns `Already compacted` after
+  `This operation was aborted`
+
 Ours are an optimisation — a semantic boundary pi cannot see — not a duty.
 
 Every compaction, whoever caused it, is written to `.pi/HANDOFF.md` so the

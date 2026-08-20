@@ -19,6 +19,9 @@
 
 /** pi's own reserve: it compacts above contextWindow - RESERVE. */
 const RESERVE = Number(process.env.PI_RESERVE_TOKENS ?? 16384);
+/** pi keeps this much recent conversation; below it there is nothing older to
+ *  summarise, and a request returns "Nothing to compact (session too small)". */
+const KEEP_RECENT = Number(process.env.PI_KEEP_RECENT_TOKENS ?? 20000);
 
 export interface CompactableContext {
 	getContextUsage?: () => { tokens: number | null; contextWindow: number } | undefined;
@@ -102,8 +105,12 @@ export function requestCompaction(
 	// aborted". Our compactions are an optimisation; when pi has taken over,
 	// stand down.
 	const usage = ctx.getContextUsage?.();
-	if (usage?.tokens && usage.contextWindow && usage.tokens >= usage.contextWindow - RESERVE) {
-		return false;
+	if (usage?.tokens && usage.contextWindow) {
+		// pi has taken over: it is compacting, about to, or in overflow recovery.
+		if (usage.tokens >= usage.contextWindow - RESERVE) return false;
+		// Too small to have anything to compact. A short task genuinely does not
+		// need one, and asking produces an error for a session that is fine.
+		if (usage.tokens <= KEEP_RECENT * 1.2) return false;
 	}
 
 	inFlight = true;
