@@ -110,8 +110,8 @@ model was loaded with.
 | model | weights | ctx | notes |
 |---|---|---|---|
 | `qwen3-coder:30b` | 18 GB (MoE, 3B active) | 64K | fastest generation |
-| `qwen3.8-fast` | 18 GB (4-bit MLX) | 64K | everyday work; Shift+Tab adds thinking |
-| `qwen3.8-reasoning` | 31 GB (8-bit mxfp8) | 64K | best quality, needs the machine to itself |
+| `qwen3.8-4MLX` | 18 GB (4-bit MLX) | 64K | everyday work; Shift+Tab adds thinking |
+| `qwen3.8-8MLX` | 31 GB (8-bit mxfp8) | 64K | best quality, needs the machine to itself |
 
 ### `thinking-level.ts` — change how hard it thinks, mid-session
 

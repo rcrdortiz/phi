@@ -59,8 +59,8 @@ export const MODELS: LocalModel[] = [
 		defaultThinking: "off",
 	},
 	{
-		id: "qwen3.8-fast",
-		name: "Qwen3.8 27B fast (4-bit MLX)",
+		id: "qwen3.8-4MLX",
+		name: "Qwen3.8 27B — 4-bit MLX",
 		reasoning: false,
 		contextWindow: 65536,
 		maxTokens: 16384,
@@ -68,8 +68,8 @@ export const MODELS: LocalModel[] = [
 		defaultThinking: "off",
 	},
 	{
-		id: "qwen3.8-reasoning",
-		name: "Qwen3.8 27B reasoning (8-bit — needs the machine to itself)",
+		id: "qwen3.8-8MLX",
+		name: "Qwen3.8 27B — 8-bit MLX (needs the machine to itself)",
 		reasoning: true,
 		contextWindow: 65536,
 		maxTokens: 16384,

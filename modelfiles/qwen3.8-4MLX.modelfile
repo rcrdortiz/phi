@@ -1,4 +1,6 @@
-# Everyday driver: 4-bit MLX weights, instruct-style sampling, thinking off.
+# 4-bit MLX weights. The everyday model; Shift+Tab adds thinking, and pi
+# sends sampling to match the level, so this file's values are the fallback
+# for `ollama run` outside pi.
 # Sampling values are Qwen's published instruct-mode settings — wrong sampling
 # hurts these models more than quantisation does.
 FROM qwen3.8:27b-mlx

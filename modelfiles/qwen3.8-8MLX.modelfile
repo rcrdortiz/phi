@@ -1,4 +1,5 @@
 # 8-bit mxfp8 weights (31GB) — best quality, needs the machine to itself.
+# Starts at high thinking; Shift+Tab lowers it.
 # 64K context is the practical ceiling: weights + a full 64K cache is ~44GB.
 FROM qwen3.8:27b-mxfp8
 PARAMETER num_ctx 65536

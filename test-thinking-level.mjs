@@ -5,7 +5,7 @@ const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d.split("\n").join(" / ") : ""}`); };
 
 // 1. The map is what turns pi's scale into Ollama's reasoning_effort.
-const fast = toPiModel(MODELS.find((m) => m.id === "qwen3.8-fast"));
+const fast = toPiModel(MODELS.find((m) => m.id === "qwen3.8-4MLX"));
 check("models expose a thinkingLevelMap", !!fast.thinkingLevelMap, JSON.stringify(fast.thinkingLevelMap));
 check('"off" maps to Ollama\'s "none"', fast.thinkingLevelMap.off === "none");
 // Sampling is no longer baked per variant — it is derived from the level, and
@@ -13,7 +13,7 @@ check('"off" maps to Ollama\'s "none"', fast.thinkingLevelMap.off === "none");
 check("sampling matches the model's default level",
   fast.samplingParams?.temperature === 0.7 && fast.samplingParams?.presence_penalty === 1.5,
   JSON.stringify(fast.samplingParams));
-const reasoning = toPiModel(MODELS.find((m) => m.id === "qwen3.8-reasoning"));
+const reasoning = toPiModel(MODELS.find((m) => m.id === "qwen3.8-8MLX"));
 check("a thinking-default model gets thinking sampling",
   reasoning.samplingParams?.temperature === 1.0, JSON.stringify(reasoning.samplingParams));
 
@@ -28,12 +28,12 @@ mod({
   setThinkingLevel: (l) => (level = l),
   registerProvider: (_n, cfg) => registered.push(cfg),
 });
-const ctx = { ui: { notify: (t) => notes.push(t) }, model: { id: "qwen3.8-fast" } };
+const ctx = { ui: { notify: (t) => notes.push(t) }, model: { id: "qwen3.8-4MLX" } };
 
-await handlers["model_select"]({ model: { id: "qwen3.8-fast" } }, ctx);
+await handlers["model_select"]({ model: { id: "qwen3.8-4MLX" } }, ctx);
 check("selecting fast turns thinking off", level === "off", `level=${level}`);
 
-await handlers["model_select"]({ model: { id: "qwen3.8-reasoning" } }, ctx);
+await handlers["model_select"]({ model: { id: "qwen3.8-8MLX" } }, ctx);
 check("selecting reasoning uses high", level === "high", `level=${level}`);
 
 // 3. /effort sets and reports.

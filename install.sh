@@ -61,7 +61,7 @@ ok "${TOTAL_GB} GB unified memory"
 if (( TOTAL_GB < 32 )); then
   warn "Under 32GB: the 27B models will not fit. Expect to use smaller ones."
 elif (( TOTAL_GB < 48 )); then
-  warn "Under 48GB: qwen3.8-reasoning (31GB weights) will be a tight fit."
+  warn "Under 48GB: qwen3.8-8MLX (31GB weights) will be a tight fit."
 fi
 
 command -v node >/dev/null || die "node required (brew install node)"
