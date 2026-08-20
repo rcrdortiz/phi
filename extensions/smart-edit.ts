@@ -29,7 +29,7 @@ import { Type } from "typebox";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { MAX_SPAN, ReadCache, outline, resolveRange } from "../lib/read-lean.ts";
+import { MAX_SPAN, ReadCache, alreadyInContext, outline, resolveRange } from "../lib/read-lean.ts";
 import { findSymbol, supportsSymbols } from "../lib/symbols.ts";
 
 // The built-in edit tool needs byte-exact indentation, which is the failure
@@ -397,6 +397,22 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			if (!fs.existsSync(file)) {
 				return { content: [{ type: "text", text: `No such file: ${params.file}` }], isError: true };
 			}
+			// PLAN.md and NOTES.md are injected into the system prompt on every
+			// turn. Reading them buys nothing and pays for them twice.
+			const injected = alreadyInContext(file);
+			if (injected && !params.refresh) {
+				return {
+					content: [{
+						type: "text",
+						text:
+							`${injected} is already in your context — plan-notes injects it into the system prompt every turn. ` +
+							`Look at the "Current work" / "Findings" section you were given rather than reading it again. ` +
+							`Pass refresh:true only if you have just written to it.`,
+					}],
+					details: { injected: true },
+				};
+			}
+
 			const lines = readLines(file);
 			const { start: s, end: e, notes } = resolveRange(params, lines.length);
 

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import mod from "/Users/rcrd/AI/pi-local/extensions/plan-notes.ts";
-import { narrationReason, trimNote, pruneExpiring, NOTE_MAX_CHARS } from "/Users/rcrd/AI/pi-local/lib/notes.ts";
+import { narrationReason, trimNote, pruneExpiring, gcNotes, NOTE_MAX_CHARS } from "/Users/rcrd/AI/pi-local/lib/notes.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };
@@ -72,6 +72,30 @@ check("the step boundary expires state notes", !/6 tests still fail/.test(notesF
 check("but keeps the gotcha", /re-indents cascading/.test(notesFile()));
 
 fs.rmSync(DIR, { recursive: true, force: true });
+// --- retroactive GC on a file written before the rules -------------------
+const legacy = [
+  "# Notes", "",
+  "## gotcha",
+  "- pang.js has wildly inconsistent indentation but is valid JS.",
+  "- pang.js has wildly inconsistent indentation but is valid JS.",   // duplicate
+  "",
+  "## technical",
+  "- Step 1 done: pang.js now a Pang model with bombs[] and splitting.",
+  "- Starfield (step 1) done: renderBackground paints a gradient.",
+  "- " + "a genuinely long durable finding that runs well past the limit. ".repeat(12),
+  "",
+  "## decision",
+  "- Combo scoring: this.combo plus this.comboTimer drives the multiplier.",
+].join("\n");
+const g = gcNotes(legacy);
+check("GC drops narration from an old file", g.dropped.filter((d) => /step finished/.test(d)).length === 2, g.dropped.join(" | "));
+check("GC drops duplicates", g.dropped.some((d) => /duplicate/.test(d)));
+check("GC trims the over-long", g.trimmed === 1, `trimmed ${g.trimmed}`);
+check("GC keeps the durable notes", /inconsistent indentation/.test(g.text) && /Combo scoring/.test(g.text), g.text);
+check("GC actually shrinks the file", g.after < g.before, `${g.before} -> ${g.after}`);
+check("GC removes headings left empty", !/## technical\n\n## /.test(g.text), g.text);
+check("GC is idempotent", gcNotes(g.text).after === g.after);
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

@@ -219,6 +219,13 @@ export default function toolBudgetExtension(pi: ExtensionAPI) {
 				let trimmed = truncate(part.text, limit, e.toolName);
 				// Steer only when it actually cost something. Nagging about a
 				// two-line `cat` teaches the model to ignore the message.
+				// Same trap through the shell: `cat .pi/NOTES.md` costs 16K characters
+				// for a file the model is already holding.
+				if (dumped && /\.pi\/(PLAN|NOTES|PLAN-DONE)\.md$/.test(dumped)) {
+					trimmed +=
+						`\n\n[tool-budget] ${dumped} is already in your context — it is injected into the system prompt ` +
+						`every turn. Reading it through the shell pays for it twice.`;
+				}
 				if (wrote) {
 					trimmed +=
 						`\n\n[tool-budget] That wrote ${wrote} through the shell, which skips the syntax check ` +

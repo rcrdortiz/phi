@@ -676,3 +676,42 @@ it here — `read` coexisting with `view_lines` produced 17 malformed calls befo
 `read` was retired. That is why the audit added one tool rather than five:
 `edit_symbol` addresses roughly 38 of the 45 recorded edit failures, and nothing
 else in the data justified a second.
+
+### Paying twice for the same tokens
+
+Measured on a live session, before anything is typed:
+
+| injected every turn | |
+|---|---|
+| `.pi/NOTES.md` | 16,323 chars ≈ **4,534 tokens** |
+| `.pi/PLAN.md` | 2,683 chars ≈ **745 tokens** |
+| **briefing floor** | **~5,279 tokens = 10.3% of a 51K window** |
+
+That is the cost of `briefing()` doing its job, and it is worth paying. What is
+not worth paying is the *second* copy. In that same session the model ran
+`view_lines .pi/PLAN.md` and `cat .pi/NOTES.md` — both files it was already
+holding — because the briefing arrives as system text with no filename attached,
+so "read the plan" looks like the obvious move.
+
+Both paths now say so instead: `view_lines` on an injected file returns a
+pointer (`refresh:true` overrides), and `tool-budget` flags the same trap
+through the shell.
+
+**Completed steps outgrew the work remaining.** `plan_next` appends its summary
+to the step, and that summary is re-injected for as long as the step is
+retained. On the live plan the two finished lines were 857 and 875 characters
+against ~245 for each pending one. Summaries are now capped at
+`PI_PLAN_SUMMARY_MAX` (180).
+
+**`/notes-gc` applies the note rules retroactively.** They only bind new notes,
+so a file written before them keeps costing its old size forever. On the live
+file: **16,323 → 6,245 chars, 62% smaller, ~4,534 → ~1,735 tokens on every
+request**, dropping 10 notes — all of them `Step N done` narration already
+recorded in the plan — and trimming 15. Dry by default, `--apply` writes and
+keeps a `.bak`.
+
+**One thing that costs nothing:** skills. pi only injects the skills block when
+the `read` tool is active (`hasRead = tools.includes("read")`), and `read` is
+retired here. The startup banner still lists them as loaded. The flip side is
+that skills are also non-functional in this setup, since the block it would
+inject tells the model to open them with `read`.

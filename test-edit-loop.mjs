@@ -7,7 +7,7 @@ import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import mod from "/Users/rcrd/AI/pi-local/extensions/smart-edit.ts";
 import budget, { looksLikeSourceWrite } from "/Users/rcrd/AI/pi-local/extensions/tool-budget.ts";
-import { ReadCache, CACHE_MIN_LINES } from "/Users/rcrd/AI/pi-local/lib/read-lean.ts";
+import { ReadCache, CACHE_MIN_LINES, alreadyInContext } from "/Users/rcrd/AI/pi-local/lib/read-lean.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };
@@ -78,6 +78,21 @@ check("a shell source-write is warned about",
   /skips the syntax check/.test(steered?.content?.[0]?.text ?? ""), (steered?.content?.[0]?.text ?? "").slice(-120));
 
 fs.rmSync(DIR, { recursive: true, force: true });
+// --- do not pay twice for what the briefing already injected -------------
+check("PLAN.md is recognised as already in context", alreadyInContext("/x/.pi/PLAN.md") !== undefined);
+check("NOTES.md is recognised as already in context", alreadyInContext("/x/.pi/NOTES.md") !== undefined);
+check("ordinary source files are not", alreadyInContext("/x/pang.js") === undefined);
+
+fs.mkdirSync(path.join(DIR, ".pi"), { recursive: true });
+const planFile = path.join(DIR, ".pi", "PLAN.md");
+fs.writeFileSync(planFile, "# Plan\n\n- [ ] one\n");
+const reread = await tools.view_lines.execute("9", { file: planFile }, undefined, undefined, ctx);
+check("reading the plan returns a pointer, not the file",
+  /already in your context/.test(reread.content[0].text) && !/- \[ \] one/.test(reread.content[0].text),
+  reread.content[0].text);
+const forced = await tools.view_lines.execute("10", { file: planFile, refresh: true }, undefined, undefined, ctx);
+check("refresh:true still reads it", /- \[ \] one/.test(forced.content[0].text));
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

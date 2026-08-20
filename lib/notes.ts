@@ -97,3 +97,52 @@ export function pruneExpiring(text: string): { text: string; removed: number } {
 	// Collapse the blank run the removed section leaves behind.
 	return { text: `${kept.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`, removed };
 }
+
+export interface GcResult {
+	text: string;
+	dropped: string[];
+	trimmed: number;
+	before: number;
+	after: number;
+}
+
+/**
+ * Apply the note rules to a file that predates them.
+ *
+ * The rules only bind new notes, so a file written before them keeps costing
+ * its old size on every single turn. This is the one-time catch-up: drop
+ * narration, drop exact duplicates, trim the over-long, and report what went so
+ * the change is reviewable rather than silent.
+ */
+export function gcNotes(text: string, max = NOTE_MAX_CHARS): GcResult {
+	const before = text.length;
+	const out: string[] = [];
+	const dropped: string[] = [];
+	const seen = new Set<string>();
+	let trimmed = 0;
+	for (const line of text.split("\n")) {
+		const m = /^(\s*-\s+)(\S.*)$/.exec(line);
+		if (!m) { out.push(line); continue; }
+		const body = m[2].trim();
+		const why = narrationReason(body);
+		if (why) { dropped.push(`${why}: ${body.slice(0, 60)}`); continue; }
+		const key = body.toLowerCase().replace(/\s+/g, " ").slice(0, 80);
+		if (seen.has(key)) { dropped.push(`duplicate: ${body.slice(0, 60)}`); continue; }
+		seen.add(key);
+		const t = trimNote(body, max);
+		if (t.trimmed) trimmed++;
+		out.push(`${m[1]}${t.text}`);
+	}
+	// Drop category headings left with nothing under them.
+	const kept: string[] = [];
+	for (let i = 0; i < out.length; i++) {
+		if (/^##\s/.test(out[i])) {
+			let j = i + 1;
+			while (j < out.length && !/^##\s/.test(out[j]) && !/^\s*-\s+\S/.test(out[j])) j++;
+			if (j >= out.length || /^##\s/.test(out[j])) continue;
+		}
+		kept.push(out[i]);
+	}
+	const result = `${kept.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
+	return { text: result, dropped, trimmed, before, after: result.length };
+}

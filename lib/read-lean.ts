@@ -243,3 +243,26 @@ export class ReadCache {
 		this.seen.clear();
 	}
 }
+
+/**
+ * Files whose contents are ALREADY in the system prompt every turn.
+ *
+ * plan-notes injects PLAN.md and NOTES.md through briefing() on every request.
+ * Reading them with a tool therefore buys nothing and pays twice. Observed in
+ * one short session: the model view_lines'd PLAN.md and cat'd NOTES.md, both of
+ * which it was already holding — 16,323 characters of notes charged a second
+ * time on top of the 4,534 tokens they already cost as part of the prompt.
+ *
+ * The model has no way to know this: the briefing arrives as system text with
+ * no filename attached, so "read the plan" looks like the obvious move. Saying
+ * so in the tool result is cheaper than letting it find out.
+ */
+const INJECTED = [
+	process.env.PI_PLAN_FILE || ".pi/PLAN.md",
+	process.env.PI_NOTES_FILE || ".pi/NOTES.md",
+];
+
+export function alreadyInContext(file: string): string | undefined {
+	const hit = INJECTED.find((p) => file.endsWith(p) || file.endsWith(p.replace(/^\.pi\//, "")));
+	return hit;
+}

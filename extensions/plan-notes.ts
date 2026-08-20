@@ -20,7 +20,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { requestCompaction } from "../lib/compaction.ts";
-import { EXPIRING_CATEGORY, NOTE_MAX_CHARS, narrationReason, pruneExpiring, trimNote } from "../lib/notes.ts";
+import { EXPIRING_CATEGORY, NOTE_MAX_CHARS, gcNotes, narrationReason, pruneExpiring, trimNote } from "../lib/notes.ts";
 import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -33,6 +33,11 @@ const NOTES_FILE = process.env.PI_NOTES_FILE || ".pi/NOTES.md";
 // plan is a working document about what is LEFT; the archive is the record.
 const DONE_FILE = process.env.PI_PLAN_DONE_FILE || ".pi/PLAN-DONE.md";
 const KEEP_DONE = Number(process.env.PI_PLAN_KEEP_DONE ?? 3);
+// A completed step keeps its summary, and the summary is re-injected on every
+// turn for as long as the step is retained. Measured on a live plan: completed
+// lines had grown to 857 and 875 characters against ~245 for the pending ones,
+// so the record of finished work cost more than the work still to do.
+const SUMMARY_MAX = Number(process.env.PI_PLAN_SUMMARY_MAX ?? 180);
 
 // `state` is the only one with a lifetime: notes about the CURRENT condition of
 // the work, dropped at the next step boundary because that is when "currently"
@@ -468,7 +473,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		],
 		parameters: Type.Object({
 			summary: Type.Optional(
-				Type.String({ description: "One line on what was done, appended to the plan step" }),
+				Type.String({ description: "One line on what was done, appended to the plan step (trimmed past {SUMMARY_MAX} chars)" }),
 			),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx: ExtensionContext) {
@@ -483,9 +488,10 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 				return { content: [{ type: "text", text: "All steps are already done." }] };
 			}
 
+			const summary = params.summary ? trimNote(params.summary, SUMMARY_MAX).text : "";
 			steps[index] = {
 				done: true,
-				text: params.summary ? `${step.text} — ${params.summary}` : step.text,
+				text: summary ? `${step.text} \u2014 ${summary}` : step.text,
 			};
 
 			// The step boundary is exactly when "currently" stops being true, so
@@ -544,6 +550,40 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			const text = readFileSafe(notesPath(ctx));
 			ctx.ui.notify(text.trim() || `No ${NOTES_FILE} yet`, "info");
+		},
+	});
+
+	pi.registerCommand("notes-gc", {
+		description: "Apply the note rules to an existing NOTES.md (--apply to write)",
+		handler: async (args, ctx) => {
+			const p = notesPath(ctx);
+			const text = readFileSafe(p);
+			if (!text.trim()) {
+				ctx.ui.notify(`No ${NOTES_FILE} yet.`, "info");
+				return;
+			}
+			const r = gcNotes(text);
+			const saved = r.before - r.after;
+			const summary = [
+				`${NOTES_FILE}: ${r.before.toLocaleString()} -> ${r.after.toLocaleString()} chars ` +
+					`(${Math.round((100 * saved) / r.before)}% smaller)`,
+				`~${Math.round(saved / 3.6).toLocaleString()} tokens saved on EVERY request — it is injected by the briefing.`,
+				`Dropping ${r.dropped.length}, trimming ${r.trimmed}.`,
+				...r.dropped.slice(0, 12).map((d) => `  - ${d}`),
+			].join("\n");
+			if (!/--apply|-a\b/.test(args ?? "")) {
+				ctx.ui.notify(`${summary}\n\nRun /notes-gc --apply to write it.`, "info");
+				return;
+			}
+			// Keep the original next to it: these are durable findings, and a
+			// rule applied retroactively should be reversible.
+			try {
+				fs.writeFileSync(`${p}.bak`, text, "utf8");
+			} catch {
+				/* the backup is a courtesy; the write below is what matters */
+			}
+			writeFileSafe(p, r.text);
+			ctx.ui.notify(`${summary}\n\nWritten. Original kept at ${NOTES_FILE}.bak`, "info");
 		},
 	});
 
