@@ -91,8 +91,18 @@ else
   done
 fi
 
-# Flash attention and a quantised KV cache: measured ~2.3x generation speed at
-# long context. OLLAMA_KEEP_ALIVE matters as much: the default is 5 minutes, and
+# Flash attention and a quantised KV cache apply to the GGUF engine ONLY.
+# Measured 2026-08-20: qwen3-coder:30b loads 21.615 GB at q8_0 and 20.357 GB at
+# q4_0 with num_ctx 51200, so the setting is honoured there. The MLX models
+# ignore it completely — qwen3.8-4MLX costs 136.5 KB/token either way, verified
+# with the flag set in the server process env, not just via launchctl. The MLX
+# runner is a separate subprocess and these are llama.cpp options.
+#
+# So they are kept for qwen3-coder, and are NOT a lever for the default model.
+# Note launchctl setenv alone is not enough to change this: a running Ollama.app
+# does not pick up the new value, which will silently invalidate any A/B test.
+#
+# OLLAMA_KEEP_ALIVE matters more: the default is 5 minutes, and
 # a per-request keep_alive does not stick because the next request without one
 # resets it — so a 20GB model unloads during any pause and the next message pays
 # a full reload. The brew service plist sets the first two; Ollama.app sets
