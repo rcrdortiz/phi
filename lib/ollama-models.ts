@@ -36,6 +36,9 @@ export interface LocalModel {
 	/** Approximate weight size, used for the memory check. `ollama list` is
 	 *  authoritative at runtime; this is the fallback when it cannot be read. */
 	weightsGb: number;
+	/** Whether the model accepts images. `ollama show` reports this as the
+	 *  `vision` capability; only the Qwen3.8 variants have it. */
+	vision: boolean;
 	/**
 	 * Where this model starts on pi's thinking scale. Shift+Tab cycles it live;
 	 * this is only the default applied when the model is selected.
@@ -55,6 +58,7 @@ export interface LocalModel {
 export const MODELS: LocalModel[] = [
 	{
 		id: "qwen3-coder:30b",
+		vision: false,
 		name: "Qwen3 Coder 30B (MoE — fastest)",
 		reasoning: false,
 		contextWindow: 65536,
@@ -64,6 +68,7 @@ export const MODELS: LocalModel[] = [
 	},
 	{
 		id: "qwen3.8-4MLX",
+		vision: true,
 		name: "Qwen3.8 27B — 4-bit MLX",
 		reasoning: true,
 		contextWindow: 51200,
@@ -73,6 +78,7 @@ export const MODELS: LocalModel[] = [
 	},
 	{
 		id: "qwen3.8-8MLX",
+		vision: true,
 		name: "Qwen3.8 27B — 8-bit MLX (needs the machine to itself)",
 		reasoning: true,
 		contextWindow: 51200,
@@ -91,7 +97,11 @@ export function toPiModel(m: LocalModel, level?: string) {
 		provider: PROVIDER,
 		baseUrl: BASE_URL,
 		reasoning: m.reasoning,
-		input: ["text"] as ("text" | "image")[],
+		// Qwen3.8 reports the `vision` capability; qwen3-coder does not, so this
+		// follows the roster rather than being set for every local model.
+		// Cost is ~1015 pixels per token, independent of file size or format,
+		// so tool-budget caps images by DIMENSION. Compression saves nothing.
+		input: (m.vision ? ["text", "image"] : ["text"]) as ("text" | "image")[],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: m.contextWindow,
 		maxTokens: m.maxTokens,
