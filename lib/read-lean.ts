@@ -166,3 +166,63 @@ export function outline(lines: string[], filename: string): OutlineEntry[] {
 	}
 	return out;
 }
+
+/**
+ * Which lines of which file have already been delivered this session.
+ *
+ * Measured across 30 sessions: 18% of everything read/view_lines ever returned
+ * was lines the model had ALREADY been shown, with no edit to that file in
+ * between — 176,722 characters, ~49,000 tokens, and `pang.js` alone was 48,000
+ * of them. It is the single largest remaining source of avoidable context.
+ *
+ * The "with no edit in between" qualifier is the whole design. Re-reading after
+ * an edit is correct and necessary: line numbers shift, so the model's memory
+ * of them is genuinely stale. Suppressing THAT would break editing. So the
+ * cache tracks file identity (size + mtime) and forgets a file the moment it
+ * changes on disk, whoever changed it.
+ *
+ * It only ever suppresses a FULLY covered request. A partial overlap is
+ * delivered in full: handing back a fragment with a hole in it, or a range that
+ * silently starts somewhere other than where it was asked to, is exactly the
+ * class of confusion that made view_lines expensive in the first place.
+ */
+export interface CacheStamp {
+	size: number;
+	mtimeMs: number;
+}
+
+export class ReadCache {
+	private seen = new Map<string, { stamp: CacheStamp; lines: Set<number> }>();
+
+	/** Forget a file whose bytes changed; keep it otherwise. */
+	private entry(file: string, stamp: CacheStamp) {
+		const e = this.seen.get(file);
+		if (e && e.stamp.size === stamp.size && e.stamp.mtimeMs === stamp.mtimeMs) return e;
+		const fresh = { stamp, lines: new Set<number>() };
+		this.seen.set(file, fresh);
+		return fresh;
+	}
+
+	/** Record that lines [start, end] of `file` are now in context. */
+	record(file: string, stamp: CacheStamp, start: number, end: number): void {
+		const e = this.entry(file, stamp);
+		for (let i = start; i <= end; i++) e.lines.add(i);
+	}
+
+	/** True when every line of [start, end] is already in context, unchanged. */
+	covered(file: string, stamp: CacheStamp, start: number, end: number): boolean {
+		const e = this.seen.get(file);
+		if (!e || e.stamp.size !== stamp.size || e.stamp.mtimeMs !== stamp.mtimeMs) return false;
+		for (let i = start; i <= end; i++) if (!e.lines.has(i)) return false;
+		return true;
+	}
+
+	/** Drop a file entirely — call after an edit, before mtime is even consulted. */
+	invalidate(file: string): void {
+		this.seen.delete(file);
+	}
+
+	clear(): void {
+		this.seen.clear();
+	}
+}

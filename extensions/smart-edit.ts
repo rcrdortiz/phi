@@ -29,7 +29,7 @@ import { Type } from "typebox";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { MAX_SPAN, outline, resolveRange } from "../lib/read-lean.ts";
+import { MAX_SPAN, ReadCache, outline, resolveRange } from "../lib/read-lean.ts";
 
 // The built-in edit tool needs byte-exact indentation, which is the failure
 // this extension exists to remove. Leaving it available means the model keeps
@@ -50,6 +50,14 @@ const KEEP_BUILTIN_READ = process.env.PI_KEEP_BUILTIN_READ === "1";
 
 function resolve(cwd: string, p: string): string {
 	return path.isAbsolute(p) ? p : path.join(cwd, p);
+}
+
+/** Lines already delivered this session, so the same range is not sent twice. */
+const readCache = new ReadCache();
+
+function stampOf(file: string) {
+	const st = fs.statSync(file);
+	return { size: st.size, mtimeMs: st.mtimeMs };
 }
 
 function readLines(file: string): string[] {
@@ -170,6 +178,10 @@ function syntaxError(file: string): string | undefined {
 
 /** Write, verify, and roll back if the write broke the file. */
 function writeChecked(file: string, lines: string[], before: string): string {
+	// Every edit and every revert passes through here, so this is the one place
+	// the read cache has to be dropped. Re-reading after an edit is correct:
+	// line numbers have moved and the model's memory of them is stale.
+	readCache.invalidate(file);
 	fs.writeFileSync(file, lines.join("\n"), "utf8");
 	const err = syntaxError(file);
 	if (err) {
@@ -347,6 +359,7 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			// 1-710 instead of 630-710 and cost ~10K tokens in one result.
 			offset: Type.Optional(Type.Union([Type.Number(), Type.String()])),
 			limit: Type.Optional(Type.Union([Type.Number(), Type.String()])),
+			refresh: Type.Optional(Type.Boolean()),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const file = resolve(ctx.cwd, params.file);
@@ -355,6 +368,26 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			}
 			const lines = readLines(file);
 			const { start: s, end: e, notes } = resolveRange(params, lines.length);
+
+			// Already in context, and the file has not changed since: say so
+			// instead of sending it again. Only a FULLY covered range is
+			// suppressed; a partial overlap is delivered whole, because a
+			// result with a hole in it is worse than a redundant one.
+			const stamp = stampOf(file);
+			if (!params.refresh && readCache.covered(file, stamp, s, e)) {
+				return {
+					content: [{
+						type: "text",
+						text:
+							`${params.file} lines ${s}-${e} are already shown above and the file has not ` +
+							`changed since. Scroll up rather than re-reading. ` +
+							`Pass refresh:true if you genuinely need them repeated.`,
+					}],
+					details: { total: lines.length, from: s, to: e, cached: true },
+				};
+			}
+			readCache.record(file, stamp, s, e);
+
 			const width = String(e).length;
 			const body = lines
 				.slice(s - 1, e)

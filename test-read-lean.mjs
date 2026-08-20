@@ -1,4 +1,4 @@
-import { resolveRange, outline, DEFAULT_SPAN, MAX_SPAN } from "/Users/rcrd/AI/pi-local/lib/read-lean.ts";
+import { resolveRange, outline, ReadCache, DEFAULT_SPAN, MAX_SPAN } from "/Users/rcrd/AI/pi-local/lib/read-lean.ts";
 import * as fs from "node:fs";
 
 const results = [];
@@ -50,6 +50,30 @@ check("outline line numbers are real", o.every((x) => x.line >= 1 && x.line <= p
 check("python is recognised", outline(["def foo():", "    pass", "class Bar:"], "x.py").length === 2);
 check("markdown headings are recognised", outline(["# Title", "text", "## Sub"], "r.md").length === 2);
 check("unknown file types return nothing rather than guessing", outline(["anything"], "x.bin").length === 0);
+
+// --- re-read cache --------------------------------------------------------
+const cache = new ReadCache();
+const A = { size: 100, mtimeMs: 1000 };
+cache.record("f.js", A, 1, 50);
+check("a fully re-requested range is recognised as cached", cache.covered("f.js", A, 10, 40));
+check("a range extending past what was shown is NOT cached", !cache.covered("f.js", A, 40, 80));
+check("an unseen file is never cached", !cache.covered("other.js", A, 1, 5));
+
+// The qualifier that makes this safe: an edit means line numbers moved.
+const B = { size: 120, mtimeMs: 2000 };
+check("a changed file invalidates the cache", !cache.covered("f.js", B, 10, 40),
+  "size/mtime differ, so the old line numbers are stale");
+cache.record("f.js", B, 1, 50);
+check("and it re-caches under the new stamp", cache.covered("f.js", B, 10, 40));
+cache.invalidate("f.js");
+check("an explicit edit drops it immediately", !cache.covered("f.js", B, 10, 40));
+
+// Non-contiguous coverage must not report a gap as covered.
+const c2 = new ReadCache();
+c2.record("g.js", A, 1, 10);
+c2.record("g.js", A, 30, 40);
+check("a gap between two reads is not reported as covered", !c2.covered("g.js", A, 5, 35));
+check("but each recorded island still is", c2.covered("g.js", A, 31, 39));
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
