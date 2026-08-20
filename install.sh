@@ -97,6 +97,9 @@ fi
 # resets it — so a 20GB model unloads during any pause and the next message pays
 # a full reload. The brew service plist sets the first two; Ollama.app sets
 # none, so it needs a login agent that exports them before the app starts.
+# OLLAMA_MAX_LOADED_MODELS=1 is a memory guard: the default lets Ollama keep
+# several models resident, and two 18GB models plus their caches do not fit in
+# 48GB. Combined with a 2h keep-alive, the default is actively dangerous.
 step "Ollama performance settings"
 if [[ $APP_RUNNING -eq 1 ]]; then
   mkdir -p "$(dirname "$ENV_PLIST")"
@@ -107,7 +110,7 @@ if [[ $APP_RUNNING -eq 1 ]]; then
   <key>Label</key><string>local.ollama-env</string>
   <key>ProgramArguments</key><array>
     <string>/bin/sh</string><string>-c</string>
-    <string>launchctl setenv OLLAMA_FLASH_ATTENTION 1; launchctl setenv OLLAMA_KV_CACHE_TYPE q8_0; launchctl setenv OLLAMA_KEEP_ALIVE 2h</string>
+    <string>launchctl setenv OLLAMA_FLASH_ATTENTION 1; launchctl setenv OLLAMA_KV_CACHE_TYPE q8_0; launchctl setenv OLLAMA_KEEP_ALIVE 2h; launchctl setenv OLLAMA_MAX_LOADED_MODELS 1</string>
   </array>
   <key>RunAtLoad</key><true/>
 </dict></plist>
@@ -117,9 +120,11 @@ PLIST
   launchctl setenv OLLAMA_FLASH_ATTENTION 1
   launchctl setenv OLLAMA_KV_CACHE_TYPE q8_0
   launchctl setenv OLLAMA_KEEP_ALIVE 2h
+  launchctl setenv OLLAMA_MAX_LOADED_MODELS 1
   ok "login agent installed (restart Ollama.app for it to take effect)"
 else
   launchctl setenv OLLAMA_KEEP_ALIVE 2h 2>/dev/null || true
+  launchctl setenv OLLAMA_MAX_LOADED_MODELS 1 2>/dev/null || true
   ok "brew service exports the performance vars; keep-alive set to 2h"
 fi
 
