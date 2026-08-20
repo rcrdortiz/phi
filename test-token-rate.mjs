@@ -11,6 +11,28 @@ t.begin(0);
 check("a trivial reply is not sampled", t.end(10, 3) === undefined, "3 tokens times its own scheduling, not the model");
 check("end without begin is safe", t.end(1000, 50) === undefined);
 
+// --- prefill is excluded from the decode rate -----------------------------
+// The whole point: a blended number cannot distinguish "deep context" from
+// "the prefix cache missed", and those have opposite fixes.
+const sp = new RateTracker();
+sp.begin(0);
+sp.firstToken(9000);          // 9s of prompt processing
+const decode = sp.end(10000, 40);   // then 40 tokens in 1s
+check("decode excludes the wait for the first token", Math.round(decode) === 40,
+  `40 tok/s decoding, not the 4 tok/s a blended window would report`);
+check("the prefill wait is reported separately", Math.round(sp.prefillSeconds()) === 9, `${sp.prefillSeconds()}s`);
+
+const noStream = new RateTracker();
+noStream.begin(0);
+const blended = noStream.end(1000, 20);   // never streamed text
+check("with no streamed token, the whole window counts as decode", Math.round(blended) === 20,
+  "no boundary is invented when none was observed");
+
+const late = new RateTracker();
+late.begin(0);
+late.firstToken(500); late.firstToken(800);   // only the first one counts
+check("only the first streamed token sets the boundary", Math.round(late.end(1500, 10)) === 10, "boundary stays at 500ms");
+
 // Token-weighted, so one short fast reply cannot skew the picture.
 const w = new RateTracker();
 w.begin(0); w.end(1000, 10);      // 10 tok/s
