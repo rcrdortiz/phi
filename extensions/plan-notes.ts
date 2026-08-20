@@ -253,6 +253,10 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		// Compaction is the reachable equivalent, and the before_agent_start
 		// briefing re-establishes the plan either way.
 		const started = requestCompaction(ctx, `Step ${reset.index} finished`, {
+			// A step boundary is a semantic trigger, not a size one, and it fires
+			// mid-run where pi does not act at all. Standing down here is how a
+			// finished step carries its whole context into the next one.
+			force: true,
 			instructions:
 				`The next step is: ${reset.text}. Keep only what that step needs — ` +
 				`decisions, constraints and the state of the code. Drop the narrative of how the previous step went.`,

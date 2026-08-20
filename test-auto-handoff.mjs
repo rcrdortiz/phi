@@ -19,7 +19,7 @@ mod({
 const ctx = {
   cwd: DIR,
   ui: { notify: (t) => notes.push(t) },
-  getContextUsage: () => ({ tokens: 40_000, contextWindow: 65_536, percent: 61 }),
+  getContextUsage: () => ({ tokens: 9_000, contextWindow: 65_536, percent: 14 }),
   compact: (o) => { compactCalls++; o.onComplete?.({ summary: "state summary", tokensBefore: 40_000 }); },
 };
 
@@ -32,13 +32,13 @@ check("hooks turn_end as a mid-run watchdog", typeof handlers["turn_end"] === "f
 // It must stay quiet well below pi's trigger, so it does not pre-empt pi
 // between runs, where pi genuinely does act.
 compactCalls = 0;
-await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: 20_000, contextWindow: 65_536 }) });
-check("the watchdog stays quiet below the trigger", compactCalls === 0, "20k of 64k");
+await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: 9_000, contextWindow: 65_536 }) });
+check("the watchdog stays quiet below the trigger", compactCalls === 0, "9k, under the 12k knee");
 
 resetCompactionState();
 compactCalls = 0;
-await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: 63_000, contextWindow: 65_536 }) });
-check("the watchdog fires above the trigger", compactCalls === 1, "96% of 64k, mid-run");
+await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: 20_000, contextWindow: 65_536 }) });
+check("the watchdog fires past the knee", compactCalls === 1, "20k — decode is a third of peak there");
 
 // 2. pi's own compaction still lands on disk.
 await handlers["session_compact"]({ compactionEntry: { summary: "pi's summary", tokensBefore: 54_784 } }, ctx);
@@ -56,7 +56,7 @@ check("/handoff writes its own summary", /state summary/.test(fs.readFileSync(hp
 // 4. /context reports pi's trigger, not ours.
 notes.length = 0;
 await handlers["/context"]("", ctx);
-check("/context reports pi's compaction point", /pi compacts above 75%/.test(notes.join(" ")), notes.join(" ").split("\n")[1]);
+check("/context reports pi's compaction point", /pi compacts above 18%/.test(notes.join(" ")), notes.join(" ").split("\n")[1]);
 
 fs.rmSync(DIR, { recursive: true, force: true });
 const failed = results.filter((r) => !r).length;

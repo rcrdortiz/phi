@@ -34,22 +34,68 @@
 const RESERVE_FRACTION = 0.25;
 const KEEP_RECENT_FRACTION = 0.3;
 
+/**
+ * Compact at a DEPTH, not at a share of the window.
+ *
+ * Decode speed on qwen3.8-4MLX, measured cold on an idle machine:
+ *
+ *      28 tok  47.2 tok/s  100%
+ *   4,471      45.1         96%
+ *   8,911      39.2         83%
+ *  17,802      17.1         36%
+ *  35,582      19.3         41%
+ *  53,362      15.1         32%
+ *
+ * The cliff is between 9K and 18K, and past it the model runs at roughly a
+ * third of its speed for the rest of the session. A trigger set as a fraction
+ * of the window put compaction at 49,152 tokens on a 64K window — the slowest
+ * end of that table, reached long after the damage was done.
+ *
+ * The window and the working depth are different things. The window is a
+ * ceiling that stops a hard overflow, and it is nearly free when unused because
+ * the MLX runner allocates its cache lazily. The trigger is what decides how
+ * fast the model actually runs, so it belongs at the knee regardless of how
+ * large the ceiling is.
+ *
+ * Compacting more often is not a straight cost. It invalidates the prefix cache
+ * and re-prefills what is kept (~6K tokens at ~200 tok/s, about 30s), against
+ * ~14s saved on every 500-token turn by running at 42 instead of 19 tok/s. It
+ * pays back within a handful of turns.
+ */
+const SPEED_KNEE = 12000;
+
 function fromEnvOr(name: string, contextWindow: number, fraction: number): number {
 	const raw = Number(process.env[name]);
 	if (Number.isFinite(raw) && raw > 0) return raw;
 	return Math.round(contextWindow * fraction);
 }
 
+/** The depth at which compaction should fire. Env: PI_COMPACT_AT_TOKENS. */
+export function compactAtTokens(contextWindow: number): number {
+	const raw = Number(process.env.PI_COMPACT_AT_TOKENS);
+	if (Number.isFinite(raw) && raw > 0) return raw;
+	// Never above the window's own 75% mark: on a small window the knee may sit
+	// past the point where pi would have compacted anyway.
+	return Math.min(Math.round(contextWindow * (1 - RESERVE_FRACTION)), SPEED_KNEE);
+}
+
 /** pi compacts above contextWindow - this. Env: PI_RESERVE_TOKENS. */
 export function reserveTokens(contextWindow: number): number {
-	return fromEnvOr("PI_RESERVE_TOKENS", contextWindow, RESERVE_FRACTION);
+	const raw = Number(process.env.PI_RESERVE_TOKENS);
+	if (Number.isFinite(raw) && raw > 0) return raw;
+	return contextWindow - compactAtTokens(contextWindow);
 }
 
 /** pi keeps this much recent conversation; below it there is nothing older to
  *  summarise, and a request returns "Nothing to compact (session too small)".
  *  Env: PI_KEEP_RECENT_TOKENS. */
 export function keepRecentTokens(contextWindow: number): number {
-	return fromEnvOr("PI_KEEP_RECENT_TOKENS", contextWindow, KEEP_RECENT_FRACTION);
+	const raw = Number(process.env.PI_KEEP_RECENT_TOKENS);
+	if (Number.isFinite(raw) && raw > 0) return raw;
+	// Derived from the TRIGGER, not the window. Deriving it from the window is
+	// how it ends up larger than the trigger itself, at which point there is
+	// never anything older to summarise and compaction silently stops happening.
+	return Math.round(compactAtTokens(contextWindow) * KEEP_RECENT_FRACTION * (1 / 0.6));
 }
 
 export interface CompactableContext {
@@ -185,8 +231,14 @@ export function requestCompaction(
 			baselineStale = false;
 			return false;
 		}
-		// pi has taken over: it is compacting, about to, or in overflow recovery.
-		// Not true mid-run, which is what `force` is for.
+		// Past the window entirely, pi really has taken over: it is in overflow
+		// recovery, which owns the session until it finishes. `force` does not
+		// apply here — this is the one case where standing down is correct
+		// whoever is asking, and asking anyway is what produced "This operation
+		// was aborted" followed by a failed compaction.
+		if (usage.tokens >= usage.contextWindow) return false;
+		// Past the trigger, pi will act at agent_end — but not during a run, and
+		// not for an explicit request. That is what `force` is for.
 		if (!options.force && usage.tokens >= usage.contextWindow - reserveTokens(usage.contextWindow))
 			return false;
 		// Nothing has accumulated since the last compaction that pi would not

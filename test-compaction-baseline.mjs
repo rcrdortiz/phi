@@ -37,8 +37,11 @@ tokens = 21700;                                   // the size from the failing s
 check("a large TOTAL is not enough on its own", requestCompaction(ctx, "x") === false,
   `${tokens} total, but only ${tokens - 16000} since the last compaction (needs > ${Math.round(KEEP * 1.1)})`);
 
+// Past the trigger an unforced request stands down for pi, so this exercises
+// the baseline arithmetic through the watchdog's path, which is the caller that
+// actually reaches it at this depth.
 tokens = 16000 + Math.round(KEEP * 1.3);
-check("enough NEW content does compact", requestCompaction(ctx, "x") === true,
+check("enough NEW content does compact", requestCompaction(ctx, "x", { force: true }) === true,
   `${tokens - 16000} tokens since the last compaction`);
 
 // Failure must not strand an unattended run.

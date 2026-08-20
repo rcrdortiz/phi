@@ -48,6 +48,23 @@ That last row is the design constraint. `memory-guard` refuses to start below
 swapping, and a swapping local model does not fail — it slows to nothing while
 looking like it is still thinking.
 
+**Speed depends on how full the context is, not how big it can get.** Measured
+cold on an idle machine:
+
+| depth | decode | |
+|---|---|---|
+| ~0 | 47 tok/s | 100% |
+| 4.5K | 45 tok/s | 96% |
+| 9K | 39 tok/s | 83% |
+| 18K | 17 tok/s | 36% |
+| 53K | 15 tok/s | 32% |
+
+The cliff sits between 9K and 18K, and past it the model stays at about a third
+of its speed for the rest of the session. So the 64K window is a *ceiling* — it
+stops a hard overflow and costs almost nothing unused — while **compaction fires
+at 12K**, which is what keeps the model in the fast band. Raise the ceiling
+freely; raise `PI_COMPACT_AT_TOKENS` only if you are willing to pay for it.
+
 **Thinking is set to `high` by default, and that is the recommendation.** On a
 27B at 4-bit the thinking pass is where the quality comes from, and this setup
 assumes a model working alongside you rather than racing you. `Shift+Tab` lowers
@@ -95,6 +112,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_TOOL_BUDGET_BASH_FRACTION` | `0.04` | the same, for bash |
 | `PI_VIEW_MAX_LINES` | `400` | cap on one `view_lines` call |
 | `PI_NOTE_MAX_CHARS` | `350` | cap on one note |
+| `PI_COMPACT_AT_TOKENS` | `12000` | depth at which context is compacted |
 | `PI_PLAN_KEEP_DONE` | `3` | completed steps kept in the plan |
 | `PI_PLAN_AUTOCONTINUE` | `1` | run steps unattended |
 | `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |

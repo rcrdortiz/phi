@@ -25,7 +25,7 @@ let compactCalls = 0, notes = [], completeFns = [];
 const ctx = {
   cwd: DIR,
   ui: { notify: (t) => notes.push(t) },
-  getContextUsage: () => ({ tokens: 40_000, contextWindow: 65_536, percent: 61 }),
+  getContextUsage: () => ({ tokens: 9_000, contextWindow: 65_536, percent: 14 }),
   compact: (o) => { compactCalls++; completeFns.push(o.onComplete); },   // stays in flight
 };
 
@@ -68,15 +68,16 @@ check("cooldown prevents an immediate follow-up", compactCalls === 0, `calls=${c
   await tools.plan_write.execute("5", { goal: "g", steps: ["five", "six"] }, undefined, undefined, overflowing);
   await tools.plan_next.execute("6", {}, undefined, undefined, overflowing);
   await planH["turn_end"]({}, overflowing);
-  check("stands down when pi has already taken over", compactCalls === 0, `calls=${compactCalls}`);
+  check("stands down when pi has already taken over", compactCalls === 0,
+    `calls=${compactCalls} — past the window, pi owns overflow recovery, and force does not override that`);
 
-  // Just below the trigger, we still act.
+  // Below the window, a step boundary forces: pi does not act mid-run.
   resetCompactionState();
-  const roomy = { ...ctx, getContextUsage: () => ({ tokens: 40_000, contextWindow: 65_536, percent: 61 }) };
+  const roomy = { ...ctx, getContextUsage: () => ({ tokens: 9_000, contextWindow: 65_536, percent: 14 }) };
   await tools.plan_write.execute("7", { goal: "g", steps: ["seven", "eight"] }, undefined, undefined, roomy);
   await tools.plan_next.execute("8", {}, undefined, undefined, roomy);
   await planH["turn_end"]({}, roomy);
-  check("still compacts when there is room below pi's trigger", compactCalls === 1, `calls=${compactCalls}`);
+  check("a step boundary compacts below the window", compactCalls === 1, `calls=${compactCalls}`);
 }
 
 // 6. A short task has nothing to compact — asking produces an error for a
@@ -84,7 +85,7 @@ check("cooldown prevents an immediate follow-up", compactCalls === 0, `calls=${c
 {
   resetCompactionState();
   compactCalls = 0;
-  const small = { ...ctx, getContextUsage: () => ({ tokens: 12_000, contextWindow: 65_536, percent: 18 }) };
+  const small = { ...ctx, getContextUsage: () => ({ tokens: 4_000, contextWindow: 65_536, percent: 6 }) };
   await tools.plan_write.execute("9", { goal: "g", steps: ["nine", "ten"] }, undefined, undefined, small);
   await tools.plan_next.execute("10", {}, undefined, undefined, small);
   notes = [];

@@ -100,6 +100,9 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			const c = ctx as unknown as ExtensionContext;
 			const started = requestCompaction(c, "Handoff requested", {
+				// Explicit: the user asked. The high-water guard exists to stop the
+				// SIZE-based watchdog racing pi, not to overrule a direct request.
+				force: true,
 				instructions: INSTRUCTIONS,
 				onSummary: (summary, tokensBefore) => writeHandoff(c.cwd, summary, tokensBefore, "requested"),
 			});
