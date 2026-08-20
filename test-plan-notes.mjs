@@ -6,7 +6,13 @@ import { resetCompactionState } from "/Users/rcrd/AI/pi-local/lib/compaction.ts"
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "plan-"));
 const tools = {}; const handlers = {};
-mod({ registerTool: (t) => (tools[t.name] = t), registerCommand: () => {}, on: (e, h) => (handlers[e] = h) });
+const sentMessages = [];
+mod({
+  registerTool: (t) => (tools[t.name] = t),
+  registerCommand: () => {},
+  on: (e, h) => (handlers[e] = h),
+  sendUserMessage: (m) => sentMessages.push(m),   // plan_next auto-continues
+});
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };

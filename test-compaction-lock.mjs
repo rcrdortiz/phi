@@ -13,7 +13,12 @@ const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
 
 const tools = {}, planH = {}, handoffH = {};
-planNotes({ registerTool: (t) => (tools[t.name] = t), registerCommand: () => {}, on: (e, h) => (planH[e] = h) });
+planNotes({
+  registerTool: (t) => (tools[t.name] = t),
+  registerCommand: () => {},
+  on: (e, h) => (planH[e] = h),
+  sendUserMessage: () => {},                       // auto-continue is not what this suite tests
+});
 autoHandoff({ registerTool: () => {}, registerCommand: (n, o) => (handoffH["/" + n] = o.handler), on: (e, h) => (handoffH[e] = h) });
 
 let compactCalls = 0, notes = [], completeFns = [];
