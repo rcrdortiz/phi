@@ -17,11 +17,40 @@
  * so everything automatic compacts instead.
  */
 
-/** pi's own reserve: it compacts above contextWindow - RESERVE. */
-const RESERVE = Number(process.env.PI_RESERVE_TOKENS ?? 16384);
+/**
+ * pi's compaction numbers, mirrored from settings.json `compaction`.
+ *
+ * These are FRACTIONS of the context window, not fixed token counts, and that
+ * is the whole point. pi's defaults (16384 reserve, 20000 keepRecent) are sized
+ * for a 128K+ window. Drop the window to 32K and they stop making sense:
+ * the reserve becomes 50% of the window, and keepRecent (20000) lands ABOVE the
+ * compaction trigger (32768 - 16384 = 16384). Every branch below then returns
+ * false, so extension-initiated compaction silently stops happening at exactly
+ * the window size where it matters most.
+ *
+ * Deriving from the window means changing num_ctx does not require remembering
+ * to change two more numbers somewhere else.
+ */
+const RESERVE_FRACTION = 0.25;
+const KEEP_RECENT_FRACTION = 0.3;
+
+function fromEnvOr(name: string, contextWindow: number, fraction: number): number {
+	const raw = Number(process.env[name]);
+	if (Number.isFinite(raw) && raw > 0) return raw;
+	return Math.round(contextWindow * fraction);
+}
+
+/** pi compacts above contextWindow - this. Env: PI_RESERVE_TOKENS. */
+export function reserveTokens(contextWindow: number): number {
+	return fromEnvOr("PI_RESERVE_TOKENS", contextWindow, RESERVE_FRACTION);
+}
+
 /** pi keeps this much recent conversation; below it there is nothing older to
- *  summarise, and a request returns "Nothing to compact (session too small)". */
-const KEEP_RECENT = Number(process.env.PI_KEEP_RECENT_TOKENS ?? 20000);
+ *  summarise, and a request returns "Nothing to compact (session too small)".
+ *  Env: PI_KEEP_RECENT_TOKENS. */
+export function keepRecentTokens(contextWindow: number): number {
+	return fromEnvOr("PI_KEEP_RECENT_TOKENS", contextWindow, KEEP_RECENT_FRACTION);
+}
 
 export interface CompactableContext {
 	getContextUsage?: () => { tokens: number | null; contextWindow: number } | undefined;
@@ -107,10 +136,10 @@ export function requestCompaction(
 	const usage = ctx.getContextUsage?.();
 	if (usage?.tokens && usage.contextWindow) {
 		// pi has taken over: it is compacting, about to, or in overflow recovery.
-		if (usage.tokens >= usage.contextWindow - RESERVE) return false;
+		if (usage.tokens >= usage.contextWindow - reserveTokens(usage.contextWindow)) return false;
 		// Too small to have anything to compact. A short task genuinely does not
 		// need one, and asking produces an error for a session that is fine.
-		if (usage.tokens <= KEEP_RECENT * 1.2) return false;
+		if (usage.tokens <= keepRecentTokens(usage.contextWindow) * 1.2) return false;
 	}
 
 	inFlight = true;

@@ -3,8 +3,8 @@
  *
  * This extension used to run its own threshold-based compaction. It no longer
  * does, and the reason is worth keeping: pi already compacts automatically
- * above `contextWindow - reserveTokens` (16384 by default — 75% of a 64K
- * window). A second mechanism watching the same number can only be early or
+ * above `contextWindow - reserveTokens` (25% of the window, so it triggers at
+ * 75% whatever the window is). A second mechanism watching the same number can only be early or
  * late, and in practice it was late: every request arrived after pi's and came
  * back as `Compaction failed: Already compacted`, alongside `This operation was
  * aborted` and `Nothing to compact (session too small)`.
@@ -20,16 +20,16 @@
  * `.pi/HANDOFF.md` so it survives the session, whoever triggered it.
  *
  * Env: PI_HANDOFF_FILE=.pi/HANDOFF.md
- *      PI_RESERVE_TOKENS=16384  pi's reserve, if you have changed it
+ *      PI_RESERVE_TOKENS       pi's reserve, if you have overridden it;
+ *                              otherwise 25% of the context window
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { requestCompaction, trackExternalCompactions } from "../lib/compaction.ts";
+import { requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
 
 const HANDOFF_FILE = process.env.PI_HANDOFF_FILE || ".pi/HANDOFF.md";
-const RESERVE = Number(process.env.PI_RESERVE_TOKENS ?? 16384);
 
 const INSTRUCTIONS = [
 	"Summarise the work so far as state, not narrative, for a session that can see the repo but none of this conversation.",
@@ -86,8 +86,9 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 				return;
 			}
 			const pct = u.percent ?? (u.tokens / u.contextWindow) * 100;
-			const trigger = ((u.contextWindow - RESERVE) / u.contextWindow) * 100;
-			const room = Math.max(0, u.contextWindow - RESERVE - u.tokens);
+			const reserve = reserveTokens(u.contextWindow);
+			const trigger = ((u.contextWindow - reserve) / u.contextWindow) * 100;
+			const room = Math.max(0, u.contextWindow - reserve - u.tokens);
 			ctx.ui.notify(
 				[
 					`${u.tokens.toLocaleString()} / ${u.contextWindow.toLocaleString()} tokens (${pct.toFixed(0)}%)`,
