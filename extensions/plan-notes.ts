@@ -7,6 +7,8 @@
  *
  *   PLAN.md   ordered checklist of steps, one in progress at a time
  *   NOTES.md  durable findings (technical / product / design / gotcha)
+ *   PLAN-DONE.md  completed steps, archived out of the plan once there are
+ *             more than three, so the plan stays a list of what is LEFT
  *
  * The agent then works one step at a time, and `plan_next` starts a FRESH
  * session seeded only with the plan and the notes. Context returns to its
@@ -26,6 +28,10 @@ import * as path from "node:path";
 // so working files never land in the repo root.
 const PLAN_FILE = process.env.PI_PLAN_FILE || ".pi/PLAN.md";
 const NOTES_FILE = process.env.PI_NOTES_FILE || ".pi/NOTES.md";
+// Completed steps move here once there are more than KEEP_DONE of them. The
+// plan is a working document about what is LEFT; the archive is the record.
+const DONE_FILE = process.env.PI_PLAN_DONE_FILE || ".pi/PLAN-DONE.md";
+const KEEP_DONE = Number(process.env.PI_PLAN_KEEP_DONE ?? 3);
 
 const CATEGORIES = ["technical", "product", "design", "gotcha", "decision"] as const;
 
@@ -45,6 +51,9 @@ function planPath(ctx: { cwd: string }) {
 }
 function notesPath(ctx: { cwd: string }) {
 	return path.join(ctx.cwd, NOTES_FILE);
+}
+function donePath(ctx: { cwd: string }) {
+	return path.join(ctx.cwd, DONE_FILE);
 }
 
 function readFileSafe(p: string): string {
@@ -73,6 +82,55 @@ function parsePlan(text: string): Step[] {
 function renderPlan(goal: string, steps: Step[]): string {
 	const body = steps.map((s) => `- [${s.done ? "x" : " "}] ${s.text}`).join("\n");
 	return `# Plan\n\n${goal ? `**Goal:** ${goal}\n\n` : ""}${body}\n`;
+}
+
+/**
+ * Move all but the most recent KEEP_DONE completed steps into the archive.
+ *
+ * A finished step costs context twice, and the second one is the expensive one.
+ * On disk it is a line in PLAN.md, which is minor. But `briefing()` seeds every
+ * fresh session with the completed list AND each step's summary, so a 40-step
+ * plan means every context reset starts by re-reading 37 things nobody is going
+ * to do again. That is the opposite of what plan_next exists for.
+ *
+ * Three are kept because the immediate past is genuinely load-bearing: it is how
+ * the model knows what it just did and why the current step follows from it.
+ * Beyond that it is history, and history belongs in a file you open on purpose.
+ *
+ * Returns the steps the plan should now contain.
+ */
+function archiveCompleted(ctx: { cwd: string }, steps: Step[]): Step[] {
+	const done = steps.filter((s) => s.done);
+	if (done.length <= KEEP_DONE) return steps;
+
+	const overflow = done.slice(0, done.length - KEEP_DONE);
+	const keep = new Set(done.slice(done.length - KEEP_DONE));
+
+	const p = donePath(ctx);
+	const existing = readFileSafe(p);
+	// Match on the step text before its " — summary", so re-archiving after a
+	// plan revision does not append the same step twice under new wording.
+	const key = (t: string) => t.split(" \u2014 ")[0].trim().toLowerCase().replace(/\s+/g, " ");
+	const already = new Set(
+		existing
+			.split("\n")
+			.map((l) => /^\s*-\s*(?:\[[xX ]\]\s*)?(.+?)\s*$/.exec(l)?.[1])
+			.filter((t): t is string => Boolean(t))
+			.map(key),
+	);
+	const fresh = overflow.filter((st) => !already.has(key(st.text)));
+	if (fresh.length) {
+		const header = existing.trim() ? "" : `# Completed\n\n_Archived from ${PLAN_FILE}. Read this when replanning._\n\n`;
+		writeFileSafe(p, `${existing.replace(/\s*$/, "")}${existing.trim() ? "\n" : ""}${header}${fresh.map((st) => `- ${st.text}`).join("\n")}\n`);
+	}
+	return steps.filter((st) => !st.done || keep.has(st));
+}
+
+/** How many steps are already in the archive, for the briefing and status. */
+function archivedCount(ctx: { cwd: string }): number {
+	return readFileSafe(donePath(ctx))
+		.split("\n")
+		.filter((l) => /^\s*-\s+\S/.test(l)).length;
 }
 
 function planGoal(text: string): string {
@@ -114,10 +172,14 @@ function briefing(ctx: { cwd: string }): string {
 
 	if (!step) return "";
 	const remaining = steps.filter((s) => !s.done).length;
+	// Only the recent past is seeded. Everything older is in the archive, which
+	// is named here so the model can open it deliberately when replanning
+	// instead of being handed it on every single context reset.
 	const doneList = steps
 		.filter((s) => s.done)
 		.map((s) => `- ${s.text}`)
 		.join("\n");
+	const archived = archivedCount(ctx);
 
 	return [
 		`## Current work (from ${PLAN_FILE})`,
@@ -126,7 +188,8 @@ function briefing(ctx: { cwd: string }): string {
 		`**Step ${index + 1} of ${steps.length} — do only this one:**`,
 		step.text,
 		"",
-		doneList ? `Already done:\n${doneList}` : "",
+		doneList ? `Recently done:\n${doneList}` : "",
+		archived ? `(${archived} earlier step(s) archived in ${DONE_FILE} — read it before revising the plan.)` : "",
 		"",
 		notes ? `## Findings so far (from ${NOTES_FILE})\n${notes}` : "",
 		"",
@@ -220,6 +283,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			`Use plan_write before starting multi-step work, so progress survives a context reset.`,
 			`Keep each step small enough to finish and verify on its own.`,
 			`If the agreed direction changes, call plan_write again with the revised steps BEFORE continuing — never keep working against a plan that no longer matches what was agreed.`,
+			`Completed steps beyond the most recent three live in ${DONE_FILE}. Read it before rewriting a plan, so finished work is not scheduled again.`,
 			`Steps that still apply should be repeated verbatim in the revision; their completed state is preserved automatically.`,
 		],
 		parameters: Type.Object({
@@ -237,8 +301,8 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			// defeats the point of plan_next, which exists so the agent can run
 			// unattended across context resets: a confirm that nobody is sitting
 			// there to answer stalls the run until it times out. And the failure
-			// it guarded against is cheap to undo, because the plan is a file in
-			// the repo.
+			// it guarded against is cheap to undo, because dropped completed
+			// steps are in the archive and the plan itself is a file in the repo.
 			//
 			// The change is still announced, so it stays visible without being
 			// blocking. Silence would be the actual problem, not the absence of
@@ -265,7 +329,8 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 				// summary — the revision should not erase what was recorded.
 				return prior ? { done: true, text: prior } : { done: false, text: t };
 			});
-			writeFileSafe(planPath(ctx), renderPlan(params.goal, steps));
+			const kept = archiveCompleted(ctx, steps);
+			writeFileSafe(planPath(ctx), renderPlan(params.goal, kept));
 			return {
 				content: [
 					{
@@ -339,12 +404,14 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 				content: [
 					{
 						type: "text",
-						text: step
-							? `Step ${index + 1}/${steps.length}: ${step.text}`
-							: `All ${steps.length} steps are done.`,
+						text:
+							(step
+								? `Step ${index + 1}/${steps.length}: ${step.text}`
+								: `All ${steps.length} steps are done.`) +
+							(archivedCount(ctx) ? ` (${archivedCount(ctx)} earlier step(s) in ${DONE_FILE})` : ""),
 					},
 				],
-				details: { total: steps.length, current: index },
+				details: { total: steps.length, current: index, archived: archivedCount(ctx) },
 			};
 		},
 	});
@@ -382,7 +449,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 				done: true,
 				text: params.summary ? `${step.text} — ${params.summary}` : step.text,
 			};
-			writeFileSafe(p, renderPlan(planGoal(text), steps));
+			writeFileSafe(p, renderPlan(planGoal(text), archiveCompleted(ctx, steps)));
 
 			const next = currentStep(steps);
 			if (!next.step) {
@@ -447,7 +514,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 				return;
 			}
 			steps[index] = { done: true, text: step.text };
-			writeFileSafe(p, renderPlan(planGoal(text), steps));
+			writeFileSafe(p, renderPlan(planGoal(text), archiveCompleted(ctx, steps)));
 			const next = currentStep(steps);
 			if (!next.step) {
 				ctx.ui.notify("Plan complete.", "info");
