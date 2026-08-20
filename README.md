@@ -62,13 +62,13 @@ There are two Qwen3.8 builds here and the choice between them is not really
 about quality. It is about whether this machine has a second job.
 
 **`qwen3.8-4MLX` (18 GB, 4-bit) is the default because it shares.** Weights
-plus a full 64K KV cache still leave a working desktop's worth of memory free,
-so you can run a session without closing anything first. You give up some
+plus a full 50K KV cache come to ~24.9 GB, leaving ~23 GB of a 48 GB machine
+for the desktop, so you can run a session without closing anything first. You give up some
 accuracy against the 8-bit build. In return the agent is something you leave
 running next to your work rather than an errand you make room for.
 
 **`qwen3.8-8MLX` (31 GB, 8-bit) is for when the machine has nothing else to
-do.** Weights plus a full 64K cache come to roughly 44 GB, against a 39 GB GPU
+do.** Weights plus a full 50K cache come to roughly 37.5 GB, against a 40 GB GPU
 wired limit and 48 GB installed. There is no room left for a desktop, and that
 is fine if there is no desktop: a dedicated AI box, a spare Mac, a mini you
 have SSHed into. Quality becomes the only axis worth optimising, so take it.
@@ -313,7 +313,7 @@ Run `node --experimental-strip-types test-smart-edit.mjs` to exercise it.
 ### `auto-handoff.ts` — record compactions, do not compete for them
 
 pi already compacts automatically above `contextWindow - reserveTokens`
-(16384 — 75% of a 64K window). This extension used to run its own
+(25% of the window, so it triggers at 75% whatever the window is). This extension used to run its own
 threshold-based compaction on top, which produced nothing but collisions:
 
 ```
@@ -331,8 +331,8 @@ was late — pi always got there first. That logic is gone. What remains:
 | plan step finished | `plan-notes` | meaning — a boundary pi cannot see |
 | `/handoff` | you | when you want it |
 
-Our compactions only run in the band where they are useful, derived from pi's
-own settings — for a 64K window, **between ~24,000 and ~49,152 tokens**:
+Our compactions only run in the band where they are useful, derived from the
+context window — for a 50K window, **between ~18,400 and ~38,400 tokens**:
 
 - **below** `keepRecentTokens × 1.2` there is nothing older to summarise, and
   asking returns `Nothing to compact (session too small)` — a short task simply
@@ -347,4 +347,99 @@ Every compaction, whoever caused it, is written to `.pi/HANDOFF.md` so the
 summary survives the session. `/context` shows usage and how much room is left
 before pi compacts.
 
+### `tool-budget.ts` — cap one tool result, save the session
 
+Context in a coding session is not conversation, it is tool output. Measured on
+a real 1 MB transcript that died of context overflow:
+
+| source | share of context |
+|---|---|
+| tool results | **88.6%** |
+| assistant text | 11.3% |
+| user text | 0.1% |
+| **images** | **0.0%** (one image, in the whole session) |
+
+Broken down by tool, `view_lines` alone was 54.1% and `read` another 14.8%.
+
+The session was killed by a single call:
+
+```
+view_lines {file: "pang.js", offset: "630", limit: "120", end_line: 710}
+```
+
+It asked for lines 630-710 and received lines **1-710**: ~36,000 characters where
+3,870 were wanted, roughly 10,000 tokens in a single result. `offset`/`limit` are
+the built-in read tool's parameter names, so `view_lines` dropped them, and
+`start_line ?? 1` then defaulted to the top of the file. Fixed at the source in
+`lib/read-lean.ts`; `tool-budget` remains the backstop for everything else.
+
+A cap is the fix rather than better tools because of *when* pi checks: auto
+compaction is evaluated at `agent_end`, after results are already in context. By
+the time anything can react, the oversized result has landed. That is how usage
+reached 163% of a 66K window, leaving compaction no exit but a full re-prefill it
+could not finish before the client timed out.
+
+So each result gets 10% of the window (~18,400 chars at 50K). Over that, the
+middle is dropped and the head and tail are kept, with a marker saying how much
+went and that it is a display limit rather than the end of the file, so the model
+narrows its range instead of concluding the file ends there.
+
+**On images, the intuition most people have is wrong.** Token cost is ~1015
+pixels per token and is completely independent of file size and format. Measured
+on `qwen3.8-4MLX`, the same 800px image costs **477 tokens as a 353 KB PNG and
+477 tokens as a 27 KB JPEG**. Compressing an image saves no context whatsoever.
+Only downscaling does:
+
+| capture | tokens | % of 50K |
+|---|---|---|
+| 3024x1964 (full retina) | 5,736 | 11.2% |
+| 2000x1299 (pi's built-in cap) | 2,560 | 5.0% |
+| 1024x665 | ~670 | 1.3% |
+
+Hence `PI_TOOL_BUDGET_IMAGE_PX` (default 1024) caps the *longest edge*, not the
+byte count. JPEG is used for the re-encode only to shrink the payload on the
+wire; it buys nothing in context.
+
+| env | default | |
+|---|---|---|
+| `PI_TOOL_BUDGET_FRACTION` | `0.10` | share of the window per result |
+| `PI_TOOL_BUDGET_MIN_CHARS` | `4000` | floor for small windows |
+| `PI_TOOL_BUDGET_IMAGE_PX` | `1024` | longest edge for images |
+| `PI_TOOL_BUDGET` | | `0` disables it |
+
+`/budget` shows the current limit.
+
+### `read-lean.ts` — reading without paying for the whole file
+
+`view_lines` was 54.1% of everything in the context of the session that died.
+Two separate causes, both fixed here.
+
+**An absent `start_line` meant "from line 1".** The fatal call asked for lines
+630-710 and got 1-710. `offset` and `limit` are the *built-in* read tool's
+parameter names, so typebox dropped them, and the `?? 1` default did the rest.
+Blaming the model does not help: both tools exist, both read lines, and it will
+keep confusing them. So `offset`/`limit` are now accepted as aliases, quoted
+numbers are coerced, the span is capped at `PI_VIEW_MAX_LINES` (400), and an end
+with no start is **the window ending there**, never the whole file above it.
+
+The principle is that an ambiguous request should fail *small*. Defaulting a
+missing start to line 1 does the opposite: it turns the smallest possible typo
+into the largest possible result.
+
+Every adjustment is reported back in the result:
+
+```
+pang.js (1036 lines) showing 630-749
+[view_lines] `offset` was read as `start_line`; `limit` was read as a line count
+```
+
+Without that line the model cannot tell it got a different range than it asked
+for, and concludes the file ends where the output does.
+
+**Reading is the wrong way to *find* something.** Most of those 30 calls were
+orientation — "where is the render function" — answered by reading hundreds of
+lines. `outline` answers it with one line per declaration: for `pang.js`, 79
+declarations in 3,943 characters against 46,290 for the file, **12x cheaper**.
+The model then views the 30 lines it actually wants. Supports js/ts, python,
+php, go/rust, css and markdown, and returns nothing for file types it has no
+rule for, so the fallback is a normal read rather than a misleading empty list.
