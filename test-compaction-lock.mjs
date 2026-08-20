@@ -25,7 +25,7 @@ let compactCalls = 0, notes = [], completeFns = [];
 const ctx = {
   cwd: DIR,
   ui: { notify: (t) => notes.push(t) },
-  getContextUsage: () => ({ tokens: 9_000, contextWindow: 65_536, percent: 14 }),
+  getContextUsage: () => ({ tokens: 40_000, contextWindow: 65_536, percent: 61 }),
   compact: (o) => { compactCalls++; completeFns.push(o.onComplete); },   // stays in flight
 };
 
@@ -73,7 +73,7 @@ check("cooldown prevents an immediate follow-up", compactCalls === 0, `calls=${c
 
   // Below the window, a step boundary forces: pi does not act mid-run.
   resetCompactionState();
-  const roomy = { ...ctx, getContextUsage: () => ({ tokens: 9_000, contextWindow: 65_536, percent: 14 }) };
+  const roomy = { ...ctx, getContextUsage: () => ({ tokens: 40_000, contextWindow: 65_536, percent: 61 }) };
   await tools.plan_write.execute("7", { goal: "g", steps: ["seven", "eight"] }, undefined, undefined, roomy);
   await tools.plan_next.execute("8", {}, undefined, undefined, roomy);
   await planH["turn_end"]({}, roomy);

@@ -21,7 +21,7 @@ fast-forwarding this repo at startup, which needs a real checkout with an
 
 ## What you need
 
-- Apple Silicon, **48 GB minimum**. The model peaks at ~26 GB with a full
+- Apple Silicon, **48 GB minimum**. The model peaks at ~27 GB with a full
   context; below 48 GB there is nothing left for a desktop.
 - Homebrew, node, and Ollama. `install.sh` handles the rest and is safe to
   re-run.
@@ -31,7 +31,7 @@ Ollama's keep-alive. Both survive reboots.
 
 ## The model
 
-One model, `qwen3.8-4MLX` — Qwen3.8 27B at 4-bit MLX, **64K context**.
+One model, `qwen3.8-4MLX` — Qwen3.8 27B at 4-bit MLX, **80K context**.
 
 The size of that window is set by the goal, not by taste. Measured on a clean
 load with nothing else resident:
@@ -39,9 +39,9 @@ load with nothing else resident:
 | | |
 |---|---|
 | weights | 18.49 GB (flat — the MLX runner allocates its cache lazily) |
-| at 2.5K tokens | 18.66 GB |
-| at a full 64K | **25.79 GB** |
-| left for your desktop | **~22 GB** |
+| context cache | ~113 KB per token, measured across the full window |
+| at a full 80K | **~27.3 GB** |
+| left for your desktop | **~21 GB** |
 
 That last row is the design constraint. `memory-guard` refuses to start below
 28 GB free for the same reason: under that, finishing a long session means
@@ -60,10 +60,15 @@ cold on an idle machine:
 | 53K | 15 tok/s | 32% |
 
 The cliff sits between 9K and 18K, and past it the model stays at about a third
-of its speed for the rest of the session. So the 64K window is a *ceiling* — it
-stops a hard overflow and costs almost nothing unused — while **compaction fires
-at 12K**, which is what keeps the model in the fast band. Raise the ceiling
-freely; raise `PI_COMPACT_AT_TOKENS` only if you are willing to pay for it.
+of its speed for the rest of the session. **Compaction fires at 70% of the
+window** (56K of 80K), which favours a long working memory over speed — the
+model spends most of a session past the cliff. Lower `PI_COMPACT_AT_TOKENS` to
+trade window for pace; at ~9K the model runs roughly three times faster.
+
+pi has its own trigger at 75%, deliberately above ours. We check at `turn_end`,
+which fires inside a long run; pi checks at `agent_end`, which does not. Ours
+acting first means pi is only ever the backstop — and matching the two produces
+two compactions, one of which returns "Already compacted".
 
 **Thinking is set to `high` by default, and that is the recommendation.** On a
 27B at 4-bit the thinking pass is where the quality comes from, and this setup
@@ -112,7 +117,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_TOOL_BUDGET_BASH_FRACTION` | `0.04` | the same, for bash |
 | `PI_VIEW_MAX_LINES` | `400` | cap on one `view_lines` call |
 | `PI_NOTE_MAX_CHARS` | `350` | cap on one note |
-| `PI_COMPACT_AT_TOKENS` | `12000` | depth at which context is compacted |
+| `PI_COMPACT_AT_TOKENS` | 70% of window | depth at which context is compacted |
 | `PI_PLAN_KEEP_DONE` | `3` | completed steps kept in the plan |
 | `PI_PLAN_AUTOCONTINUE` | `1` | run steps unattended |
 | `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |

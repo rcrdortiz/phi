@@ -65,7 +65,7 @@ export const MODELS: LocalModel[] = [
 		vision: true,
 		name: "Qwen3.8 27B — 4-bit MLX",
 		reasoning: true,
-		contextWindow: 65536,
+		contextWindow: 81920,
 		maxTokens: 16384,
 		weightsGb: 18,
 		// High by default. On a 27B at 4-bit the thinking pass is where the

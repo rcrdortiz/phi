@@ -31,38 +31,32 @@
  * Deriving from the window means changing num_ctx does not require remembering
  * to change two more numbers somewhere else.
  */
-const RESERVE_FRACTION = 0.25;
 const KEEP_RECENT_FRACTION = 0.35;
 
 /**
- * Compact at a DEPTH, not at a share of the window.
+ * Our watchdog fires BELOW pi's own trigger, and that gap is load-bearing.
  *
- * Decode speed on qwen3.8-4MLX, measured cold on an idle machine:
+ * pi checks at agent_end; we check at turn_end, which also fires inside a long
+ * run. Set both to the same threshold and a turn_end and an agent_end that land
+ * close together produce two compactions: one succeeds and the other returns
+ * "Already compacted", with "This operation was aborted" in front of it. The
+ * shared lock cannot prevent that, because it does not know about pi's.
  *
- *      28 tok  47.2 tok/s  100%
- *   4,471      45.1         96%
- *   8,911      39.2         83%
- *  17,802      17.1         36%
- *  35,582      19.3         41%
- *  53,362      15.1         32%
+ * So we take the lower threshold and act first, and pi becomes the backstop for
+ * the case we cannot see. In a long run the context never reaches pi's mark.
  *
- * The cliff is between 9K and 18K, and past it the model runs at roughly a
- * third of its speed for the rest of the session. A trigger set as a fraction
- * of the window put compaction at 49,152 tokens on a 64K window — the slowest
- * end of that table, reached long after the damage was done.
+ * For reference, decode speed on qwen3.8-4MLX measured cold and idle:
  *
- * The window and the working depth are different things. The window is a
- * ceiling that stops a hard overflow, and it is nearly free when unused because
- * the MLX runner allocates its cache lazily. The trigger is what decides how
- * fast the model actually runs, so it belongs at the knee regardless of how
- * large the ceiling is.
+ *      28 tok  47.2 tok/s      17,802  17.1 tok/s
+ *   4,471      45.1            35,582  19.3
+ *   8,911      39.2            53,362  15.1
  *
- * Compacting more often is not a straight cost. It invalidates the prefix cache
- * and re-prefills what is kept (~6K tokens at ~200 tok/s, about 30s), against
- * ~14s saved on every 500-token turn by running at 42 instead of 19 tok/s. It
- * pays back within a handful of turns.
+ * The cliff is between 9K and 18K. A high trigger buys window at roughly a
+ * third of the speed; that is a real trade, and PI_COMPACT_AT_TOKENS is where
+ * it is made.
  */
-const SPEED_KNEE = 12000;
+const WATCHDOG_FRACTION = 0.7;
+const PI_TRIGGER_FRACTION = 0.75;
 
 function fromEnvOr(name: string, contextWindow: number, fraction: number): number {
 	const raw = Number(process.env[name]);
@@ -74,16 +68,16 @@ function fromEnvOr(name: string, contextWindow: number, fraction: number): numbe
 export function compactAtTokens(contextWindow: number): number {
 	const raw = Number(process.env.PI_COMPACT_AT_TOKENS);
 	if (Number.isFinite(raw) && raw > 0) return raw;
-	// Never above the window's own 75% mark: on a small window the knee may sit
-	// past the point where pi would have compacted anyway.
-	return Math.min(Math.round(contextWindow * (1 - RESERVE_FRACTION)), SPEED_KNEE);
+	return Math.round(contextWindow * WATCHDOG_FRACTION);
 }
 
 /** pi compacts above contextWindow - this. Env: PI_RESERVE_TOKENS. */
 export function reserveTokens(contextWindow: number): number {
 	const raw = Number(process.env.PI_RESERVE_TOKENS);
 	if (Number.isFinite(raw) && raw > 0) return raw;
-	return contextWindow - compactAtTokens(contextWindow);
+	// pi's reserve, deliberately above our own trigger so it only ever acts on
+	// what we missed.
+	return Math.round(contextWindow * (1 - PI_TRIGGER_FRACTION));
 }
 
 /** pi keeps this much recent conversation; below it there is nothing older to

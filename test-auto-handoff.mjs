@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import mod from "/Users/rcrd/AI/pi-local/extensions/auto-handoff.ts";
-import { resetCompactionState } from "/Users/rcrd/AI/pi-local/lib/compaction.ts";
+import { resetCompactionState, compactAtTokens, keepRecentTokens } from "/Users/rcrd/AI/pi-local/lib/compaction.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-"));
 const results = [];
@@ -19,7 +19,9 @@ mod({
 const ctx = {
   cwd: DIR,
   ui: { notify: (t) => notes.push(t) },
-  getContextUsage: () => ({ tokens: 9_000, contextWindow: 65_536, percent: 14 }),
+  // Comfortably past the watchdog trigger and the keepRecent margin, expressed
+  // relative to them so a window change does not silently disarm this test.
+  getContextUsage: () => ({ tokens: Math.round(compactAtTokens(65_536) * 1.1), contextWindow: 65_536 }),
   compact: (o) => { compactCalls++; o.onComplete?.({ summary: "state summary", tokensBefore: 40_000 }); },
 };
 
@@ -32,8 +34,8 @@ check("hooks turn_end as a mid-run watchdog", typeof handlers["turn_end"] === "f
 // It must stay quiet well below pi's trigger, so it does not pre-empt pi
 // between runs, where pi genuinely does act.
 compactCalls = 0;
-await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: 9_000, contextWindow: 65_536 }) });
-check("the watchdog stays quiet below the trigger", compactCalls === 0, "9k, under the 12k knee");
+await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: 20_000, contextWindow: 65_536 }) });
+check("the watchdog stays quiet below its trigger", compactCalls === 0, `20k vs trigger ${compactAtTokens(65_536)}`);
 
 resetCompactionState();
 compactCalls = 0;
@@ -43,8 +45,9 @@ compactCalls = 0;
 // unset and is not how it runs.
 await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: 6_000, contextWindow: 65_536 }) });
 check("the watchdog is quiet while the context is mostly system prompt", compactCalls === 0, "6k floor");
-await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: 20_000, contextWindow: 65_536 }) });
-check("the watchdog fires past the knee", compactCalls === 1, "20k, 14k of it messages");
+const deep = Math.round(compactAtTokens(65_536) * 1.1);
+await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: deep, contextWindow: 65_536 }) });
+check("the watchdog fires past its trigger", compactCalls === 1, `${deep} vs trigger ${compactAtTokens(65_536)}`);
 
 // 2. pi's own compaction still lands on disk.
 await handlers["session_compact"]({ compactionEntry: { summary: "pi's summary", tokensBefore: 54_784 } }, ctx);
@@ -62,7 +65,7 @@ check("/handoff writes its own summary", /state summary/.test(fs.readFileSync(hp
 // 4. /context reports pi's trigger, not ours.
 notes.length = 0;
 await handlers["/context"]("", ctx);
-check("/context reports pi's compaction point", /pi compacts above 18%/.test(notes.join(" ")), notes.join(" ").split("\n")[1]);
+check("/context reports pi's compaction point", /pi compacts above 75%/.test(notes.join(" ")), notes.join(" ").split("\n")[1]);
 
 fs.rmSync(DIR, { recursive: true, force: true });
 const failed = results.filter((r) => !r).length;

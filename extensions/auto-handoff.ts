@@ -27,7 +27,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { compactionBusy, observeContext, requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
+import { compactAtTokens, compactionBusy, observeContext, requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
 
 const HANDOFF_FILE = process.env.PI_HANDOFF_FILE || ".pi/HANDOFF.md";
 
@@ -72,7 +72,7 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 		// Every turn, including the quiet ones: the floor is only observable
 		// while the session is still small.
 		observeContext(u.tokens);
-		const trigger = u.contextWindow - reserveTokens(u.contextWindow);
+		const trigger = compactAtTokens(u.contextWindow);
 		if (u.tokens < trigger) return undefined;
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
 		requestCompaction(c, `Context at ${pct}% mid-run`, {
