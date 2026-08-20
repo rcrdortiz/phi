@@ -185,6 +185,13 @@ back to its ~2K floor at every step boundary. A `before_agent_start` hook
 appends the plan, the current step and the notes to each turn's system prompt,
 which is what makes a wiped context safe.
 
+**Finishing a step continues automatically.** `plan_next` sends the next step
+back to the agent itself, so a plan runs through without you typing "continue"
+after each one. It stops when the plan is finished, and after
+`PI_PLAN_MAX_AUTO` (25) unattended steps it pauses and says so — a model that
+calls `plan_next` without doing the work cannot spin through the whole plan.
+Anything you type resets that allowance. `PI_PLAN_AUTOCONTINUE=0` turns it off.
+
 `plan_next` compacts at the **first turn boundary after the step completes**, not
 when the whole run settles — during a long agentic run the model may work
 through several more steps before settling, which is the context growth the

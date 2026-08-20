@@ -29,6 +29,13 @@ const NOTES_FILE = process.env.PI_NOTES_FILE || ".pi/NOTES.md";
 
 const CATEGORIES = ["technical", "product", "design", "gotcha", "decision"] as const;
 
+// Finishing a step should not hand control back and wait for "continue".
+// Disable with PI_PLAN_AUTOCONTINUE=0; PI_PLAN_MAX_AUTO caps how many steps run
+// unattended before the agent stops and waits, so a model that calls plan_next
+// without doing the work cannot spin through the whole plan.
+const AUTO_CONTINUE = process.env.PI_PLAN_AUTOCONTINUE !== "0";
+const MAX_AUTO = Number(process.env.PI_PLAN_MAX_AUTO ?? 25);
+
 type Step = { done: boolean; text: string };
 
 // ---------------------------------------------------------------- files
@@ -135,6 +142,13 @@ type PendingReset = { index: number; total: number; text: string };
 
 export default function planNotesExtension(pi: ExtensionAPI) {
 	let pendingReset: PendingReset | undefined;
+	let autoCount = 0;
+
+	// Anything the user types is a fresh mandate: reset the unattended counter.
+	pi.on("input", async () => {
+		autoCount = 0;
+		return undefined;
+	});
 
 	// Perform a queued step-boundary reset once the turn has fully settled.
 	// Falls back to compaction, and finally to doing nothing at all — the
@@ -145,16 +159,36 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		if (!reset) return;
 		pendingReset = undefined;
 
+		const carryOn = () => {
+			if (!AUTO_CONTINUE) return;
+			if (autoCount >= MAX_AUTO) {
+				ctx.ui.notify(
+					`Paused after ${autoCount} unattended steps (PI_PLAN_MAX_AUTO). Say continue to resume.`,
+					"warning",
+				);
+				return;
+			}
+			autoCount++;
+			// Always triggers a turn, so the next step starts without the user
+			// having to type "continue".
+			pi.sendUserMessage(
+				`Continue with step ${reset.index + 1} of ${reset.total}: ${reset.text}`,
+			);
+		};
+
 		// A true fresh session is not available here: newSession lives on
 		// ExtensionCommandContext, which only slash-command handlers receive.
 		// Compaction is the reachable equivalent, and the before_agent_start
-		// briefing re-establishes the plan either way. `/next` does the real
-		// reset when you want one.
-		requestCompaction(ctx, `Step ${reset.index} finished`, {
+		// briefing re-establishes the plan either way.
+		const started = requestCompaction(ctx, `Step ${reset.index} finished`, {
 			instructions:
 				`The next step is: ${reset.text}. Keep only what that step needs — ` +
 				`decisions, constraints and the state of the code. Drop the narrative of how the previous step went.`,
+			// Continue once the summary exists, so the next step starts from the
+			// compacted context rather than racing it.
+			onSummary: () => carryOn(),
 		});
+		if (!started) carryOn();
 	};
 
 	// Swap at the first turn boundary after the step completes, rather than
@@ -361,6 +395,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 
 			const next = currentStep(steps);
 			if (!next.step) {
+				autoCount = 0;
 				return {
 					content: [
 						{ type: "text", text: `Step ${index + 1} done. Plan complete — all ${steps.length} steps finished.` },
