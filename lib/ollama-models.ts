@@ -40,10 +40,14 @@ export interface LocalModel {
 	 * Where this model starts on pi's thinking scale. Shift+Tab cycles it live;
 	 * this is only the default applied when the model is selected.
 	 *
-	 * Qwen3.8 thinks by DEFAULT, and `reasoning: false` only stops pi asking for
-	 * thinking — it does not tell Ollama to switch it off. On Ollama's
-	 * OpenAI-compatible endpoint `reasoning_effort` is the control that works:
-	 * "none" produced 3 completion tokens where the default produced 39.
+	 * `reasoning` is a capability flag, not a default: with it false pi clamps
+	 * every level to "off", Shift+Tab becomes a no-op and the footer hides the
+	 * indicator, so `thinkingLevelMap` is never consulted. Any model that can
+	 * think needs it true, and starts where `defaultThinking` says.
+	 *
+	 * Qwen3.8 thinks by DEFAULT, so "off" is not the absence of a request. On
+	 * Ollama's OpenAI-compatible endpoint `reasoning_effort` is the control that
+	 * works: "none" produced 3 completion tokens where the default produced 39.
 	 */
 	defaultThinking: "off" | "low" | "medium" | "high";
 }
@@ -61,7 +65,7 @@ export const MODELS: LocalModel[] = [
 	{
 		id: "qwen3.8-4MLX",
 		name: "Qwen3.8 27B — 4-bit MLX",
-		reasoning: false,
+		reasoning: true,
 		contextWindow: 65536,
 		maxTokens: 16384,
 		weightsGb: 18,
