@@ -34,8 +34,18 @@
  * numbers, so the model re-reads a narrower range instead of assuming the file
  * simply ends there.
  *
+ * bash gets a TIGHTER cap of its own. Across 30 sessions the top 10 bash calls
+ * were 29% of all bash output and were almost entirely file dumps — `cat`,
+ * `sed -n`, and in one case `awk '{printf "%3d| %s\n", NR, $0}' pang.js`, the
+ * model reimplementing view_lines in bash. Those land between 8K and 14K
+ * characters, which slips UNDER the general cap, so they escaped every
+ * protection while being exactly what the read tools exist to prevent. Only 26
+ * of 371 bash calls exceeded 2,000 characters, so a tight bash cap costs
+ * essentially nothing and closes the leak.
+ *
  * Env: PI_TOOL_BUDGET_FRACTION  (default 0.10) of the context window, per result
  *      PI_TOOL_BUDGET_MIN_CHARS (default 4000) floor, so a small window still works
+ *      PI_TOOL_BUDGET_BASH_FRACTION (default 0.04) of the window, for bash only
  *      PI_TOOL_BUDGET_IMAGE_PX  (default 1024) longest edge for images
  *      PI_TOOL_BUDGET=0         disable entirely
  */
@@ -51,6 +61,7 @@ import * as path from "node:path";
 const CHARS_PER_TOKEN = 3.6;
 
 const FRACTION = Number(process.env.PI_TOOL_BUDGET_FRACTION ?? 0.1);
+const BASH_FRACTION = Number(process.env.PI_TOOL_BUDGET_BASH_FRACTION ?? 0.04);
 const MIN_CHARS = Number(process.env.PI_TOOL_BUDGET_MIN_CHARS ?? 4000);
 const IMAGE_PX = Number(process.env.PI_TOOL_BUDGET_IMAGE_PX ?? 1024);
 const ENABLED = process.env.PI_TOOL_BUDGET !== "0";
@@ -58,9 +69,44 @@ const ENABLED = process.env.PI_TOOL_BUDGET !== "0";
 /** Fraction of the kept text taken from the head; the rest comes from the tail. */
 const HEAD_SHARE = 0.6;
 
-export function budgetChars(contextWindow: number | undefined): number {
+export function budgetChars(contextWindow: number | undefined, toolName?: string): number {
 	const window = contextWindow && contextWindow > 0 ? contextWindow : 32768;
-	return Math.max(MIN_CHARS, Math.round(window * FRACTION * CHARS_PER_TOKEN));
+	const fraction = toolName === "bash" ? BASH_FRACTION : FRACTION;
+	return Math.max(MIN_CHARS, Math.round(window * fraction * CHARS_PER_TOKEN));
+}
+
+/**
+ * Whether a shell command is really a file read wearing a shell's clothes.
+ *
+ * Deliberately narrow: it must be a dump command reading a path, with no pipe
+ * and no redirect. `cat x | grep y` is a genuine shell operation that filters
+ * before anything reaches the context, and steering the model away from it
+ * would make things worse, not better.
+ */
+export function looksLikeFileDump(command: string): string | undefined {
+	// Mask quoted spans FIRST. The worst offender in the logs was
+	//   awk '{printf "%3d| %s\n", NR, $0}' pang.js
+	// whose awk program contains a `|`. Testing the raw string for a pipe
+	// classifies the single largest leak as a legitimate pipeline and lets it
+	// straight through, so quotes have to go before punctuation is judged.
+	const Q = "\u0000";
+	const masked = command.trim().replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, Q);
+
+	// A real pipeline or redirect filters before anything reaches the context.
+	// Steering the model away from `cat x | grep y` would make things worse.
+	if (/[|><]/.test(masked)) return undefined;
+
+	const m = /(?:^|&&|;)\s*(cat|nl|head|tail|sed|awk)\s+([^&;]+)$/.exec(masked);
+	if (!m) return undefined;
+
+	const target = m[2]
+		.trim()
+		.split(/\s+/)
+		.filter((a) => a && a !== Q && !a.startsWith("-"))
+		.pop();
+	// Needs to look like a path, and not be a substitution we cannot resolve.
+	if (!target || !/[./]/.test(target) || /^[$(]/.test(target)) return undefined;
+	return target;
 }
 
 /** Trim to `limit`, keeping head and tail, with a marker explaining the gap.
@@ -137,13 +183,23 @@ export default function toolBudgetExtension(pi: ExtensionAPI) {
 		if (!Array.isArray(e.content) || e.content.length === 0) return undefined;
 
 		const c = ctx as unknown as ExtensionContext;
-		const limit = budgetChars(c.getContextUsage?.()?.contextWindow);
+		const limit = budgetChars(c.getContextUsage?.()?.contextWindow, e.toolName);
+		const dumped =
+			e.toolName === "bash" ? looksLikeFileDump(String((e as { input?: Record<string, unknown> }).input?.command ?? "")) : undefined;
 
 		let changed = false;
 		let savedChars = 0;
 		const content = e.content.map((part) => {
 			if (typeof part.text === "string") {
-				const trimmed = truncate(part.text, limit, e.toolName);
+				let trimmed = truncate(part.text, limit, e.toolName);
+				// Steer only when it actually cost something. Nagging about a
+				// two-line `cat` teaches the model to ignore the message.
+				if (dumped && part.text.length > MIN_CHARS) {
+					trimmed +=
+						`\n\n[tool-budget] That read ${dumped} through the shell, which has no line cap. ` +
+						`Use \`outline ${dumped}\` to find what you need, then \`view_lines\` for that range — ` +
+						`typically 10x less context.`;
+				}
 				if (trimmed === part.text) return part;
 				changed = true;
 				savedChars += part.text.length - trimmed.length;
@@ -177,6 +233,7 @@ export default function toolBudgetExtension(pi: ExtensionAPI) {
 			ctx.ui.notify(
 				[
 					`Per-result budget: ${limit.toLocaleString()} chars (~${Math.round(limit / CHARS_PER_TOKEN).toLocaleString()} tokens)`,
+					`bash budget: ${budgetChars(u?.contextWindow, "bash").toLocaleString()} chars (${(BASH_FRACTION * 100).toFixed(0)}% — bash has no line cap of its own)`,
 					`= ${(FRACTION * 100).toFixed(0)}% of a ${(u?.contextWindow ?? 32768).toLocaleString()}-token window`,
 					`Images capped at ${IMAGE_PX}px on the longest edge (~${Math.round((IMAGE_PX * IMAGE_PX * 0.66) / 1015).toLocaleString()} tokens).`,
 				].join("\n"),

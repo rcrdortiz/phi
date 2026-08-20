@@ -1,4 +1,4 @@
-import mod, { budgetChars, truncate, shrinkImage } from "/Users/rcrd/AI/pi-local/extensions/tool-budget.ts";
+import mod, { budgetChars, truncate, shrinkImage, looksLikeFileDump } from "/Users/rcrd/AI/pi-local/extensions/tool-budget.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
@@ -64,6 +64,32 @@ check("the trim is announced", notes.some((n) => /tool-budget: trimmed/.test(n))
 notes.length = 0;
 await handlers["/budget"]("", ctx);
 check("/budget reports the limit", /Per-result budget/.test(notes.join(" ")), notes.join(" ").split("\n")[0]);
+
+// --- bash gets a tighter budget ------------------------------------------
+check("bash is capped harder than other tools", budgetChars(51200, "bash") < budgetChars(51200),
+  `bash ${budgetChars(51200, "bash")} vs ${budgetChars(51200)}`);
+check("the bash cap still clears normal bash output", budgetChars(51200, "bash") > 2000,
+  `${budgetChars(51200, "bash")} chars; only 26 of 371 logged calls exceeded 2,000`);
+
+// --- file dumps through the shell ----------------------------------------
+check("catches cat of a path", looksLikeFileDump("cat .pi/NOTES.md") === ".pi/NOTES.md");
+check("catches the awk line-numbering trick", looksLikeFileDump(`awk '{printf "%3d| %s\n", NR, $0}' pang.js`) === "pang.js",
+  "its awk program contains a pipe, which naive detection treats as a pipeline");
+check("catches sed ranges", looksLikeFileDump("sed -n '1,60p' test/run.html") === "test/run.html");
+check("catches head/tail", looksLikeFileDump("head -20 pang.js") === "pang.js");
+check("leaves real pipelines alone", looksLikeFileDump("cat x.js | grep foo") === undefined);
+check("leaves redirects alone", looksLikeFileDump("cat a.js > b.js") === undefined);
+check("ignores non-read commands", looksLikeFileDump("ls -la") === undefined && looksLikeFileDump("git log --oneline") === undefined);
+check("ignores unresolvable targets", looksLikeFileDump("cat $FILE") === undefined);
+
+const bigDump = "x".repeat(9000);
+const steered = await handlers["tool_result"](
+  { toolName: "bash", input: { command: "cat .pi/NOTES.md" }, content: [{ type: "text", text: bigDump }] }, ctx);
+check("a shell file-dump is steered to outline/view_lines", /outline \.pi\/NOTES\.md/.test(steered?.content?.[0]?.text ?? ""),
+  (steered?.content?.[0]?.text ?? "").slice(-90));
+const quiet = await handlers["tool_result"](
+  { toolName: "bash", input: { command: "cat tiny.txt" }, content: [{ type: "text", text: "two\nlines" }] }, ctx);
+check("a small shell read is not nagged", quiet === undefined);
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
