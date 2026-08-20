@@ -8,6 +8,13 @@ const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "
 const fast = toPiModel(MODELS.find((m) => m.id === "qwen3.8-4MLX"));
 check("models expose a thinkingLevelMap", !!fast.thinkingLevelMap, JSON.stringify(fast.thinkingLevelMap));
 check('"off" maps to Ollama\'s "none"', fast.thinkingLevelMap.off === "none");
+// pi gates the whole control on `reasoning`: getSupportedThinkingLevels returns
+// only ["off"] when it is false, so Shift+Tab is a no-op, /effort clamps to off
+// and thinkingLevelMap is never consulted. Both qwen3.8 quantisations are the
+// same thinking-capable base, so both must declare it.
+for (const id of ["qwen3.8-4MLX", "qwen3.8-8MLX"]) {
+  check(`${id} declares reasoning support`, MODELS.find((m) => m.id === id)?.reasoning === true);
+}
 // Sampling is no longer baked per variant — it is derived from the level, and
 // defaults to the model's own starting level.
 check("sampling matches the model's default level",
