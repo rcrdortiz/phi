@@ -233,35 +233,26 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			const d = planDiff(existing, params.steps);
 			const losesWork = d.droppedDone.length > 0 || d.droppedPending.length > 0;
 
-			// Replacing a plan quietly is how a session ends up working from a
-			// plan nobody agreed to. Anything that drops steps gets explained
-			// and confirmed; pure additions do not need a decision.
-			if (existing.length && losesWork && ctx.mode === "tui" && typeof ctx.ui.confirm === "function") {
-				const lines: string[] = [];
-				if (d.droppedPending.length)
-					lines.push(`No longer doing:\n${d.droppedPending.map((s) => `  - ${s.text}`).join("\n")}`);
-				if (d.droppedDone.length)
-					lines.push(
-						`Dropping from the record (already done):\n${d.droppedDone.map((s) => `  - ${s.text}`).join("\n")}`,
-					);
-				if (d.kept.length) lines.push(`Keeping: ${d.kept.length} step(s)`);
-				if (d.added.length) lines.push(`Adding:\n${d.added.map((t) => `  + ${t}`).join("\n")}`);
-				lines.push("", "Is that correct?");
-
-				const ok = await ctx.ui.confirm("Change the plan?", lines.join("\n"));
-				if (!ok) {
-					return {
-						content: [
-							{
-								type: "text",
-								text:
-									"Plan unchanged — the user did not accept the revision. " +
-									"Discuss the change with them before rewriting the plan.",
-							},
-						],
-						isError: true,
-					};
-				}
+			// A plan revision no longer asks permission. Blocking on a dialog
+			// defeats the point of plan_next, which exists so the agent can run
+			// unattended across context resets: a confirm that nobody is sitting
+			// there to answer stalls the run until it times out. And the failure
+			// it guarded against is cheap to undo, because the plan is a file in
+			// the repo.
+			//
+			// The change is still announced, so it stays visible without being
+			// blocking. Silence would be the actual problem, not the absence of
+			// a prompt.
+			if (existing.length && losesWork) {
+				const summary = [
+					d.droppedPending.length ? `dropping ${d.droppedPending.length} pending` : "",
+					d.droppedDone.length ? `dropping ${d.droppedDone.length} completed` : "",
+					d.added.length ? `adding ${d.added.length}` : "",
+					d.kept.length ? `keeping ${d.kept.length}` : "",
+				]
+					.filter(Boolean)
+					.join(", ");
+				ctx.ui.notify(`Plan revised: ${summary}.`, "info");
 			}
 
 			// Steps that survive keep their completed state: a revision should

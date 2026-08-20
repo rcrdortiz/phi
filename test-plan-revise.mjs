@@ -10,46 +10,52 @@ mod({ registerTool: (t) => (tools[t.name] = t), registerCommand: () => {}, on: (
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d.replace(/\n/g, "\n        ") : ""}`); };
 
-let asked = null, answer = true;
+let asked = null, notes = [];
 const ctx = (mode = "tui") => ({
   cwd: DIR, mode,
   ui: {
-    notify: () => {},
-    confirm: async (title, message) => { asked = { title, message }; return answer; },
+    notify: (m) => notes.push(m),
+    // Still provided, so a test failure here means the code called it, not that
+    // it was unavailable. Removing the stub would hide a regression.
+    confirm: async (title, message) => { asked = { title, message }; return true; },
   },
 });
 const plan = () => fs.readFileSync(path.join(DIR, ".pi", "PLAN.md"), "utf8");
 const write = (goal, steps, c = ctx()) => tools.plan_write.execute("1", { goal, steps }, undefined, undefined, c);
 
-// Baseline plan, first step completed.
 await write("build a game", ["render the ship", "add enemies", "add sound"]);
 await tools.plan_next.execute("2", { summary: "done" }, undefined, undefined, ctx());
 check("baseline plan has one completed step", /- \[x\] render the ship/.test(plan()));
 
-// 1. A revision that drops work must explain and ask.
-asked = null; answer = true;
+// 1. A revision that drops work applies without asking. Blocking on a dialog
+//    defeats plan_next, which exists so the agent can run unattended.
+asked = null; notes = [];
 await write("build a game", ["render the ship", "add power-ups", "add music"]);
-check("asks before dropping steps", asked !== null, asked?.message);
-check("names what is being dropped", /No longer doing:[\s\S]*add enemies/.test(asked?.message ?? ""));
-check("names what is being added", /Adding:[\s\S]*\+ add power-ups/.test(asked?.message ?? ""));
-check('ends with "Is that correct?"', /Is that correct\?$/.test((asked?.message ?? "").trim()));
+check("a revision that drops work is NOT blocked on a prompt", asked === null);
+check("the revision actually applied", /add power-ups/.test(plan()) && !/add enemies/.test(plan()), plan().trim());
 
-// 2. Completed work survives a revision that keeps the step.
+// 2. It is announced, because silence is the real failure mode, not the
+//    absence of a prompt.
+check("the change is announced", notes.some((n) => /Plan revised/.test(n)), notes.join(" | "));
+check("the announcement says what was dropped", notes.some((n) => /dropping 2 pending/.test(n)), "both `add enemies` and `add sound` are gone: " + notes.join(" | "));
+check("the announcement says what was added", notes.some((n) => /adding 2/.test(n)), notes.join(" | "));
+
+// 3. Completed work survives a revision that keeps the step.
 check("keeps completed state for surviving steps", /- \[x\] render the ship/.test(plan()), plan().trim());
 
-// 3. Declining leaves the plan untouched and tells the model why.
-const beforeDecline = plan();
-asked = null; answer = false;
+// 4. A full pivot applies too, and does not error.
+notes = [];
 const r = await write("pivot", ["something else entirely"]);
-check("declining leaves the plan unchanged", plan() === beforeDecline);
-check("declining returns an error the model can act on", r.isError === true && /did not accept/.test(r.content[0].text), r.content[0].text.slice(0, 80));
+check("a full pivot applies", /something else entirely/.test(plan()));
+check("and is not reported as an error", !r.isError, r.content[0].text.slice(0, 70));
 
-// 4. Pure additions do not interrupt.
-asked = null; answer = true;
-await write("build a game", ["render the ship", "add power-ups", "add music", "add a scoreboard"]);
-check("pure additions do not ask", asked === null);
+// 5. Pure additions are not announced: nothing was lost, so there is nothing
+//    to draw attention to.
+notes = [];
+await write("pivot", ["something else entirely", "and another"]);
+check("pure additions are not announced", !notes.some((n) => /Plan revised/.test(n)), notes.join(" | "));
 
-// 5. Non-interactive runs are not blocked by a prompt that cannot be answered.
+// 6. Non-interactive runs behave identically.
 asked = null;
 await write("scripted", ["only this"], ctx("print"));
 check("print mode applies without prompting", asked === null && /only this/.test(plan()));
