@@ -23,8 +23,22 @@ const ctx = {
   compact: (o) => { compactCalls++; o.onComplete?.({ summary: "state summary", tokensBefore: 40_000 }); },
 };
 
-// 1. No turn-by-turn compaction any more: pi owns the timing.
-check("no longer hooks turn_end", handlers["turn_end"] === undefined, Object.keys(handlers).filter(k => !k.startsWith("/")).join(", "));
+// 1. turn_end IS hooked again, as a mid-run watchdog. pi checks for
+//    auto-compaction only at agent_end and before prompt submission, so during
+//    one long agentic run nothing watches the window: observed at 96.3% of 51K.
+check("hooks turn_end as a mid-run watchdog", typeof handlers["turn_end"] === "function",
+  Object.keys(handlers).filter((k) => !k.startsWith("/")).join(", "));
+
+// It must stay quiet well below pi's trigger, so it does not pre-empt pi
+// between runs, where pi genuinely does act.
+compactCalls = 0;
+await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: 20_000, contextWindow: 65_536 }) });
+check("the watchdog stays quiet below the trigger", compactCalls === 0, "20k of 64k");
+
+resetCompactionState();
+compactCalls = 0;
+await handlers["turn_end"]({}, { ...ctx, getContextUsage: () => ({ tokens: 63_000, contextWindow: 65_536 }) });
+check("the watchdog fires above the trigger", compactCalls === 1, "96% of 64k, mid-run");
 
 // 2. pi's own compaction still lands on disk.
 await handlers["session_compact"]({ compactionEntry: { summary: "pi's summary", tokensBefore: 54_784 } }, ctx);
@@ -34,6 +48,7 @@ check("records pi's compaction to disk", fs.existsSync(hp) && /pi's summary/.tes
 
 // 3. /handoff still compacts on demand, with our instructions.
 resetCompactionState();
+compactCalls = 0;                 // the watchdog checks above ran their own
 await handlers["/handoff"]("", ctx);
 check("/handoff compacts on demand", compactCalls === 1);
 check("/handoff writes its own summary", /state summary/.test(fs.readFileSync(hp, "utf8")));

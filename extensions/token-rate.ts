@@ -99,12 +99,26 @@ export class RateTracker {
 	}
 }
 
-/** Whether streamed content has produced any actual text yet. */
-function hasText(content: unknown): boolean {
+/**
+ * Whether streaming has produced ANY output yet — text or a tool call.
+ *
+ * Text alone is the wrong boundary. A tool-calling turn emits mostly toolCall
+ * parts, and `usage.output` counts every token in them, so waiting for text put
+ * the boundary near the END of generation: hundreds of counted tokens divided by
+ * the sliver of time after the text appeared. That is how the footer showed
+ * 385 tok/s on hardware that decodes at ~15-45.
+ *
+ * The honest boundary is the first byte of output of any kind.
+ */
+function hasOutput(content: unknown): boolean {
 	if (typeof content === "string") return content.length > 0;
-	if (Array.isArray(content))
-		return content.some((p) => typeof (p as { text?: string })?.text === "string" && (p as { text: string }).text.length > 0);
-	return false;
+	if (!Array.isArray(content)) return false;
+	return content.some((p) => {
+		const part = p as { type?: string; text?: string; name?: string };
+		if (typeof part?.text === "string" && part.text.length > 0) return true;
+		// A tool call is output too, and on a tool-heavy turn it is most of it.
+		return part?.type === "toolCall" || typeof part?.name === "string";
+	});
 }
 
 export function format(last: number, avg: number | undefined): string {
@@ -126,7 +140,7 @@ export default function tokenRateExtension(pi: ExtensionAPI) {
 	// The first streamed text ends prompt processing and starts generation.
 	pi.on("message_update", async (event) => {
 		const e = event as { message?: { content?: unknown } };
-		if (hasText(e.message?.content)) tracker.firstToken(Date.now());
+		if (hasOutput(e.message?.content)) tracker.firstToken(Date.now());
 		return undefined;
 	});
 

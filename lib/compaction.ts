@@ -153,6 +153,17 @@ export function requestCompaction(
 		 *  compaction that fails is not a reason to stop, and hanging the run on
 		 *  it turns a cosmetic error into a stalled session. */
 		onDone?: () => void;
+		/** Compact even when usage is already past pi's own trigger.
+		 *
+		 * The normal guard assumes that above `contextWindow - reserve` pi has
+		 * taken over. That holds between runs, because pi checks at agent_end and
+		 * before prompt submission — and NOT during one. A long agentic run with
+		 * dozens of tool calls never reaches either point, so usage climbs past
+		 * the trigger with nothing watching. Observed at 96.3% of a 51K window.
+		 *
+		 * Only the mid-run watchdog sets this; everything else should still stand
+		 * down when pi is genuinely about to act. */
+		force?: boolean;
 		announce?: boolean;
 	} = {},
 ): boolean {
@@ -175,7 +186,9 @@ export function requestCompaction(
 			return false;
 		}
 		// pi has taken over: it is compacting, about to, or in overflow recovery.
-		if (usage.tokens >= usage.contextWindow - reserveTokens(usage.contextWindow)) return false;
+		// Not true mid-run, which is what `force` is for.
+		if (!options.force && usage.tokens >= usage.contextWindow - reserveTokens(usage.contextWindow))
+			return false;
 		// Nothing has accumulated since the last compaction that pi would not
 		// keep anyway, so there is no older history to summarise. Asking here is
 		// what produces "Nothing to compact (session too small)".

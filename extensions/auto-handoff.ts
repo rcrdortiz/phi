@@ -27,7 +27,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
+import { compactionBusy, requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
 
 const HANDOFF_FILE = process.env.PI_HANDOFF_FILE || ".pi/HANDOFF.md";
 
@@ -53,6 +53,36 @@ function writeHandoff(cwd: string, summary: string, tokensBefore: number | undef
 }
 
 export default function autoHandoffExtension(pi: ExtensionAPI) {
+	// Mid-run watchdog.
+	//
+	// The note above says pi owns compaction timing. That is true BETWEEN runs:
+	// pi's own comment says it checks "at agent_end and before prompt
+	// submission". A single agentic run doing thirty tool calls hits neither,
+	// so nothing watches the window while it fills. Observed live at 96.3% of a
+	// 51K window with auto-compaction on and pi never firing.
+	//
+	// turn_end is the right hook: it fires repeatedly inside a long run, and no
+	// tool call is half-finished at that point. The shared lock keeps this from
+	// racing plan-notes' step-boundary compaction or pi's own.
+	pi.on("turn_end", async (_event, ctx) => {
+		if (compactionBusy()) return undefined;
+		const c = ctx as unknown as ExtensionContext;
+		const u = c.getContextUsage?.();
+		if (!u?.tokens || !u.contextWindow) return undefined;
+		const trigger = u.contextWindow - reserveTokens(u.contextWindow);
+		if (u.tokens < trigger) return undefined;
+		const pct = Math.round((u.tokens / u.contextWindow) * 100);
+		requestCompaction(c, `Context at ${pct}% mid-run`, {
+			force: true,
+			instructions:
+				"Summarise for a session continuing the SAME task mid-flight. Keep the current goal, " +
+				"the state of the code, decisions and constraints, and what was just attempted. " +
+				"Drop tool output and the narrative of how earlier steps went.",
+			onSummary: (summary, tokensBefore) => writeHandoff(c.cwd, summary, tokensBefore, "mid-run watchdog"),
+		});
+		return undefined;
+	});
+
 	// Keeps the shared lock aware of pi's compactions, so plan-notes does not
 	// ask for one while pi is mid-flight.
 	trackExternalCompactions(pi as never);

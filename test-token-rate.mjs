@@ -28,6 +28,20 @@ const blended = noStream.end(1000, 20);   // never streamed text
 check("with no streamed token, the whole window counts as decode", Math.round(blended) === 20,
   "no boundary is invented when none was observed");
 
+// A tool-calling turn: usage.output counts the toolCall tokens, so the boundary
+// must be the first output of ANY kind. Anchoring on text alone reported
+// 385 tok/s on hardware that decodes at 15-45.
+const toolTurn = {};
+mod({ on: (e, h) => (toolTurn[e] = h), registerCommand: () => {}, registerTool: () => {} });
+const tctx = { ui: { setStatus: (k, v) => (toolTurn._s = v), notify: () => {} } };
+await toolTurn["message_start"]({}, tctx);
+await toolTurn["message_update"]({ message: { content: [{ type: "toolCall", name: "view_lines" }] } }, tctx);
+await new Promise((r) => setTimeout(r, 40));
+await toolTurn["message_end"]({ message: { role: "assistant", usage: { output: 60 } } }, tctx);
+const reported = Number(String(toolTurn._s ?? "").match(/[\d.]+/)?.[0] ?? 0);
+check("a tool call starts the decode window, not the text after it", reported < 5000 && reported > 0,
+  `${toolTurn._s} — measured across the whole generation, not the sliver after text appeared`);
+
 const late = new RateTracker();
 late.begin(0);
 late.firstToken(500); late.firstToken(800);   // only the first one counts

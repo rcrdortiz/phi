@@ -56,6 +56,25 @@ requestCompaction(ctx, "x", { onDone: () => continued++ });
 lastOpts.onComplete?.({ summary: "s", tokensBefore: 100 });
 check("onDone fires on success too", continued === 1);
 
+// --- the mid-run watchdog ------------------------------------------------
+// pi checks for auto-compaction "at agent_end and before prompt submission".
+// A long agentic run reaches neither, so above the trigger nothing acts.
+resetCompactionState();
+tokens = Math.round(WINDOW * 0.963);          // the observed 96.3%
+check("without force, a high-water context stands down for pi",
+  requestCompaction(ctx, "x") === false,
+  "correct between runs, where pi really is about to act");
+resetCompactionState();
+check("with force, the watchdog compacts anyway",
+  requestCompaction(ctx, "x", { force: true }) === true,
+  `${tokens} tokens = 96% of ${WINDOW}, and pi will not act until the run ends`);
+
+// force must not defeat the other guards
+resetCompactionState();
+tokens = 1000;
+check("force does not compact a session with nothing to compact",
+  requestCompaction(ctx, "x", { force: true }) === false);
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);
