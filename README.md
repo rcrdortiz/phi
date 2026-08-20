@@ -508,3 +508,42 @@ message, so tool time is excluded, using the provider's own `usage.output`
 rather than an estimate from text length. The session average is
 token-weighted, so a two-word reply that returns instantly cannot skew it.
 `/speed` reports it, `PI_TOKEN_RATE=0` hides it.
+
+### Plans that stay about what is left
+
+Two changes to `plan-notes`, both aimed at the same thing: a plan is a working
+document about remaining work, not a monument to finished work.
+
+**Revisions no longer ask permission.** `plan_write` used to block on a confirm
+dialog whenever a revision dropped steps. That defeats the point of `plan_next`,
+which exists so the agent can run unattended across context resets: a prompt
+nobody is sitting there to answer stalls the run until it times out. The failure
+it guarded against is also cheap to undo, because dropped completed steps are in
+the archive and the plan is a file in the repo.
+
+The change is still announced (`Plan revised: dropping 2 pending, adding 2,
+keeping 1`), because silence is the real failure mode, not the absence of a
+prompt. Pure additions stay quiet: nothing was lost, so there is nothing to draw
+attention to.
+
+**Completed steps are archived past the most recent three.** A finished step
+costs context twice, and the second one is expensive. On disk it is one line in
+`PLAN.md`, which is nothing. But `briefing()` seeds **every fresh session** with
+the completed list and each step's summary, so a long plan means every context
+reset opens by re-reading things nobody will do again.
+
+Measured on a 24-step plan with 20 completed:
+
+| | PLAN.md |
+|---|---|
+| without archiving | 1,773 chars (~493 tokens) |
+| with archiving | 448 chars (~124 tokens) |
+| **reduction** | **75%** |
+
+Three are kept because the immediate past is load-bearing: it is how the model
+knows what it just did and why the current step follows from it. Beyond that it
+is history, and history belongs in a file you open on purpose. The briefing and
+`plan_status` name `.pi/PLAN-DONE.md` and its count, so replanning can consult
+it deliberately instead of being handed it every time.
+
+`PI_PLAN_KEEP_DONE` changes how many stay; `PI_PLAN_DONE_FILE` moves the archive.
