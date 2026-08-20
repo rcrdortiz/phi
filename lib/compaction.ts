@@ -65,8 +65,30 @@ export interface CompactableContext {
 let inFlight = false;
 let lastAt = 0;
 
-/** Compactions closer together than this are the double-fire we are preventing. */
-const MIN_GAP_MS = 20_000;
+/**
+ * Context size at the last compaction, so we can measure NEW content.
+ *
+ * pi's prepareCompaction does not look at how big the context is. It walks back
+ * from the newest entry accumulating tokens until it passes keepRecentTokens,
+ * and summarises whatever is left BEFORE that point — but only back as far as
+ * the previous compaction. If the span since that compaction is itself smaller
+ * than keepRecentTokens, the cut lands on the first entry, there is nothing
+ * before it, and the request comes back "Nothing to compact (session too
+ * small)".
+ *
+ * So the quantity that decides whether a compaction is possible is tokens SINCE
+ * THE LAST COMPACTION, not total context. Those two are the same number only
+ * until the first compaction; after that, most of the context is the summary
+ * plus the recent tail that would be kept anyway. Guarding on the total is what
+ * made a step boundary ask for a compaction that could not succeed.
+ */
+let baseline = 0;
+let baselineStale = false;
+
+/** Compactions closer together than this are the double-fire we are preventing.
+ *  Tunable because a fast plan step can legitimately finish inside the window,
+ *  and because a fixed 20s makes the behaviour untestable without sleeping. */
+const MIN_GAP_MS = Number(process.env.PI_COMPACT_MIN_GAP_MS ?? 20_000);
 
 /** Outcomes that mean "no compaction was needed", not "something went wrong".
  *  Reporting these as failures is pure noise: the context is small, which is
@@ -100,6 +122,9 @@ export function trackExternalCompactions(pi: {
 	pi.on("session_compact", async () => {
 		inFlight = false;
 		lastAt = Date.now();
+		// Usage right after a compaction is not reliably readable, so the next
+		// reading becomes the new baseline instead.
+		baselineStale = true;
 		return undefined;
 	});
 }
@@ -109,6 +134,8 @@ export function trackExternalCompactions(pi: {
 export function resetCompactionState(): void {
 	inFlight = false;
 	lastAt = 0;
+	baseline = 0;
+	baselineStale = false;
 }
 
 /**
@@ -121,6 +148,11 @@ export function requestCompaction(
 	options: {
 		instructions?: string;
 		onSummary?: (summary: string, tokensBefore: number) => void;
+		/** Runs after the compaction settles, successfully or not. A caller that
+		 *  continues unattended work must use this rather than onSummary: a
+		 *  compaction that fails is not a reason to stop, and hanging the run on
+		 *  it turns a cosmetic error into a stalled session. */
+		onDone?: () => void;
 		announce?: boolean;
 	} = {},
 ): boolean {
@@ -135,11 +167,20 @@ export function requestCompaction(
 	// stand down.
 	const usage = ctx.getContextUsage?.();
 	if (usage?.tokens && usage.contextWindow) {
+		// The first reading after a compaction establishes the new baseline.
+		// Refusing this one costs nothing: we just compacted.
+		if (baselineStale) {
+			baseline = usage.tokens;
+			baselineStale = false;
+			return false;
+		}
 		// pi has taken over: it is compacting, about to, or in overflow recovery.
 		if (usage.tokens >= usage.contextWindow - reserveTokens(usage.contextWindow)) return false;
-		// Too small to have anything to compact. A short task genuinely does not
-		// need one, and asking produces an error for a session that is fine.
-		if (usage.tokens <= keepRecentTokens(usage.contextWindow) * 1.2) return false;
+		// Nothing has accumulated since the last compaction that pi would not
+		// keep anyway, so there is no older history to summarise. Asking here is
+		// what produces "Nothing to compact (session too small)".
+		const since = usage.tokens - baseline;
+		if (since <= keepRecentTokens(usage.contextWindow) * 1.1) return false;
 	}
 
 	inFlight = true;
@@ -156,16 +197,19 @@ export function requestCompaction(
 				} catch {
 					/* writing the summary out is best-effort */
 				}
+				options.onDone?.();
 			},
 			onError: (err) => {
 				inFlight = false;
 				lastAt = Date.now();
 				if (!isBenign(err.message)) ctx.ui.notify(`Compaction failed: ${err.message}`, "warning");
+				options.onDone?.();
 			},
 		});
 	} catch (e) {
 		inFlight = false;
 		if (!isBenign(String(e))) ctx.ui.notify(`Compaction failed: ${String(e)}`, "warning");
+		options.onDone?.();
 		return false;
 	}
 	return true;

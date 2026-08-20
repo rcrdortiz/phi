@@ -247,9 +247,12 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			instructions:
 				`The next step is: ${reset.text}. Keep only what that step needs — ` +
 				`decisions, constraints and the state of the code. Drop the narrative of how the previous step went.`,
-			// Continue once the summary exists, so the next step starts from the
-			// compacted context rather than racing it.
-			onSummary: () => carryOn(),
+			// Continue once the compaction settles, whether or not it produced a
+			// summary. A refused compaction ("nothing to compact") is a normal
+			// outcome on a small step, and it must not stop the plan: hanging
+			// carryOn on success alone is what left a run sitting at a prompt
+			// after a cosmetic error.
+			onDone: () => carryOn(),
 		});
 		if (!started) carryOn();
 	};
