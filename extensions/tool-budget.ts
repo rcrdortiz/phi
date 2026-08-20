@@ -172,6 +172,30 @@ export function shrinkImage(base64: string, mimeType: string, maxPx: number): st
 	}
 }
 
+/**
+ * Whether a shell command is writing to a source file.
+ *
+ * Every edit through edit_block/replace_lines is syntax-checked and reverted if
+ * it breaks the file. A shell heredoc bypasses that entirely, and that is not
+ * hypothetical: after two failed replace_lines calls a model fell back to
+ * `python3 - <<PY ... open(p,"w") ... PY`, inserted a block at class-body scope
+ * instead of inside the method, and left the file with an unbalanced brace and
+ * no revert. The tools have a safety net; the shell does not.
+ */
+export function looksLikeSourceWrite(command: string): string | undefined {
+	const cmd = command.trim();
+	// A heredoc or interpreter writing a file open()ed for writing.
+	const write =
+		/\bopen\s*\(\s*[^,)]+,\s*["']w["']/.test(cmd) ||
+		/\bwriteFileSync\s*\(/.test(cmd) ||
+		/>\s*[^\s|&;]+\.(js|ts|jsx|tsx|py|php|go|rs|css|html|json)\b/.test(cmd) ||
+		/\bsed\s+-i\b/.test(cmd) ||
+		/\btee\s+[^\s|&;]+\.(js|ts|py|php|go|rs)\b/.test(cmd);
+	if (!write) return undefined;
+	const m = /([\w./-]+\.(?:js|ts|jsx|tsx|py|php|go|rs|css|html|json))\b/.exec(cmd);
+	return m ? m[1] : "a source file";
+}
+
 export default function toolBudgetExtension(pi: ExtensionAPI) {
 	if (!ENABLED) return;
 
@@ -184,8 +208,9 @@ export default function toolBudgetExtension(pi: ExtensionAPI) {
 
 		const c = ctx as unknown as ExtensionContext;
 		const limit = budgetChars(c.getContextUsage?.()?.contextWindow, e.toolName);
-		const dumped =
-			e.toolName === "bash" ? looksLikeFileDump(String((e as { input?: Record<string, unknown> }).input?.command ?? "")) : undefined;
+		const command = e.toolName === "bash" ? String((e as { input?: Record<string, unknown> }).input?.command ?? "") : "";
+		const dumped = command ? looksLikeFileDump(command) : undefined;
+		const wrote = command ? looksLikeSourceWrite(command) : undefined;
 
 		let changed = false;
 		let savedChars = 0;
@@ -194,6 +219,13 @@ export default function toolBudgetExtension(pi: ExtensionAPI) {
 				let trimmed = truncate(part.text, limit, e.toolName);
 				// Steer only when it actually cost something. Nagging about a
 				// two-line `cat` teaches the model to ignore the message.
+				if (wrote) {
+					trimmed +=
+						`\n\n[tool-budget] That wrote ${wrote} through the shell, which skips the syntax check ` +
+						`and automatic revert that edit_block and replace_lines apply. A broken edit made this way ` +
+						`stays broken. Use replace_lines (or edit_block) for source edits, and if this already ran, ` +
+						`syntax-check the file now.`;
+				}
 				if (dumped && part.text.length > MIN_CHARS) {
 					trimmed +=
 						`\n\n[tool-budget] That read ${dumped} through the shell, which has no line cap. ` +

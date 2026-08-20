@@ -185,11 +185,26 @@ export function outline(lines: string[], filename: string): OutlineEntry[] {
  * delivered in full: handing back a fragment with a hole in it, or a range that
  * silently starts somewhere other than where it was asked to, is exactly the
  * class of confusion that made view_lines expensive in the first place.
+ *
+ * And it never suppresses a SMALL request, whatever the cache says. Observed in
+ * a real session: the model had been shown lines 295-340 as part of a wider
+ * read, then asked for 308-316 to copy an exact `expect` string for
+ * replace_lines. The cache answered "already shown above, scroll up", the model
+ * could not produce the exact text, and the edit failed twice before it
+ * abandoned the tools for a shell heredoc that corrupted the file.
+ *
+ * Refusing that read saved roughly 40 tokens and cost an entire edit cycle plus
+ * a broken file. A re-read is only worth blocking when the re-read itself is
+ * expensive, so cheap ones are always served.
  */
 export interface CacheStamp {
 	size: number;
 	mtimeMs: number;
 }
+
+/** Ranges at or below this are always served: too cheap for suppression to pay
+ *  for itself, and this is the size a model asks for when it needs exact text. */
+export const CACHE_MIN_LINES = Number(process.env.PI_READ_CACHE_MIN_LINES ?? 60);
 
 export class ReadCache {
 	private seen = new Map<string, { stamp: CacheStamp; lines: Set<number> }>();
@@ -209,8 +224,10 @@ export class ReadCache {
 		for (let i = start; i <= end; i++) e.lines.add(i);
 	}
 
-	/** True when every line of [start, end] is already in context, unchanged. */
+	/** True when every line of [start, end] is already in context, unchanged,
+	 *  AND the range is big enough that re-sending it is worth avoiding. */
 	covered(file: string, stamp: CacheStamp, start: number, end: number): boolean {
+		if (end - start + 1 <= CACHE_MIN_LINES) return false;
 		const e = this.seen.get(file);
 		if (!e || e.stamp.size !== stamp.size || e.stamp.mtimeMs !== stamp.mtimeMs) return false;
 		for (let i = start; i <= end; i++) if (!e.lines.has(i)) return false;

@@ -127,19 +127,33 @@ function similarity(a: string, b: string): number {
 }
 
 /**
- * Re-indent `replacement` so its first line sits at `baseIndent`, keeping the
- * replacement's own relative structure. This is what lets a model supply
+ * Re-indent `replacement` so its shallowest line sits at `baseIndent`, keeping
+ * the replacement's own relative structure. This is what lets a model supply
  * roughly-indented code and still get a correctly indented file.
+ *
+ * Anchored on the MINIMUM indent across the block, not the first line's indent
+ * as a string prefix. The old version did the latter and had two failure modes,
+ * both of which flattened nested code onto one level:
+ *
+ *   - a replacement whose first line has no indent gives `own === ""`, which is
+ *     falsy, so EVERY line took the fallback branch and lost its nesting;
+ *   - any line not literally starting with the first line's whitespace — normal
+ *     the moment a block contains a deeper line — took it too.
+ *
+ * Flattening a `}` to the same column as the `if` that opened it is what
+ * "the re-indent cascade is mangling braces" meant. It produced files whose
+ * structure no longer matched their indentation, which then broke the next
+ * content match, which is how an edit session turns into a loop.
  */
 function reindent(replacement: string[], baseIndent: string): string[] {
-	const firstIdx = replacement.findIndex((l) => l.trim() !== "");
-	if (firstIdx === -1) return replacement;
-	const own = indentOf(replacement[firstIdx]);
-	return replacement.map((l) => {
-		if (l.trim() === "") return "";
-		if (own && l.startsWith(own)) return baseIndent + l.slice(own.length);
-		return baseIndent + l.trimStart();
-	});
+	const nonBlank = replacement.filter((l) => l.trim() !== "");
+	if (!nonBlank.length) return replacement;
+	// Relative depth is measured against the shallowest line in the block, so
+	// nesting survives even when the block's own indentation is irregular.
+	const base = Math.min(...nonBlank.map((l) => indentOf(l).length));
+	return replacement.map((l) =>
+		l.trim() === "" ? "" : baseIndent + indentOf(l).slice(base) + l.trimStart(),
+	);
 }
 
 /** Syntax check, where one is cheaply available. Returns an error or undefined. */
@@ -315,13 +329,29 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			}
 			const target = lines.slice(s - 1, e).join("\n");
 			if (params.expect && !target.includes(params.expect)) {
+				// Show the range NUMBERED, and say where the text actually is when
+				// it exists nearby. A bare dump of the range sends the model back to
+				// view_lines to copy an exact string, and that round trip is where a
+				// failed edit turns into a loop. Everything needed to correct the
+				// call is in this message.
+				const width = String(e).length;
+				const numbered = lines
+					.slice(s - 1, e)
+					.map((l, i) => `${String(s + i).padStart(width)}| ${l}`)
+					.join("\n");
+				const firstLine = params.expect.split("\n")[0].trim();
+				const foundAt = firstLine
+					? lines.findIndex((l, i) => i >= Math.max(0, s - 200) && l.includes(firstLine)) + 1
+					: 0;
+				const hint =
+					foundAt > 0 && (foundAt < s || foundAt > e)
+						? `\n\nThat text is at line ${foundAt}, outside ${s}-${e}. \`expect\` must appear INSIDE the range you are replacing — widen the range, or quote something from within it.`
+						: `\n\nQuote \`expect\` verbatim from the numbered lines above, including indentation.`;
 				return {
 					content: [
 						{
 							type: "text",
-							text:
-								`Safety check failed: lines ${s}-${e} do not contain "${params.expect}".\n` +
-								`They contain:\n${target.slice(0, 400)}`,
+							text: `Safety check failed: lines ${s}-${e} do not contain that text.\n\n${numbered}${hint}`,
 						},
 					],
 					isError: true,

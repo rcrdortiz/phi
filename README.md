@@ -589,3 +589,46 @@ Three rules:
   hold. Over-long notes are trimmed at a sentence boundary rather than refused:
   a refusal risks a loop with a model that cannot reliably self-shorten, and the
   point of a note is nearly always in its first sentence.
+
+### The edit loop, and the four things that caused it
+
+A real session got stuck editing one file. The chain is worth recording, because
+every link was a separate defect and only the last one was obvious:
+
+1. `replace_lines` refused an `expect` that sat outside the replaced range, and
+   answered with the raw range content — `}` — which is ambiguous.
+2. The model went back to `view_lines` to copy exact text, and the **read cache
+   refused it**: "already shown above, scroll up".
+3. Unable to quote the text, its next edit broke the file and was auto-reverted.
+4. It abandoned the tools for `python3 - <<PY ... open(p,"w") ... PY`, which
+   inserted a block at class-body scope instead of inside the method, and left
+   an unbalanced brace with no revert.
+
+**The re-indent cascade was the root cause.** `reindent` anchored on the first
+line's indentation as a string prefix:
+
+```js
+if (own && l.startsWith(own)) return baseIndent + l.slice(own.length);
+return baseIndent + l.trimStart();          // flattens everything else
+```
+
+A replacement whose first line has no indent gives `own === ""`, which is falsy,
+so **every** line took the fallback and lost its nesting. A `}` ends up in the
+same column as the `if` that opened it. That is what "the re-indent cascade is
+mangling braces" meant, and it is why the model stopped trusting the tools. Now
+anchored on the *minimum* indent across the block, so relative depth survives
+even when the surrounding file's indentation is irregular.
+
+The other three:
+
+- **The read cache no longer refuses cheap reads.** Suppressing a 9-line re-read
+  saved ~40 tokens and cost an entire edit cycle plus a broken file. Anything at
+  or under `PI_READ_CACHE_MIN_LINES` (60) is always served; suppression is for
+  re-reads that are actually expensive.
+- **A failed `expect` is now self-correcting.** It returns the range *numbered*,
+  and when the text exists nearby it says where: "That text is at line 4, outside
+  3-3." Everything needed to fix the call is in the error, so there is no reason
+  to go back and re-read.
+- **Shell writes to source files are flagged.** Every edit through the tools is
+  syntax-checked and reverted on failure; a heredoc bypasses that completely, so
+  a broken edit made that way stays broken. `tool-budget` now says so.

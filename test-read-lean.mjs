@@ -1,4 +1,4 @@
-import { resolveRange, outline, ReadCache, DEFAULT_SPAN, MAX_SPAN } from "/Users/rcrd/AI/pi-local/lib/read-lean.ts";
+import { resolveRange, outline, ReadCache, CACHE_MIN_LINES, DEFAULT_SPAN, MAX_SPAN } from "/Users/rcrd/AI/pi-local/lib/read-lean.ts";
 import * as fs from "node:fs";
 
 const results = [];
@@ -54,26 +54,30 @@ check("unknown file types return nothing rather than guessing", outline(["anythi
 // --- re-read cache --------------------------------------------------------
 const cache = new ReadCache();
 const A = { size: 100, mtimeMs: 1000 };
-cache.record("f.js", A, 1, 50);
-check("a fully re-requested range is recognised as cached", cache.covered("f.js", A, 10, 40));
-check("a range extending past what was shown is NOT cached", !cache.covered("f.js", A, 40, 80));
-check("an unseen file is never cached", !cache.covered("other.js", A, 1, 5));
+// Ranges must exceed CACHE_MIN_LINES to be suppressible at all: a cheap re-read
+// is always served, because refusing one costs more than the tokens it saves.
+cache.record("f.js", A, 1, 500);
+check("a fully re-requested large range is recognised as cached", cache.covered("f.js", A, 100, 400));
+check("a small re-read is served even when covered", !cache.covered("f.js", A, 100, 110),
+  `<= ${CACHE_MIN_LINES} lines is always served`);
+check("a range extending past what was shown is NOT cached", !cache.covered("f.js", A, 400, 800));
+check("an unseen file is never cached", !cache.covered("other.js", A, 1, 200));
 
 // The qualifier that makes this safe: an edit means line numbers moved.
 const B = { size: 120, mtimeMs: 2000 };
-check("a changed file invalidates the cache", !cache.covered("f.js", B, 10, 40),
+check("a changed file invalidates the cache", !cache.covered("f.js", B, 100, 400),
   "size/mtime differ, so the old line numbers are stale");
-cache.record("f.js", B, 1, 50);
-check("and it re-caches under the new stamp", cache.covered("f.js", B, 10, 40));
+cache.record("f.js", B, 1, 500);
+check("and it re-caches under the new stamp", cache.covered("f.js", B, 100, 400));
 cache.invalidate("f.js");
-check("an explicit edit drops it immediately", !cache.covered("f.js", B, 10, 40));
+check("an explicit edit drops it immediately", !cache.covered("f.js", B, 100, 400));
 
 // Non-contiguous coverage must not report a gap as covered.
 const c2 = new ReadCache();
-c2.record("g.js", A, 1, 10);
-c2.record("g.js", A, 30, 40);
-check("a gap between two reads is not reported as covered", !c2.covered("g.js", A, 5, 35));
-check("but each recorded island still is", c2.covered("g.js", A, 31, 39));
+c2.record("g.js", A, 1, 100);
+c2.record("g.js", A, 300, 400);
+check("a gap between two reads is not reported as covered", !c2.covered("g.js", A, 50, 350));
+check("but each recorded island still is", c2.covered("g.js", A, 310, 390));
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
