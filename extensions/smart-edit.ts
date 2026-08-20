@@ -14,6 +14,7 @@
  *                 replacement to the file's actual indentation
  *   replace_lines deterministic line-range replacement, with a guard string
  *   view_lines    numbered view so ranges can be targeted precisely
+ *   outline       declarations with line numbers, to find a range cheaply
  *
  * Every write is syntax-checked where a checker exists (js/ts/json/py/php) and
  * automatically reverted if the edit breaks the file, so a bad edit costs one
@@ -25,6 +26,7 @@ import { Type } from "typebox";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { MAX_SPAN, outline, resolveRange } from "../lib/read-lean.ts";
 
 // The built-in edit tool needs byte-exact indentation, which is the failure
 // this extension exists to remove. Leaving it available means the model keeps
@@ -318,12 +320,18 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 		name: "view_lines",
 		label: "View lines",
 		description:
-			"Show a file with line numbers, optionally a range. Use before replace_lines, and to check an edit landed.",
-		promptSnippet: "Show a file with line numbers",
+			`Show a numbered range of a file (max ${MAX_SPAN} lines per call). Use before replace_lines, and to check an edit landed. ` +
+			"Give start_line plus either end_line or limit. `offset` is accepted as start_line.",
+		promptSnippet: "Show a numbered line range",
 		parameters: Type.Object({
 			file: Type.String(),
-			start_line: Type.Optional(Type.Number()),
-			end_line: Type.Optional(Type.Number()),
+			start_line: Type.Optional(Type.Union([Type.Number(), Type.String()])),
+			end_line: Type.Optional(Type.Union([Type.Number(), Type.String()])),
+			// Accepted because the model reaches for the built-in read tool's
+			// names constantly. Silently dropping them is what returned lines
+			// 1-710 instead of 630-710 and cost ~10K tokens in one result.
+			offset: Type.Optional(Type.Union([Type.Number(), Type.String()])),
+			limit: Type.Optional(Type.Union([Type.Number(), Type.String()])),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const file = resolve(ctx.cwd, params.file);
@@ -331,16 +339,62 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 				return { content: [{ type: "text", text: `No such file: ${params.file}` }], isError: true };
 			}
 			const lines = readLines(file);
-			const s = Math.max(1, Math.floor(params.start_line ?? 1));
-			const e = Math.min(lines.length, Math.floor(params.end_line ?? lines.length));
+			const { start: s, end: e, notes } = resolveRange(params, lines.length);
 			const width = String(e).length;
 			const body = lines
 				.slice(s - 1, e)
 				.map((l, i) => `${String(s + i).padStart(width)}| ${l}`)
 				.join("\n");
+			// The note matters as much as the text: it is how the model learns
+			// it got a different range than it asked for, instead of concluding
+			// the file simply ends where the output does.
+			const head =
+				`${params.file} (${lines.length} lines) showing ${s}-${e}` +
+				(notes.length ? `\n[view_lines] ${notes.join("; ")}` : "");
 			return {
-				content: [{ type: "text", text: `${params.file} (${lines.length} lines)\n${body}` }],
+				content: [{ type: "text", text: `${head}\n${body}` }],
 				details: { total: lines.length, from: s, to: e },
+			};
+		},
+	});
+
+	// Orientation without reading the file. In the session that died, most
+	// view_lines calls were "where is X" answered by reading hundreds of lines;
+	// this answers it in one line per declaration.
+	pi.registerTool({
+		name: "outline",
+		label: "Outline",
+		description:
+			"List a file's functions, classes and headings with their line numbers. Use this FIRST to find where something is, then view_lines that range. Far cheaper than reading the file.",
+		promptSnippet: "List declarations with line numbers",
+		rules: [
+			"To find something in a file you have not read, call outline before view_lines.",
+		],
+		parameters: Type.Object({ file: Type.String() }),
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			const file = resolve(ctx.cwd, params.file);
+			if (!fs.existsSync(file)) {
+				return { content: [{ type: "text", text: `No such file: ${params.file}` }], isError: true };
+			}
+			const lines = readLines(file);
+			const entries = outline(lines, file);
+			if (!entries.length) {
+				return {
+					content: [{
+						type: "text",
+						text: `${params.file} (${lines.length} lines): no outline available for this file type. Use view_lines with a range.`,
+					}],
+					details: { total: lines.length, entries: 0 },
+				};
+			}
+			const width = String(lines.length).length;
+			const body = entries.map((x) => `${String(x.line).padStart(width)}| ${x.text}`).join("\n");
+			return {
+				content: [{
+					type: "text",
+					text: `${params.file} (${lines.length} lines, ${entries.length} declarations)\n${body}`,
+				}],
+				details: { total: lines.length, entries: entries.length },
 			};
 		},
 	});
