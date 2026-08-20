@@ -443,3 +443,68 @@ declarations in 3,943 characters against 46,290 for the file, **12x cheaper**.
 The model then views the 30 lines it actually wants. Supports js/ts, python,
 php, go/rust, css and markdown, and returns nothing for file types it has no
 rule for, so the fallback is a normal read rather than a misleading empty list.
+
+### Retiring the built-in `read`
+
+`read` and `view_lines` did the same job with different parameter names, and
+across 30 sessions that cost 17 broken `view_lines` calls: the model borrowed
+`offset`/`limit` from `read`, and `view_lines` dropped them and started at line
+1. `read` was also uncapped, and 33.3% of all context.
+
+The precedent is `edit`, retired for exactly this reason, and the logs vindicate
+it: the built-in `edit` failed **20 of 41 calls (49%)**, `edit_block` **0 of
+31**. One tool per job is what stops a local model guessing between two schemas.
+`PI_KEEP_BUILTIN_READ=1` puts it back.
+
+### The re-read cache
+
+18% of everything `read`/`view_lines` ever returned was lines the model had
+already been shown, with no edit to that file in between: 176,722 characters,
+~49,000 tokens, and `pang.js` alone was 48,000 of them.
+
+"With no edit in between" is the whole design. Re-reading after an edit is
+correct, because line numbers have moved and the model's memory of them is
+genuinely stale, so the cache keys on file size and mtime and forgets a file the
+moment it changes, whoever changed it. Every edit passes through one function,
+so that is the single place invalidation has to happen.
+
+It only suppresses a **fully** covered range. Partial overlaps are delivered
+whole: handing back a fragment with a hole in it is the same class of confusion
+that made `view_lines` expensive to begin with. `refresh:true` forces a re-read.
+
+### Bash was routing around all of it
+
+The top 10 bash calls were 29% of all bash output and were almost entirely file
+dumps:
+
+```
+13,927 ch   cat .pi/NOTES.md
+10,206 ch   awk '{printf "%3d| %s\n", NR, $0}' pang.js
+```
+
+That `awk` is the model reimplementing `view_lines` in bash. These land between
+8K and 14K characters, which slips *under* the general cap, so they escaped
+every protection while being exactly what the read tools exist to prevent.
+
+bash now gets a tighter budget of its own (4% of the window), which costs
+nothing: only 26 of 371 logged calls exceeded 2,000 characters. When a command
+is genuinely a file read, the result carries a pointer to `outline`/`view_lines`.
+
+Detection masks quoted spans before judging punctuation. The `awk` line above
+contains a `|` inside its own program, so a naive pipe check classifies the
+single largest leak as a legitimate pipeline and waves it through. Real
+pipelines and redirects are left alone: `cat x | grep y` filters before anything
+reaches the context, and steering away from it would make things worse.
+
+### `token-rate.ts` — generation speed in the footer
+
+Local inference speed is not a constant. It decays as the KV cache grows, it
+collapses when the machine swaps, and on a shared desktop it moves whenever
+something else wakes up. None of that announces itself: a session that has
+quietly dropped from 30 tok/s to 4 looks exactly like one that is thinking hard.
+
+Measured from `message_start` to `message_end` around a single assistant
+message, so tool time is excluded, using the provider's own `usage.output`
+rather than an estimate from text length. The session average is
+token-weighted, so a two-word reply that returns instantly cannot skew it.
+`/speed` reports it, `PI_TOKEN_RATE=0` hides it.
