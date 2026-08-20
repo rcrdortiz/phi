@@ -18,7 +18,7 @@ for (const m of MODELS) {
 // Sampling is no longer baked per variant — it is derived from the level, and
 // defaults to the model's own starting level.
 check("sampling matches the model's default level",
-  fast.samplingParams?.temperature === 0.7 && fast.samplingParams?.presence_penalty === 1.5,
+  fast.samplingParams?.temperature === 1.0 && fast.samplingParams?.top_p === 0.95,
   JSON.stringify(fast.samplingParams));
 // Built here rather than looked up in the roster: this asserts that sampling
 // follows the LEVEL, which must hold for any model, not just whichever entry
@@ -42,8 +42,9 @@ mod({
 });
 const ctx = { ui: { notify: (t) => notes.push(t) }, model: { id: "qwen3.8-4MLX" } };
 
+level = "off";
 await handlers["model_select"]({ model: { id: "qwen3.8-4MLX" } }, ctx);
-check("selecting fast turns thinking off", level === "off", `level=${level}`);
+check("selecting the model applies its default (high)", level === "high", `level=${level}`);
 
 // A model with no roster entry must not clobber the current level: the map is
 // a per-model DEFAULT, not a reset.

@@ -68,7 +68,11 @@ export const MODELS: LocalModel[] = [
 		contextWindow: 51200,
 		maxTokens: 16384,
 		weightsGb: 18,
-		defaultThinking: "off",
+		// High by default. On a 27B at 4-bit the thinking pass is where the
+		// quality actually comes from, and this setup is built for a model
+		// working alongside you rather than racing you — so spend the tokens.
+		// Shift+Tab lowers it live when a task is mechanical.
+		defaultThinking: "high",
 	},
 ];
 
