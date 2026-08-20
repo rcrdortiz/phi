@@ -16,6 +16,9 @@
  *   view_lines    numbered view so ranges can be targeted precisely
  *   outline       declarations with line numbers, to find a range cheaply
  *
+ * The built-in `edit` and `read` tools are retired in favour of edit_block and
+ * view_lines: one tool per job, so the model never guesses between two schemas.
+ *
  * Every write is syntax-checked where a checker exists (js/ts/json/py/php) and
  * automatically reverted if the edit breaks the file, so a bad edit costs one
  * error message rather than a corrupted file.
@@ -32,6 +35,18 @@ import { MAX_SPAN, outline, resolveRange } from "../lib/read-lean.ts";
 // this extension exists to remove. Leaving it available means the model keeps
 // reaching for it and keeps getting "Could not find the exact text".
 const KEEP_BUILTIN_EDIT = process.env.PI_KEEP_BUILTIN_EDIT === "1";
+
+// The built-in `read` competes with view_lines for the same job, and having
+// both is what made view_lines expensive: the model borrowed read's `offset`
+// and `limit` parameter names for view_lines calls 17 times across 30 sessions,
+// and view_lines silently dropped them and started from line 1.
+//
+// The precedent is `edit`, retired above for the same reason and vindicated by
+// the logs: the built-in edit failed 20 of 41 calls (49%), edit_block 0 of 31.
+// One tool per job is what stops a local model guessing between two schemas.
+//
+// read is also uncapped, and it was 33.3% of all context across those sessions.
+const KEEP_BUILTIN_READ = process.env.PI_KEEP_BUILTIN_READ === "1";
 
 function resolve(cwd: string, p: string): string {
 	return path.isAbsolute(p) ? p : path.join(cwd, p);
@@ -421,21 +436,30 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 	// Retire the built-in edit tool in favour of edit_block. Done at runtime so
 	// it needs no CLI flag; set PI_KEEP_BUILTIN_EDIT=1 to keep both.
 	let retired = false;
-	const retireBuiltinEdit = (notify?: (m: string, l: "info") => void) => {
-		if (retired || KEEP_BUILTIN_EDIT) return;
+	const retireBuiltins = (notify?: (m: string, l: "info") => void) => {
+		if (retired) return;
+		const drop = new Set<string>();
+		if (!KEEP_BUILTIN_EDIT) drop.add("edit");
+		if (!KEEP_BUILTIN_READ) drop.add("read");
+		if (!drop.size) return;
 		let all;
 		try {
 			all = pi.getAllTools();
 		} catch {
 			return;
 		}
-		if (!all?.some((t) => t.name === "edit")) return;
-		pi.setActiveTools(all.map((t) => t.name).filter((n) => n !== "edit"));
+		const present = [...drop].filter((n) => all?.some((t) => t.name === n));
+		if (!present.length) return;
+		pi.setActiveTools(all.map((t) => t.name).filter((n) => !drop.has(n)));
 		retired = true;
-		notify?.("Using edit_block instead of the built-in edit tool.", "info");
+		const replacement: Record<string, string> = { edit: "edit_block", read: "view_lines/outline" };
+		notify?.(
+			present.map((n) => `Using ${replacement[n]} instead of the built-in ${n} tool.`).join(" "),
+			"info",
+		);
 	};
 
-	pi.on("session_start", async (_event, ctx) => retireBuiltinEdit(ctx.ui.notify));
+	pi.on("session_start", async (_event, ctx) => retireBuiltins(ctx.ui.notify));
 	// session_start does not fire in --print mode; this covers those runs.
-	pi.on("before_agent_start", async () => retireBuiltinEdit());
+	pi.on("before_agent_start", async () => retireBuiltins());
 }
