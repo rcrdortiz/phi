@@ -214,6 +214,36 @@ else
   npm i -g @earendil-works/pi-coding-agent >/dev/null && ok "installed"
 fi
 
+# Seed the provider/model defaults so a bare `pi` works straight after install.
+# pi persists a model choice itself (setDefaultModelAndProvider) the first time
+# one is selected, which is why an established machine needs no flags — but a
+# fresh one has nothing to persist yet, and without this the first `pi` opens
+# on whatever provider it can find rather than the local roster.
+# Only fills in what is missing: an existing choice is the user's, not ours.
+step "Defaults"
+SETTINGS="$HOME/.pi/agent/settings.json"
+if python3 - "$SETTINGS" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+os.makedirs(os.path.dirname(p), exist_ok=True)
+try:
+    with open(p) as f: s = json.load(f)
+except Exception:
+    s = {}
+changed = False
+for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX")):
+    if not s.get(k):
+        s[k] = v; changed = True
+if changed:
+    with open(p, "w") as f: json.dump(s, f, indent=2)
+print("set" if changed else "kept")
+PY
+then
+  ok "provider/model defaults in place (a bare \`pi\` will use the local roster)"
+else
+  warn "could not write $SETTINGS — start pi with --provider ollama-local --model qwen3.8-4MLX once"
+fi
+
 step "Extensions"
 for ext in "$HERE"/extensions/*.ts; do
   if pi install "$ext" >/dev/null 2>&1; then
@@ -240,5 +270,6 @@ else
 fi
 
 echo
-echo "${b}Done.${r} Start with:  ${b}pi --provider ollama-local --model qwen3-coder:30b${r}"
+echo "${b}Done.${r} Start with:  ${b}pi${r}"
+echo "${d}The provider and model defaults are set, and pi remembers whatever you pick with /model.${r}"
 echo "${d}Low on memory? The guard offers models that fit. Quitting Chrome frees the most.${r}"

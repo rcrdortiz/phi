@@ -20,7 +20,7 @@ you pick follows directly from that.
 ```sh
 git clone https://github.com/rcrdortiz/pi-local.git
 cd pi-local && ./install.sh
-pi --provider ollama-local --model qwen3-coder:30b
+pi
 ```
 
 **Clone it — do not download a zip.** The extensions keep themselves current by
@@ -53,8 +53,16 @@ If you want the setup described here, ignore that launcher and run:
 
 ```sh
 ./install.sh
-pi --provider ollama-local --model qwen3-coder:30b
+pi
 ```
+
+**Why no `--provider` / `--model` flags?** `install.sh` seeds `defaultProvider`
+and `defaultModel` in `~/.pi/agent/settings.json`, and pi keeps them current on
+its own: selecting a model — with `/model`, or with those flags once — calls
+`setDefaultModelAndProvider`, which writes the choice back to that file. So the
+flags are a one-time bootstrap, never a permanent invocation, and on a machine
+that has already run pi they do nothing a bare `pi` would not do. Pass them only
+to override the saved default for a single run.
 
 ## Which model, and why it depends on the machine
 
