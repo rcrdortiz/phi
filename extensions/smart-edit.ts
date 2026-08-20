@@ -14,7 +14,7 @@
  *                 replacement to the file's actual indentation
  *   replace_lines deterministic line-range replacement, with a guard string
  *   view_lines    numbered view so ranges can be targeted precisely
- *   outline       declarations with line numbers, to find a range cheaply
+ *   outline       declarations with line numbers, to find a range cheaply\n *   edit_symbol   edit a named function/method/class, no line numbers at all
  *
  * The built-in `edit` and `read` tools are retired in favour of edit_block and
  * view_lines: one tool per job, so the model never guesses between two schemas.
@@ -30,6 +30,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { MAX_SPAN, ReadCache, outline, resolveRange } from "../lib/read-lean.ts";
+import { findSymbol, supportsSymbols } from "../lib/symbols.ts";
 
 // The built-in edit tool needs byte-exact indentation, which is the failure
 // this extension exists to remove. Leaving it available means the model keeps
@@ -473,6 +474,125 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 					text: `${params.file} (${lines.length} lines, ${entries.length} declarations)\n${body}`,
 				}],
 				details: { total: lines.length, entries: entries.length },
+			};
+		},
+	});
+
+	// Edit by NAME instead of by line number.
+	//
+	// Across 30 sessions replace_lines failed 39 times in 114 calls, and both
+	// failure modes are line-number problems: 22 "edit broke the file", where a
+	// range cut across a brace boundary, and 16 "expect did not match", where
+	// the numbers had gone stale. The model was never really asking for lines
+	// 311-329; it was asking for "the end of play()". Resolving the span from
+	// the syntax removes both at once.
+	pi.registerTool({
+		name: "edit_symbol",
+		label: "Edit symbol",
+		description:
+			"Edit a named function, method or class WITHOUT line numbers. " +
+			"actions: replace (the whole thing), append / prepend (inside its body), before / after (outside it). " +
+			"Use `Class.method` when a name appears more than once. Prefer this over replace_lines for anything inside a named block.",
+		promptSnippet: "Edit a function/method/class by name",
+		rules: [
+			"To change code inside a named function, method or class, use edit_symbol — not replace_lines. Line numbers go stale and ranges cut across braces.",
+			"Use outline first if you do not know the symbol's name.",
+		],
+		parameters: Type.Object({
+			file: Type.String(),
+			symbol: Type.String({ description: "Name, or Class.method to disambiguate" }),
+			action: Type.String({ description: "replace | append | prepend | before | after" }),
+			text: Type.String({ description: "Code to write. Indentation is adjusted to the file." }),
+		}),
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			const file = resolve(ctx.cwd, params.file);
+			if (!fs.existsSync(file)) {
+				return { content: [{ type: "text", text: `No such file: ${params.file}` }], isError: true };
+			}
+			if (!supportsSymbols(file)) {
+				return {
+					content: [{
+						type: "text",
+						text:
+							`edit_symbol does not handle ${path.extname(file) || "this file type"} — its blocks are not brace-delimited. ` +
+							`Use view_lines then replace_lines.`,
+					}],
+					isError: true,
+				};
+			}
+			const action = String(params.action || "").toLowerCase();
+			if (!["replace", "append", "prepend", "before", "after"].includes(action)) {
+				return {
+					content: [{ type: "text", text: `Unknown action "${params.action}". Use replace, append, prepend, before or after.` }],
+					isError: true,
+				};
+			}
+
+			const lines = readLines(file);
+			const found = findSymbol(lines, params.symbol);
+			if (!found) {
+				// Naming what IS there beats "not found": the next call can be right
+				// without a round trip through outline.
+				const names = outline(lines, file).slice(0, 40).map((o) => `${o.line}| ${o.text.trim()}`);
+				return {
+					content: [{
+						type: "text",
+						text:
+							`No symbol "${params.symbol}" in ${params.file}.` +
+							(names.length ? `\n\nDeclarations in this file:\n${names.join("\n")}` : ""),
+					}],
+					isError: true,
+				};
+			}
+			if ("ambiguous" in found) {
+				return {
+					content: [{
+						type: "text",
+						text:
+							`"${params.symbol}" appears ${found.ambiguous.length} times, at lines ${found.ambiguous.join(", ")}. ` +
+							`Qualify it as Class.method, or use replace_lines for a specific range.`,
+					}],
+					isError: true,
+				};
+			}
+
+			const body = params.text.split("\n");
+			let updated: string[];
+			let where: string;
+			switch (action) {
+				case "replace":
+					updated = [...lines.slice(0, found.start - 1), ...reindent(body, found.indent), ...lines.slice(found.end)];
+					where = `replaced lines ${found.start}-${found.end}`;
+					break;
+				case "append":
+					// Before the closing brace, so it lands at the end of the body.
+					updated = [...lines.slice(0, found.end - 1), ...reindent(body, found.bodyIndent), ...lines.slice(found.end - 1)];
+					where = `appended inside, before line ${found.end}`;
+					break;
+				case "prepend":
+					updated = [...lines.slice(0, found.bodyStart), ...reindent(body, found.bodyIndent), ...lines.slice(found.bodyStart)];
+					where = `prepended inside, after line ${found.bodyStart}`;
+					break;
+				case "before":
+					updated = [...lines.slice(0, found.start - 1), ...reindent(body, found.indent), ...lines.slice(found.start - 1)];
+					where = `inserted before line ${found.start}`;
+					break;
+				default:
+					updated = [...lines.slice(0, found.end), ...reindent(body, found.indent), ...lines.slice(found.end)];
+					where = `inserted after line ${found.end}`;
+			}
+
+			try {
+				writeChecked(file, updated, lines.join("\n"));
+			} catch (err) {
+				return { content: [{ type: "text", text: String((err as Error).message) }], isError: true };
+			}
+			return {
+				content: [{
+					type: "text",
+					text: `${params.symbol} (${found.start}-${found.end}): ${where}, ${body.length} line(s).`,
+				}],
+				details: { start: found.start, end: found.end, action },
 			};
 		},
 	});

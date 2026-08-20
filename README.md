@@ -632,3 +632,47 @@ The other three:
 - **Shell writes to source files are flagged.** Every edit through the tools is
   syntax-checked and reverted on failure; a heredoc bypasses that completely, so
   a broken edit made that way stays broken. `tool-budget` now says so.
+
+### `edit_symbol` — edit by name, not by line number
+
+The audit that produced this, across 30 sessions:
+
+| tool | calls | failed |
+|---|---|---|
+| `replace_lines` | 114 | **39 (34%)** |
+| `edit_block` | 34 | 6 (18%) |
+| `write` | 30 | 1 (3%) |
+
+And the reasons `replace_lines` failed: **22 "edit broke the file"**, where a
+range cut across a brace boundary, and **16 "expect did not match"**, where the
+numbers had gone stale. Both are line-number problems. The model was never
+really asking for lines 311-329; it was asking for *the end of `play()`*.
+
+So `edit_symbol` resolves the span from the syntax:
+
+```
+edit_symbol { symbol: "Game.play", action: "append", text: "..." }
+  -> Game.play (204-329): appended inside, before line 329
+```
+
+`replace` swaps the whole thing, `append`/`prepend` go inside the body,
+`before`/`after` go outside it. `Class.method` disambiguates a repeated name.
+
+Three details that decide whether it can be trusted:
+
+- **Brace matching ignores strings and comments.** A naive counter is wrong the
+  moment a file contains `"}"` or a commented-out block, and it fails *silently*
+  — you get a span off by one nesting level and an edit that corrupts the file.
+- **An unknown symbol lists what the file does contain**, so the next call can be
+  right without a round trip through `outline`.
+- **Python is refused, not half-handled.** Its blocks are indentation-scoped and
+  need a different algorithm; a partly-working version would fail in exactly the
+  silent way this tool exists to prevent.
+
+**On the cost of more tools.** Schemas ride in the system prompt on every
+request, and they are cheap: 8 custom tools were 1,776 tokens, ~222 each, 3.5%
+of a 51K window. The real cost is *selection*, and there is direct evidence for
+it here — `read` coexisting with `view_lines` produced 17 malformed calls before
+`read` was retired. That is why the audit added one tool rather than five:
+`edit_symbol` addresses roughly 38 of the 45 recorded edit failures, and nothing
+else in the data justified a second.
