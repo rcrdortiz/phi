@@ -9,6 +9,21 @@
  * variant, or pi will happily send more context than the model was loaded with.
  */
 
+/**
+ * Qwen publishes different sampling for thinking and instruct modes, and the
+ * mismatch is not cosmetic: thinking at instruct temperatures drives repetition
+ * loops. Since the thinking level is now changed live with Shift+Tab, sampling
+ * has to follow it rather than being baked into a separate model variant.
+ */
+export const SAMPLING = {
+	instruct: { temperature: 0.7, top_p: 0.8, top_k: 20, presence_penalty: 1.5 },
+	thinking: { temperature: 1.0, top_p: 0.95, top_k: 20 },
+} as const;
+
+export function samplingFor(level: string) {
+	return level === "off" || level === "minimal" ? SAMPLING.instruct : SAMPLING.thinking;
+}
+
 export const PROVIDER = "ollama-local";
 export const BASE_URL = `${process.env.PI_OLLAMA_URL ?? "http://localhost:11434"}/v1`;
 
@@ -53,15 +68,6 @@ export const MODELS: LocalModel[] = [
 		defaultThinking: "off",
 	},
 	{
-		id: "qwen3.8-medium",
-		name: "Qwen3.8 27B medium (light thinking)",
-		reasoning: true,
-		contextWindow: 65536,
-		maxTokens: 16384,
-		weightsGb: 18,
-		defaultThinking: "low",
-	},
-	{
 		id: "qwen3.8-reasoning",
 		name: "Qwen3.8 27B reasoning (8-bit — needs the machine to itself)",
 		reasoning: true,
@@ -73,7 +79,7 @@ export const MODELS: LocalModel[] = [
 ];
 
 /** Shape pi expects from registerProvider / setModel. */
-export function toPiModel(m: LocalModel) {
+export function toPiModel(m: LocalModel, level?: string) {
 	return {
 		id: m.id,
 		name: m.name,
@@ -89,6 +95,8 @@ export function toPiModel(m: LocalModel) {
 		// changes it live instead of it being fixed per model. A level mapped to
 		// null is hidden from the cycle; xhigh and max only appear if mapped,
 		// and Qwen3.8 has no distinct behaviour beyond high, so they are left out.
+		// Sampling matched to the active thinking level, or the model's default.
+		samplingParams: samplingFor(level ?? m.defaultThinking),
 		thinkingLevelMap: {
 			off: "none",
 			minimal: "low",

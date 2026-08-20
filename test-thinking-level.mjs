@@ -8,24 +8,30 @@ const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "
 const fast = toPiModel(MODELS.find((m) => m.id === "qwen3.8-fast"));
 check("models expose a thinkingLevelMap", !!fast.thinkingLevelMap, JSON.stringify(fast.thinkingLevelMap));
 check('"off" maps to Ollama\'s "none"', fast.thinkingLevelMap.off === "none");
-check("no stale hardcoded samplingParams", fast.samplingParams === undefined, JSON.stringify(fast.samplingParams));
+// Sampling is no longer baked per variant — it is derived from the level, and
+// defaults to the model's own starting level.
+check("sampling matches the model's default level",
+  fast.samplingParams?.temperature === 0.7 && fast.samplingParams?.presence_penalty === 1.5,
+  JSON.stringify(fast.samplingParams));
+const reasoning = toPiModel(MODELS.find((m) => m.id === "qwen3.8-reasoning"));
+check("a thinking-default model gets thinking sampling",
+  reasoning.samplingParams?.temperature === 1.0, JSON.stringify(reasoning.samplingParams));
 
 // 2. Selecting a model applies that tier's default.
 const handlers = {}, notes = [];
 let level = "high";
+let registered = [];
 mod({
   on: (e, h) => (handlers[e] = h),
   registerCommand: (n, o) => (handlers["/" + n] = o.handler),
   getThinkingLevel: () => level,
   setThinkingLevel: (l) => (level = l),
+  registerProvider: (_n, cfg) => registered.push(cfg),
 });
 const ctx = { ui: { notify: (t) => notes.push(t) }, model: { id: "qwen3.8-fast" } };
 
 await handlers["model_select"]({ model: { id: "qwen3.8-fast" } }, ctx);
 check("selecting fast turns thinking off", level === "off", `level=${level}`);
-
-await handlers["model_select"]({ model: { id: "qwen3.8-medium" } }, ctx);
-check("selecting medium uses low", level === "low", `level=${level}`);
 
 await handlers["model_select"]({ model: { id: "qwen3.8-reasoning" } }, ctx);
 check("selecting reasoning uses high", level === "high", `level=${level}`);
@@ -44,7 +50,29 @@ notes.length = 0;
 await handlers["/effort"]("wild", ctx);
 check("/effort rejects an unknown level", /Unknown level/.test(notes.join(" ")) && level === "low");
 
-// 4. Cycling with Shift+Tab reports through the same path.
+// 4. Sampling must follow the level: thinking at instruct temperatures is the
+// documented cause of repetition loops in Qwen models.
+registered = [];
+await handlers["thinking_level_select"]({ level: "off" }, ctx);
+const instruct = registered.at(-1)?.models?.[0]?.samplingParams;
+check("thinking off uses instruct sampling", instruct?.temperature === 0.7 && instruct?.presence_penalty === 1.5,
+  JSON.stringify(instruct));
+
+registered = [];
+await handlers["thinking_level_select"]({ level: "high" }, ctx);
+const thinking = registered.at(-1)?.models?.[0]?.samplingParams;
+check("thinking on uses thinking sampling", thinking?.temperature === 1.0 && thinking?.top_p === 0.95,
+  JSON.stringify(thinking));
+
+registered = [];
+await handlers["thinking_level_select"]({ level: "high" }, ctx);
+check("no redundant re-registration for the same level", registered.length === 0);
+
+// 5. Only three models remain: 4-bit, 4-bit MoE coder, and 8-bit.
+check("the medium variant is gone", !MODELS.some((m) => m.id === "qwen3.8-medium"),
+  MODELS.map((m) => m.id).join(", "));
+
+// 6. Cycling with Shift+Tab reports through the same path.
 notes.length = 0;
 await handlers["thinking_level_select"]({ level: "high" }, ctx);
 check("cycling reports the new level", /Thinking: high/.test(notes.join(" ")), notes.join(" ").split("/")[0]);

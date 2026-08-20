@@ -110,8 +110,7 @@ model was loaded with.
 | model | weights | ctx | notes |
 |---|---|---|---|
 | `qwen3-coder:30b` | 18 GB (MoE, 3B active) | 64K | fastest generation |
-| `qwen3.8-fast` | 18 GB (4-bit MLX) | 64K | everyday work, thinking off |
-| `qwen3.8-medium` | 18 GB (4-bit MLX) | 64K | light thinking by default |
+| `qwen3.8-fast` | 18 GB (4-bit MLX) | 64K | everyday work; Shift+Tab adds thinking |
 | `qwen3.8-reasoning` | 31 GB (8-bit mxfp8) | 64K | best quality, needs the machine to itself |
 
 ### `thinking-level.ts` — change how hard it thinks, mid-session
@@ -131,10 +130,24 @@ Measured on the same prompt, so the useful distinction is really *thinking or
 not*: `none` to `low` is a 35× jump, `low` to `medium` is 5%.
 
 Each model also starts at its tier's default when selected — `fast` off,
-`medium` low, `reasoning` high — rather than inheriting the previous model's
+`reasoning` high — rather than inheriting the previous model's
 level (`PI_THINKING_DEFAULTS=0` to keep whatever is current). Changing level
 reports what it costs, and warns when free memory is low, since more thinking
 fills the context faster and the KV cache grows with it.
+
+**Sampling follows the level.** Qwen publishes different sampling for thinking
+and instruct modes, and running thinking at instruct temperatures drives
+repetition loops. That used to require a separate model variant per mode
+(`qwen3.8-medium`); now the provider is re-registered with matching sampling
+whenever the level changes:
+
+| level | temperature | top_p | presence_penalty |
+|---|---|---|---|
+| `off` / `minimal` | 0.7 | 0.8 | 1.5 |
+| `low` / `medium` / `high` | 1.0 | 0.95 | — |
+
+So there are three models, not four: 4-bit, 4-bit MoE coder, and 8-bit. The
+thinking dimension is a control, not a copy of the weights.
 
 `/effort` shows the current level; `/effort low` sets it.
 

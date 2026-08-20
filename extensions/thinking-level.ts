@@ -23,9 +23,12 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
-import { MODELS } from "../lib/ollama-models.ts";
+import { BASE_URL, MODELS, PROVIDER, samplingFor, toPiModel } from "../lib/ollama-models.ts";
 
 const APPLY_DEFAULTS = process.env.PI_THINKING_DEFAULTS !== "0";
+
+/** Sampling is switched with the level; see samplingFor in ../lib. */
+void samplingFor;
 
 /** What each level costs, measured on "Is 1009 prime?" against qwen3.8. */
 const COST: Record<string, string> = {
@@ -64,6 +67,31 @@ function memoryNote(level: string): string | undefined {
 
 export default function thinkingLevelExtension(pi: ExtensionAPI) {
 	const defaults = new Map(MODELS.map((m) => [m.id, m.defaultThinking]));
+	let registeredFor: string | undefined;
+
+	/**
+	 * Re-register the provider with sampling matched to the current level.
+	 *
+	 * Qwen wants different sampling for thinking and instruct modes, and running
+	 * thinking at instruct temperatures causes repetition loops. That used to be
+	 * handled by having a separate model variant per mode; now the level changes
+	 * live, so the sampling has to move with it. registerProvider takes effect
+	 * immediately, and re-registering the same ids leaves the selection alone.
+	 */
+	const applySampling = (level: string, ctx?: { ui: { notify: Function } }) => {
+		if (registeredFor === level) return;
+		try {
+			pi.registerProvider(PROVIDER, {
+				baseUrl: BASE_URL,
+				apiKey: "ollama",
+				api: "openai-completions",
+				models: MODELS.map((m) => toPiModel(m, level)),
+			} as never);
+			registeredFor = level;
+		} catch (e) {
+			ctx?.ui.notify(`Could not update sampling for ${level}: ${String(e)}`, "warning");
+		}
+	};
 
 	// Each tier has a level it is meant for; without this the level simply
 	// carries over from whatever model you were on before.
@@ -75,6 +103,7 @@ export default function thinkingLevelExtension(pi: ExtensionAPI) {
 		try {
 			if (pi.getThinkingLevel() === want) return;
 			pi.setThinkingLevel(want as never);
+			applySampling(want, ctx);
 			ctx.ui.notify(`Thinking set to ${want} for ${id} (Shift+Tab to change).`, "info");
 		} catch {
 			/* the level is a convenience, never a reason to fail a model switch */
@@ -84,6 +113,7 @@ export default function thinkingLevelExtension(pi: ExtensionAPI) {
 	// Say what a change costs, and warn when the machine cannot afford it.
 	pi.on("thinking_level_select", async (event, ctx) => {
 		const level = String((event as { level?: string }).level ?? pi.getThinkingLevel());
+		applySampling(level, ctx);
 		const note = memoryNote(level);
 		ctx.ui.notify(
 			[`Thinking: ${level}`, COST[level] ? `  ${COST[level]}` : "", note ? `  ${note}` : ""]
@@ -123,6 +153,7 @@ export default function thinkingLevelExtension(pi: ExtensionAPI) {
 			}
 			try {
 				pi.setThinkingLevel(want as never);
+				applySampling(want, ctx);
 				const note = memoryNote(want);
 				ctx.ui.notify(
 					[`Thinking: ${want}`, COST[want] ? `  ${COST[want]}` : "", note ? `  ${note}` : ""]
