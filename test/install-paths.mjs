@@ -26,10 +26,28 @@ check("bin/phi points pi at PHI_HOME", /export PI_CODING_AGENT_DIR="\$PHI_HOME"/
 check("bin/phi refuses when pi is absent", /command -v pi/.test(wrapper) && /exit 127/.test(wrapper));
 
 // The path the script links from is the one pi actually clones into.
-const repoPath = /WRAPPER="([^"]+)"/.exec(script)?.[1] ?? "";
-check("the wrapper path matches the repo layout", repoPath.endsWith("/bin/phi"), repoPath);
+// The fallback, used only when `pi list` cannot be read, still has to name the
+// file that actually ships.
+const fallback = /\|\| WRAPPER="([^"]+)"/.exec(script)?.[1] ?? "";
+check("the fallback path matches the repo layout", fallback.endsWith("/bin/phi"), fallback);
 check("bin/phi ships and is executable",
   (fs.statSync(new URL("../bin/phi", import.meta.url)).mode & 0o111) !== 0);
+
+// The launcher location comes from pi, not from a reconstructed path. Guessing
+// it is what shipped broken: the step looked one directory too deep, warned,
+// and the warning was lost in the install output.
+check("the launcher path is read from `pi list`", /pi list .*awk/s.test(script),
+  "the layout belongs to pi, so pi is asked where the package went");
+check("a reconstructed path remains only as a fallback",
+  /\[ -n "\$WRAPPER" \] \|\| WRAPPER=/.test(script));
+
+// A link that was not created must not be reported as though it were.
+check("the link is verified before it is announced",
+  /if ln -sf .* && \[ -x "\$BINDIR\/phi" \]; then/.test(script), "ok only after the link exists and is executable");
+check("a failed link warns with what to run instead",
+  /could not link .*PI_CODING_AGENT_DIR=/.test(script));
+check("the shell command cache is cleared before verifying",
+  /hash -r/.test(script), "a brand new link is invisible to the running shell otherwise");
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

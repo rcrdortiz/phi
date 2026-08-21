@@ -25,6 +25,10 @@ That installs Ollama, pi, and phi, raises the GPU wired limit, and sets up the
 login agent for Ollama's keep-alive. It asks before anything that needs `sudo`,
 and is safe to re-run: it skips whatever is already in place.
 
+`raw.githubusercontent.com` caches for five minutes, so immediately after a push
+the one-liner can still fetch the previous script. If something looks wrong just
+after an update, wait a minute and run it again.
+
 Then run `phi`, and `/model-install` inside it to pull and build a model.
 
 **`phi` and `pi` are separate installs sharing one binary.** `phi` runs pi

@@ -227,9 +227,19 @@ else
 fi
 
 step "The phi command"
-WRAPPER="$PHI_HOME/git/github.com/rcrdortiz/phi/bin/phi"
+# Ask pi where it put the package rather than reconstructing the path. The
+# layout is pi's to change, and guessing it wrong is what shipped last time:
+# the launcher step looked one directory too deep, warned, and the warning was
+# lost in the install output. `pi list` prints the real location.
+WRAPPER="$(pi list 2>/dev/null | awk -v repo="$PHI_REPO" '
+  $0 ~ repo { found = 1; next }
+  found && $1 ~ /^\// { print $1 "/bin/phi"; exit }
+')"
+[ -n "$WRAPPER" ] || WRAPPER="$PHI_HOME/git/github.com/rcrdortiz/phi/bin/phi"
+
 if [ ! -f "$WRAPPER" ]; then
-  warn "launcher not found at $WRAPPER; run phi with: PI_CODING_AGENT_DIR=$PHI_HOME pi"
+  warn "launcher not found at $WRAPPER"
+  warn "phi will not be on your PATH. Run it with: PI_CODING_AGENT_DIR=$PHI_HOME pi"
 else
   BINDIR=""
   for d in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin"; do
@@ -243,8 +253,11 @@ else
       *) warn "$BINDIR is not on your PATH; add it to use the phi command" ;;
     esac
   fi
-  ln -sf "$WRAPPER" "$BINDIR/phi"
-  ok "phi -> $BINDIR/phi  (pi is untouched and stays vanilla)"
+  if ln -sf "$WRAPPER" "$BINDIR/phi" 2>/dev/null && [ -x "$BINDIR/phi" ]; then
+    ok "phi -> $BINDIR/phi  (pi is untouched and stays vanilla)"
+  else
+    warn "could not link $BINDIR/phi; run phi with: PI_CODING_AGENT_DIR=$PHI_HOME pi"
+  fi
 fi
 
 # ---------------------------------------------------------------- verify
@@ -261,10 +274,14 @@ if pi list 2>/dev/null | grep -q "$PHI_REPO"; then
 else
   warn "phi is not installed, re-run this script"
 fi
+hash -r 2>/dev/null || true   # shells cache command locations; a new link is invisible without this
 if command -v phi >/dev/null 2>&1; then
   ok "the phi command is on your PATH"
+elif [ -x "${BINDIR:-}/phi" ]; then
+  ok "phi installed at $BINDIR/phi"
+  warn "$BINDIR is not on your PATH. Add it, or run: $BINDIR/phi"
 else
-  warn "the phi command is not on your PATH yet; open a new shell"
+  warn "the phi command was not installed. Re-run this script and read the 'The phi command' step."
 fi
 
 echo
