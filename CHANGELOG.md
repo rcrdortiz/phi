@@ -16,6 +16,17 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: tool results collapse to one line until `ctrl+o`.** A turn that reads
+three files and lists a directory filled the screen with output nobody reads,
+and on a local model the sentence worth reading arrives slowly enough that
+scrolling back to find it is a real cost. phi's own tools already write a
+summary as their first line, so that is what shows: file and range for
+`view_lines`, declaration count for `outline`, what changed for the edit tools.
+Nothing is hidden, only deferred. `PI_COLLAPSE_TOOLS=0` restores full output.
+
+pi's built-in tools (`ls`, `bash`, `grep`) are unaffected: their rendering is
+fixed at twenty lines inside pi and an extension cannot reach it.
+
 ## 0.2.6 (2026-08-21)
 
 **Fixed: work that was not driven by a plan died at every compaction.** The

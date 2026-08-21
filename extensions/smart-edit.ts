@@ -26,6 +26,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "../lib/schema.ts";
+import { collapsedRenderer } from "../lib/collapse.ts";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -209,6 +210,7 @@ function writeChecked(file: string, lines: string[], before: string): string {
 export default function smartEditExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "edit_block",
+		renderResult: collapsedRenderer(),
 		label: "Edit block",
 		description:
 			"Replace a block of lines, matching on line CONTENT and ignoring indentation. " +
@@ -298,6 +300,7 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "replace_lines",
+		renderResult: collapsedRenderer(),
 		label: "Replace lines",
 		description:
 			"Replace an inclusive range of line numbers with new text. Deterministic — no matching involved. " +
@@ -375,6 +378,7 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "view_lines",
+		renderResult: collapsedRenderer(),
 		label: "View lines",
 		description:
 			`Show a numbered range of a file (max ${MAX_SPAN} lines per call). Use before replace_lines, and to check an edit landed. ` +
@@ -457,6 +461,7 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 	// this answers it in one line per declaration.
 	pi.registerTool({
 		name: "outline",
+		renderResult: collapsedRenderer(),
 		label: "Outline",
 		description:
 			"List a file's functions, classes and headings with their line numbers. Use this FIRST to find where something is, then view_lines that range. Far cheaper than reading the file.",
@@ -503,6 +508,7 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 	// the syntax removes both at once.
 	pi.registerTool({
 		name: "edit_symbol",
+		renderResult: collapsedRenderer(),
 		label: "Edit symbol",
 		description:
 			"Edit a named function, method or class WITHOUT line numbers. " +

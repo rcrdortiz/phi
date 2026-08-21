@@ -184,6 +184,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `plan-notes` | plan and findings live on disk, so context can be thrown away |
 | `smart-edit` | edits that survive a model with imperfect whitespace recall |
 | `tool-budget` | stops one tool result eating the window |
+| `collapse` (lib) | tool results render as one line until `ctrl+o` |
 | `auto-handoff` | compacts mid-run, resumes what it interrupted, and records every compaction to disk |
 | `token-rate` | decode speed in the footer, so a stall is visible |
 | `incremental-writes` | large files written in verified chunks |
@@ -254,6 +255,8 @@ Everything has a working default. These exist for when it does not.
 | `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |
 | `PI_TOKEN_RATE` | `1` | show decode speed |
 | `PI_COMPACT_QUIET` | `1` | `0` shows the interruption our own compaction causes |
+| `PI_COLLAPSE_TOOLS` | `1` | `0` renders tool results in full |
+| `PI_COLLAPSE_KEEP` | `1` | lines kept before the expand hint |
 | `PHI_DEBUG_MESSAGE_END` | off | `1` logs every assistant message end to `.pi/message-end.log` |
 | `PI_EXIT_WORD` | `1` | `0` sends a bare `exit` to the model instead of quitting |
 | `PI_WORKING_TIMER` | `1` | `0` leaves pi's plain "Working..." alone |
