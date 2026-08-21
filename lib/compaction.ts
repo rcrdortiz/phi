@@ -148,6 +148,18 @@ let lastAt = 0;
  * plus the recent tail that would be kept anyway. Guarding on the total is what
  * made a step boundary ask for a compaction that could not succeed.
  */
+/**
+ * Depth beyond which a prefix-cache miss cannot finish prefilling in time.
+ *
+ * pi's HTTP idle timeout maxes at 300s and prefill measures ~120 tok/s at depth,
+ * so a miss above roughly 36,000 tokens is reported as `Request timed out`
+ * rather than as a slow reply. Misses do happen: the Ollama log carries
+ * `failed to restore cache, freeing all caches`. This is a property of the
+ * machine and the runner, not a preference, which is why it is separate from
+ * the trigger.
+ */
+const PREFILL_CEILING = Number(process.env.PI_PREFILL_CEILING_TOKENS ?? 36_000);
+
 let baseline = 0;
 let baselineStale = false;
 
@@ -168,9 +180,27 @@ let baselineStale = false;
  */
 let sessionFloor = Number.POSITIVE_INFINITY;
 
-/** Record a context reading. Call on every turn, not only when acting. */
+/**
+ * Record a context reading. Call on every turn, not only when acting.
+ *
+ * This is also where the post-compaction baseline is captured, and it has to be
+ * here rather than in requestCompaction. requestCompaction is only reached once
+ * usage is already past the trigger, so a baseline taken there records the
+ * TRIGGER depth, not the depth compaction actually left behind. The `since`
+ * margin then stacks on top of the trigger instead of on top of the floor, and
+ * the next compaction is deferred by that much again: with a 64K window that
+ * moved the real compaction depth from 28,000 to about 42,700, past the depth
+ * where a prefix-cache miss can still prefill inside pi's idle timeout. The
+ * symptom is not a missed compaction, it is `Request timed out` on the next
+ * thing the user types.
+ */
 export function observeContext(tokens: number): void {
-	if (tokens > 0 && tokens < sessionFloor) sessionFloor = tokens;
+	if (tokens <= 0) return;
+	if (tokens < sessionFloor) sessionFloor = tokens;
+	if (baselineStale) {
+		baseline = tokens;
+		baselineStale = false;
+	}
 }
 
 /** Compactions closer together than this are the double-fire we are preventing.
@@ -277,8 +307,9 @@ export function requestCompaction(
 		// session is small, and this function only runs when it is not — a call
 		// that observed its own reading would set the floor to the very number it
 		// is judging, making `since` zero and refusing every time.
-		// The first reading after a compaction establishes the new baseline.
-		// Refusing this one costs nothing: we just compacted.
+		// Fallback for a caller that never observes: observeContext normally
+		// claims this first, at the post-compaction depth, which is the reading
+		// that makes `since` mean what it says.
 		if (baselineStale) {
 			baseline = usage.tokens;
 			baselineStale = false;
@@ -312,7 +343,12 @@ export function requestCompaction(
 		// then rounds to the nearest cut point, which can swallow the little that
 		// was left. Asking with a thin margin is how "Nothing to compact" gets
 		// reported for a session that arithmetically had something.
-		if (since <= keepRecentTokens(usage.contextWindow) * 1.5) return false;
+		// ...unless we are deep enough that the next prefix-cache miss cannot
+		// prefill before pi calls the request idle. Past that point a compaction
+		// that comes back "Nothing to compact" costs one cosmetic line, and NOT
+		// compacting costs the user their next prompt with `Request timed out`.
+		// The cheap failure wins.
+		if (usage.tokens < PREFILL_CEILING && since <= keepRecentTokens(usage.contextWindow) * 1.5) return false;
 	}
 
 	inFlight = true;

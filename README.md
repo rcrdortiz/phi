@@ -207,6 +207,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_NOTES_MAX_CHARS` | `4000` | cap on the whole notes file |
 | `PI_COMPACT_AT_TOKENS` | 70% of window | depth at which context is compacted |
 | `PI_MAX_SAFE_DEPTH` | `28000` | absolute cap on that depth |
+| `PI_PREFILL_CEILING_TOKENS` | `36000` | depth past which compaction stops waiting for a clean margin |
 | `PI_PLAN_KEEP_DONE` | `3` | completed steps kept in the plan |
 | `PI_PLAN_AUTOCONTINUE` | `1` | run steps unattended (also gates the compaction resume) |
 | `PI_PLAN_MAX_AUTO` | `25` | unattended steps before pausing |

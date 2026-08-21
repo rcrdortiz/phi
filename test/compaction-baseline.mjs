@@ -96,6 +96,62 @@ tokens = 1000;
 check("force does not compact a session with nothing to compact",
   requestCompaction(ctx, "x", { force: true }) === false);
 
+// --- the baseline has to come from a reading taken BELOW the trigger --------
+// Observed live at 70.4% of a 64K window, followed by `Request timed out` on
+// the next prompt. requestCompaction is only reached once usage is past the
+// trigger, so a baseline claimed there records the TRIGGER depth rather than
+// the depth compaction left behind, and the `since` margin stacks on top of the
+// trigger instead of on top of the floor.
+//
+// The property that matters is not where the baseline is recorded, it is the
+// depth the session actually reaches before compacting. Walk it up and find out.
+const firstCompactionDepth = (observeSettled) => {
+  resetCompactionState();
+  tokens = 40000;
+  requestCompaction(ctx, "x", { force: true });   // compacts, arms the baseline
+  handlers.session_compact?.({}, ctx);
+  if (observeSettled !== undefined) observeContext(observeSettled);
+  // The watchdog returns before requestCompaction below the trigger, so the
+  // walk has to as well. That early return is the whole reason the lazily
+  // claimed baseline lands on the trigger depth.
+  const TRIGGER = 28000;
+  for (let t = 12000; t <= 64000; t += 250) {
+    tokens = t;
+    if (t < TRIGGER) { if (observeSettled !== undefined) observeContext(t); continue; }
+    if (requestCompaction(ctx, "x", { force: true })) return t;
+  }
+  return Infinity;
+};
+
+const CEILING = 36000;
+const withBaseline = firstCompactionDepth(14000);
+check("compaction happens before a prefix-cache miss stops fitting in the timeout",
+  withBaseline < CEILING,
+  `first compaction at ${withBaseline}, ceiling ${CEILING}`);
+
+// The same walk with no reading taken below the trigger is the bug: the first
+// call past the trigger claims the baseline, and the margin stacks on top of it.
+const withoutBaseline = firstCompactionDepth(undefined);
+check("without a low reading it runs deep, which is what the fix addresses",
+  withoutBaseline > withBaseline,
+  `${withoutBaseline} against ${withBaseline}`);
+
+// --- the ceiling valve -----------------------------------------------------
+// Past the prefill ceiling the margin stops applying: a cosmetic "Nothing to
+// compact" is cheaper than the user's next prompt timing out.
+resetCompactionState();
+observeContext(34000);
+tokens = 35000;
+check("just under the ceiling, a thin margin still stands down",
+  requestCompaction(ctx, "x", { force: true }) === false,
+  "1000 accumulated against keepRecent " + KEEP);
+resetCompactionState();
+observeContext(35500);
+tokens = 36500;
+check("past the ceiling it compacts on a thin margin anyway",
+  requestCompaction(ctx, "x", { force: true }) === true,
+  "a timed-out prompt is the more expensive failure");
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);
