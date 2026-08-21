@@ -9,7 +9,8 @@
     "url": "https://github.com/rcrdortiz/phi.git"
   },
   "scripts": {
-    "test": "node test/run.mjs"
+    "test": "node test/run.mjs",
+    "release": "node scripts/release.mjs"
   },
   "pi": {
     "extensions": [
