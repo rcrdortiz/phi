@@ -105,32 +105,31 @@ function recordMessageEnd(ctx: { cwd: string }, event: unknown): void {
 
 export default function autoHandoffExtension(pi: ExtensionAPI) {
 	/**
-	 * Swallow the abort that our own compaction causes.
+	 * Swallow the interruption our own compaction causes.
 	 *
-	 * Compacting interrupts the in-flight turn, and that interruption surfaces
-	 * against an assistant message in one of two shapes.
+	 * Compacting aborts the in-flight turn. That arrives as an assistant message
+	 * with stopReason "error" and the text "This operation was aborted", and it
+	 * is not a failure: it is the mechanism working.
 	 *
-	 * The first is an explicit abort, which pi already blanks for its own
-	 * compaction (`errorMessage: aborted ? undefined : ...`) and ours did not.
+	 * Blanking the text is not enough, and blanking it alone was actively worse
+	 * than doing nothing. pi's renderer prints `errorMessage || "Unknown error"`
+	 * whenever the stop reason is "error", so removing the one useful word
+	 * turned a correctly labelled abort into a red "Error: Unknown error" that
+	 * named nothing at all. Confirmed from a recorded message end rather than
+	 * reasoned about: stopReason "error", errorMessage "This operation was
+	 * aborted", with one of our compactions in flight.
 	 *
-	 * The second is a torn-down provider stream, which arrives as stopReason
-	 * "error" with an EMPTY errorMessage. pi's renderer substitutes the literal
-	 * text "Unknown error" for the empty one, so it prints a red line that names
-	 * nothing. Blanking errorMessage does not help, because it is already blank:
-	 * the stop reason itself has to change, and "stop" is what actually happened
-	 * from the session's point of view. The turn ended because we ended it.
+	 * The stop reason itself has to change, and "stop" is what actually
+	 * happened from the session's point of view: the turn ended because we
+	 * ended it.
 	 *
-	 * That rewrite is the part worth being careful about, because stopReason
-	 * feeds pi's retry and context accounting and not only the display. Three
-	 * things keep it narrow: the message must be an assistant message, one of
-	 * OUR compactions must be in flight or seconds old, and the errorMessage
-	 * must be empty. A genuine provider failure carries text. The cost of
-	 * getting it wrong is a hidden error; the cost of leaving it is a red line
-	 * on every single compaction, which teaches you to stop reading red lines,
-	 * and that is the more expensive habit.
-	 *
-	 * An abort the user caused by pressing escape still shows, because that one
-	 * they need to see.
+	 * That rewrite is the part worth care, since stopReason feeds pi's retry and
+	 * context accounting and not only the display. Three things keep it narrow:
+	 * the message must be an assistant message, one of OUR compactions must be
+	 * in flight or seconds old, and the error must either say it was aborted or
+	 * say nothing at all. A genuine provider failure names itself and is left
+	 * alone. An abort the user caused by pressing escape falls outside the
+	 * window and still shows, because that one they need to see.
 	 *
 	 * Env: PI_COMPACT_QUIET=0  show them, when you suspect one is real
 	 */
@@ -141,14 +140,9 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 			message?: { role?: string; errorMessage?: string; stopReason?: string };
 		}).message;
 		if (m?.role !== "assistant") return undefined;
+		if (m.stopReason !== "error" && m.stopReason !== "aborted") return undefined;
+		if (m.errorMessage && !/abort/i.test(m.errorMessage)) return undefined;
 		if (!compactionBusy() && !recentlyCompacted(10_000)) return undefined;
-		if (m.errorMessage) {
-			if (!/abort/i.test(m.errorMessage)) return undefined;
-			return { message: { ...m, errorMessage: undefined } } as never;
-		}
-		// No text at all. Only "error" is rewritten: "aborted" already renders as
-		// a plain "Operation aborted" rather than as a failure.
-		if (m.stopReason !== "error") return undefined;
 		return { message: { ...m, stopReason: "stop", errorMessage: undefined } } as never;
 	});
 

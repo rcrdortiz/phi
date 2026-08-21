@@ -16,6 +16,17 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: the `Error: Unknown error` on every compaction was phi's own doing.**
+Compacting aborts the in-flight turn, which arrives as `stopReason: "error"`
+carrying the text "This operation was aborted". The suppressor matched it,
+blanked the text, and left the stop reason alone. pi renders
+`errorMessage || "Unknown error"` whenever the stop reason is `error`, so
+removing the one useful word turned a correctly labelled abort into a red line
+naming nothing. It was worse than doing nothing. The stop reason is now
+rewritten too, which is what the 0.2.1 change should have done: that release
+added a branch for an empty error message which never fired, because the text
+is always there.
+
 ## 0.2.4 (2026-08-21)
 
 **Fixed: `phi -v` printed pi's version.** The thing you typed is phi, and its

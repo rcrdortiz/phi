@@ -112,10 +112,10 @@ await fire("turn_end", {}, deepCtx);
 check("a finished plan is left alone", sent.length === 0, sent.join(" | ") || "(nothing sent)");
 
 // --- our own compaction must not print an error ---------------------------
-// Compacting interrupts the in-flight turn; that interruption surfaced as a red
-// "Error: This operation was aborted" for something working as designed.
+// Compacting aborts the in-flight turn. That arrives as stopReason "error" with
+// the text "This operation was aborted", recorded live rather than assumed.
 resetCompactionState();
-const aborted = { role: "assistant", errorMessage: "This operation was aborted", usage: { output: 5 } };
+const aborted = { role: "assistant", stopReason: "error", errorMessage: "This operation was aborted", usage: { output: 5 } };
 
 const notOurs = await fire("message_end", { message: { ...aborted } });
 check("an abort we did not cause is left visible", notOurs === undefined,
@@ -124,36 +124,34 @@ check("an abort we did not cause is left visible", notOurs === undefined,
 // Simulate a compaction having just run.
 await fire("session_compact", { compactionEntry: { summary: "s", tokensBefore: 1 } });
 const ours = await fire("message_end", { message: { ...aborted } });
-check("the abort from our compaction is swallowed", ours?.message?.errorMessage === undefined,
+check("the abort from our compaction stops being an error",
+  ours?.message?.stopReason === "stop" && ours?.message?.errorMessage === undefined,
   JSON.stringify(ours?.message ?? null));
+
+// THE REGRESSION. Blanking the text alone was worse than doing nothing: pi
+// renders `errorMessage || "Unknown error"` whenever the stop reason is
+// "error", so removing the one useful word produced a red line naming nothing.
+check("the stop reason is rewritten, not just the text",
+  ours?.message?.stopReason !== "error",
+  "a blank message under stopReason error renders as \"Unknown error\"");
 check("and the message itself survives", ours?.message?.role === "assistant" && ours?.message?.usage?.output === 5);
 
-const realError = await fire("message_end", { message: { role: "assistant", errorMessage: "connection refused" } });
-check("a genuine error is never swallowed", realError === undefined, "only aborts are suppressed");
+const realError = await fire("message_end", { message: { role: "assistant", stopReason: "error", errorMessage: "connection refused" } });
+check("a failure that names itself is never swallowed", realError === undefined,
+  "only aborts, and only inside the window");
 
-// The second shape: a torn-down provider stream arrives as stopReason "error"
-// with NO text, and pi's renderer substitutes the words "Unknown error". Seen
-// twice, both times immediately before a compaction. Blanking errorMessage
-// cannot help, because it is already blank.
+// The other shape: no text at all.
 const blank = { role: "assistant", stopReason: "error", usage: { output: 3 } };
 const quiet = await fire("message_end", { message: { ...blank } });
-check("a textless error during our compaction stops being an error",
-  quiet?.message?.stopReason === "stop",
-  "the turn ended because we ended it");
-check("the message itself is not discarded",
-  quiet?.message?.role === "assistant" && quiet?.message?.usage?.output === 3);
+check("a textless error during our compaction is also quieted",
+  quiet?.message?.stopReason === "stop");
 
 check("a textless error is still shown when nothing of ours is running",
   (resetCompactionState(),
    await fire("message_end", { message: { ...blank } })) === undefined,
   "outside the window it is somebody else's problem");
 
-// The narrowness is the safety. A failure that names itself is never touched,
-// even in the middle of a compaction.
 await fire("session_compact", { compactionEntry: { summary: "s", tokensBefore: 1 } });
-check("an error that names itself survives the window",
-  (await fire("message_end", { message: { role: "assistant", stopReason: "error", errorMessage: "connection refused" } })) === undefined,
-  "a real provider failure carries text");
 check("an ordinary finished turn is not rewritten",
   (await fire("message_end", { message: { role: "assistant", stopReason: "stop" } })) === undefined);
 check("a user message is never touched",
