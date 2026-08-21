@@ -47,6 +47,7 @@
  *      PI_TOOL_BUDGET_MIN_CHARS (default 4000) floor, so a small window still works
  *      PI_TOOL_BUDGET_BASH_FRACTION (default 0.04) of the window, for bash only
  *      PI_TOOL_BUDGET_IMAGE_PX  (default 1024) longest edge for images
+ *      PI_BASH_TIMEOUT_SECONDS  (default 300) applied when a bash call omits one
  *      PI_TOOL_BUDGET=0         disable entirely
  */
 
@@ -64,6 +65,23 @@ const FRACTION = Number(process.env.PI_TOOL_BUDGET_FRACTION ?? 0.1);
 const BASH_FRACTION = Number(process.env.PI_TOOL_BUDGET_BASH_FRACTION ?? 0.04);
 const MIN_CHARS = Number(process.env.PI_TOOL_BUDGET_MIN_CHARS ?? 4000);
 const IMAGE_PX = Number(process.env.PI_TOOL_BUDGET_IMAGE_PX ?? 1024);
+
+/**
+ * A bash call with no timeout runs forever, and pi applies none of its own.
+ *
+ * Observed: a headless-Chrome screenshot loop ran for 1,334 seconds — 22 minutes
+ * of the session spent inside one tool call, with the agent unable to do
+ * anything else and no indication of whether it was working or wedged. The
+ * command was not even wrong in intent; it passed --user-data-dir to get a clean
+ * profile per capture, and a fresh Chrome profile takes ~90s+ to exit against
+ * ~3s without one. Nothing in the loop was visibly a 22-minute operation.
+ *
+ * pi's bash tool takes an optional `timeout` in seconds and defaults to
+ * unbounded, so the ceiling has to come from somewhere. 300s clears the things
+ * that legitimately take a while here — the test suite runs in about two — and
+ * a call that genuinely needs longer can still ask for it explicitly.
+ */
+const BASH_TIMEOUT_SECONDS = Number(process.env.PI_BASH_TIMEOUT_SECONDS ?? 300);
 const ENABLED = process.env.PI_TOOL_BUDGET !== "0";
 
 /** Fraction of the kept text taken from the head; the rest comes from the tail. */
@@ -198,6 +216,17 @@ export function looksLikeSourceWrite(command: string): string | undefined {
 
 export default function toolBudgetExtension(pi: ExtensionAPI) {
 	if (!ENABLED) return;
+
+	// Arguments are modified by mutating event.input in place; returning a value
+	// from this hook blocks the call instead.
+	pi.on("tool_call", async (event) => {
+		const e = event as { toolName: string; input: Record<string, unknown> };
+		if (e.toolName !== "bash" || !e.input) return undefined;
+		if (e.input.timeout === undefined && BASH_TIMEOUT_SECONDS > 0) {
+			e.input.timeout = BASH_TIMEOUT_SECONDS;
+		}
+		return undefined;
+	});
 
 	pi.on("tool_result", async (event, ctx) => {
 		const e = event as {

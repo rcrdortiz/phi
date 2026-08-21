@@ -91,6 +91,22 @@ const quiet = await handlers["tool_result"](
   { toolName: "bash", input: { command: "cat tiny.txt" }, content: [{ type: "text", text: "two\nlines" }] }, ctx);
 check("a small shell read is not nagged", quiet === undefined);
 
+// --- an unbounded bash call is a stalled session --------------------------
+// Observed: 1,334 seconds inside one headless-Chrome loop, because pi applies
+// no timeout of its own when the model omits one.
+const noTimeout = { toolName: "bash", input: { command: "sleep 9999" } };
+await handlers["tool_call"](noTimeout, ctx);
+check("a bash call with no timeout gets one", noTimeout.input.timeout > 0, `timeout=${noTimeout.input.timeout}s`);
+
+const explicit = { toolName: "bash", input: { command: "npm ci", timeout: 1800 } };
+await handlers["tool_call"](explicit, ctx);
+check("an explicit timeout is respected", explicit.input.timeout === 1800,
+  "a call that genuinely needs longer can still ask");
+
+const notBash = { toolName: "view_lines", input: { file: "x.js" } };
+await handlers["tool_call"](notBash, ctx);
+check("other tools are untouched", notBash.input.timeout === undefined);
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

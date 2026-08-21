@@ -124,6 +124,7 @@ Everything has a working default. These exist for when it does not.
 |---|---|---|
 | `PI_TOOL_BUDGET_FRACTION` | `0.10` | window share one tool result may take |
 | `PI_TOOL_BUDGET_BASH_FRACTION` | `0.04` | the same, for bash |
+| `PI_BASH_TIMEOUT_SECONDS` | `300` | ceiling on a bash call that omits its own |
 | `PI_VIEW_MAX_LINES` | `400` | cap on one `view_lines` call |
 | `PI_NOTE_MAX_CHARS` | `350` | cap on one note |
 | `PI_COMPACT_AT_TOKENS` | 70% of window | depth at which context is compacted |
