@@ -93,6 +93,39 @@ notes.length = 0;
 await handlers["thinking_level_select"]({ level: "high" }, ctx);
 check("cycling reports the new level", /Thinking: high/.test(notes.join(" ")), notes.join(" ").split("/")[0]);
 
+// model_select does not fire for the model a session OPENS with, so a machine
+// whose settings name a default model started at pi's own default, "medium",
+// whatever the roster asked for. The footer said "medium" on a fresh install.
+{
+  let lvl = "medium";
+  const h = {};
+  mod({
+    on: (e, fn) => ((h[e] ||= []).push(fn)),
+    registerCommand: () => {},
+    getThinkingLevel: () => lvl,
+    setThinkingLevel: (l) => (lvl = l),
+    registerProvider: () => {},
+  });
+  check("session_start is hooked", (h["session_start"] ?? []).length > 0);
+  await h["session_start"][0]({}, { ui: { notify: () => {} }, model: { id: "qwen3.8-4MLX" } });
+  check("a session opens at the model's own default", lvl === "high", `level=${lvl}`);
+
+  // A model with no roster entry must not be forced anywhere.
+  lvl = "low";
+  await h["session_start"][0]({}, { ui: { notify: () => {} }, model: { id: "some-other-model" } });
+  check("an unknown model is left alone", lvl === "low", `level=${lvl}`);
+}
+
+// "high" is the top of the scale this model actually has. Mapping pi's xhigh
+// and max would add levels indistinguishable from high.
+{
+  const top = toPiModel(MODELS[0]);
+  const mapped = Object.keys(top.thinkingLevelMap ?? {});
+  check("the map stops at high", mapped.includes("high") && !mapped.includes("xhigh") && !mapped.includes("max"),
+    mapped.join(", "));
+  check("the roster default is that top level", MODELS[0].defaultThinking === "high");
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

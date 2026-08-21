@@ -93,6 +93,30 @@ export default function thinkingLevelExtension(pi: ExtensionAPI) {
 		}
 	};
 
+	/**
+	 * Apply the model's default at startup, not only when switching.
+	 *
+	 * model_select fires when you pick a model; it does not fire for the model
+	 * a session opens with. So a machine whose settings name a default model
+	 * started at pi's own DEFAULT_THINKING_LEVEL, "medium", regardless of what
+	 * the roster asked for, and the footer said so. The roster's defaultThinking
+	 * only took effect if you switched models by hand and back.
+	 */
+	pi.on("session_start", async (_event, ctx) => {
+		if (!APPLY_DEFAULTS) return undefined;
+		const want = ctx.model?.id ? defaults.get(ctx.model.id) : undefined;
+		if (!want) return undefined;
+		try {
+			if (pi.getThinkingLevel() !== want) {
+				pi.setThinkingLevel(want as never);
+				applySampling(want, ctx);
+			}
+		} catch {
+			/* a level is a convenience, never a reason to fail a session start */
+		}
+		return undefined;
+	});
+
 	// Each tier has a level it is meant for; without this the level simply
 	// carries over from whatever model you were on before.
 	pi.on("model_select", async (event, ctx) => {

@@ -212,8 +212,13 @@ changed = False
 # quietStartup suppresses pi's [Skills]/[Extensions]/[Themes] listing. What is
 # loaded is not news every single launch, and the boot box already says the
 # things that change: which model, and whether anything is out of date.
+# "high" is the top of the scale for this model, not the top of pi's. pi accepts
+# xhigh and max, but Ollama's reasoning_effort takes none/low/medium/high, so
+# mapping them would add levels that behave identically to high while looking
+# like more. pi's own default is "medium", which is why this has to be stated.
 for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX"),
-             ("theme", "phi-purple"), ("tuiMode", "fullscreen"), ("quietStartup", True)):
+             ("theme", "phi-purple"), ("tuiMode", "fullscreen"), ("quietStartup", True),
+             ("defaultThinkingLevel", "high")):
     if not s.get(k):
         s[k] = v; changed = True
 if changed:

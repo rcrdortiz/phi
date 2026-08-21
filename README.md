@@ -109,7 +109,10 @@ which fires inside a long run; pi checks at `agent_end`, which does not. Ours
 acting first means pi is only ever the backstop — and matching the two produces
 two compactions, one of which returns "Already compacted".
 
-**Thinking is set to `high` by default, and that is the recommendation.** On a
+**Thinking is set to `high` by default, and that is the recommendation.** high
+is the top of this model's scale, not of pi's: pi accepts `xhigh` and `max`, but
+Ollama's `reasoning_effort` takes none/low/medium/high, so mapping them would
+add levels that behave exactly like high while looking like more. On a
 27B at 4-bit the thinking pass is where the quality comes from, and this setup
 assumes a model working alongside you rather than racing you. `Shift+Tab` lowers
 it live when a task is mechanical; `/effort` sets it explicitly.
