@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.13.0 (2026-08-21)
+
 **Added: `bench/`, comparing harnesses on one task with a suite they do not
 control.** `node bench/run.mjs --harness phi,pi --runs 3` runs the task through
 `pi --print` in a fresh directory per run and grades the artifact against a
