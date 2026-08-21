@@ -150,6 +150,11 @@ tradeoff rather than a free win. The compaction trigger deliberately did not
 move with it: 28,000 is also where decode speed has already fallen to about a
 third, so running deeper is slow whether or not it times out.
 
+**The footer counts against the model's window, not against the trigger.** It
+reads 66K because that is what the model can hold; compaction fires at 28,000,
+so a footer showing 45% is already at the point of compacting. The `ctx` chip
+next to it shows the number that actually decides, and `/context` reports both.
+
 pi has its own trigger at 75%, deliberately above ours. We check at `turn_end`,
 which fires inside a long run; pi checks at `agent_end`, which does not. Ours
 acting first means pi is only ever the backstop, and matching the two produces
@@ -179,7 +184,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `plan-notes` | plan and findings live on disk, so context can be thrown away |
 | `smart-edit` | edits that survive a model with imperfect whitespace recall |
 | `tool-budget` | stops one tool result eating the window |
-| `auto-handoff` | compacts mid-run, and records every compaction to disk |
+| `auto-handoff` | compacts mid-run, resumes what it interrupted, and records every compaction to disk |
 | `token-rate` | decode speed in the footer, so a stall is visible |
 | `incremental-writes` | large files written in verified chunks |
 | `model-install` | `/model-install` pulls and builds a preconfigured model, and rebuilds one whose modelfile has changed |

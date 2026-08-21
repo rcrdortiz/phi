@@ -16,6 +16,23 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: work that was not driven by a plan died at every compaction.** The
+watchdog only resumed when a plan step was outstanding, so investigation, a
+request typed into the chat, and even the turn on its way to calling
+`plan_write` were all cut off and never picked up. The plan was standing in for
+"is there work left", and it was a poor proxy. Resuming now keys off evidence
+that a live turn was actually interrupted, which the abort handler already sees.
+A compaction that interrupted nothing still resumes nothing.
+
+**Fixed: `/context` quoted pi's compaction threshold instead of phi's.** pi's
+sits far above ours, so it reported half a window of room left when compaction
+was a few thousand tokens away.
+
+**Added: a `ctx` chip showing depth against the trigger that fires.** The
+built-in footer counts against the model's 64K window, which is nearly twice
+the depth phi actually runs to, so it reads as though there is plenty of room
+right up until the context is thrown away.
+
 ## 0.2.5 (2026-08-21)
 
 **Fixed: the `Error: Unknown error` on every compaction was phi's own doing.**

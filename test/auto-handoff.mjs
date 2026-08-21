@@ -82,10 +82,19 @@ await fire("/handoff", "");
 check("/handoff compacts on demand", compactCalls === 1);
 check("/handoff writes its own summary", /state summary/.test(fs.readFileSync(hp, "utf8")));
 
-// 4. /context reports pi's trigger, not ours.
+// 4. /context has to report the trigger that actually fires.
+// It used to quote pi's, which sits far above ours: that says half a window of
+// room remains when compaction is a few thousand tokens away, and it is the
+// same gap that makes the footer read as though there is plenty left.
 notes.length = 0;
 await fire("/context", "");
-check("/context reports pi's compaction point", /pi compacts above 75%/.test(notes.join(" ")), notes.join(" ").split("\n")[1]);
+const ctxOut = notes.join(" ");
+check("/context counts against our trigger, not the window",
+  new RegExp(`of ${compactAtTokens(65536).toLocaleString()} tokens before compaction`).test(ctxOut),
+  ctxOut.split("\n")[0]);
+check("/context explains why the footer disagrees", /footer/.test(ctxOut),
+  "the number on screen is the model's window, and it is nearly twice the working depth");
+check("/context still names pi's trigger as the backstop", /only ever acts on what we miss/.test(ctxOut));
 
 fs.rmSync(DIR, { recursive: true, force: true });
 // --- the run must survive its own compaction ------------------------------
@@ -156,6 +165,54 @@ check("an ordinary finished turn is not rewritten",
   (await fire("message_end", { message: { role: "assistant", stopReason: "stop" } })) === undefined);
 check("a user message is never touched",
   (await fire("message_end", { message: { role: "user", stopReason: "error" } })) === undefined);
+
+// --- resuming after a compaction ------------------------------------------
+// Resuming used to require a pending plan step, so anything not driven by a
+// plan died at the compaction: investigation, a request typed into the chat,
+// even the turn on its way to calling plan_write. The plan was a proxy for "is
+// there work left", and a poor one.
+{
+  const fsx = await import("node:fs");
+  const osx = await import("node:os");
+  const px = await import("node:path");
+  const dir = fsx.mkdtempSync(px.join(osx.tmpdir(), "phi-resume-"));
+  fsx.mkdirSync(px.join(dir, ".pi"), { recursive: true });
+
+  const run = async ({ plan, interrupt }) => {
+    resetCompactionState();
+    sent.length = 0;
+    if (plan) fsx.writeFileSync(px.join(dir, ".pi", "PLAN.md"), `# Plan\n\n${plan}\n`);
+    else fsx.rmSync(px.join(dir, ".pi", "PLAN.md"), { force: true });
+    let tokens = 4000;
+    const c = {
+      cwd: dir,
+      ui: { notify: () => {}, setStatus: () => {} },
+      getContextUsage: () => ({ tokens, contextWindow: 65536 }),
+      compact: (o) => { lastCompactOpts = o; },
+    };
+    for (tokens of [4000, 12000, 20000, 26000, 40000]) await fire("turn_end", {}, c);
+    // The abort our compaction causes, which is the evidence of interruption.
+    if (interrupt) await fire("message_end", { message: { role: "assistant", stopReason: "error", errorMessage: "This operation was aborted" } }, c);
+    lastCompactOpts?.onComplete?.({ summary: "s", tokensBefore: 1 });
+    return sent.join(" | ");
+  };
+
+  check("an interrupted turn with no plan is resumed",
+    (await run({ plan: null, interrupt: true })).length > 0,
+    "this is the case that used to die silently");
+  check("the resume does not invent a step it does not have",
+    !/step/i.test(await run({ plan: null, interrupt: true })));
+  check("an interrupted turn with a plan names the step",
+    /rename the thing/.test(await run({ plan: "- [ ] rename the thing", interrupt: true })));
+  check("a compaction that interrupted nothing resumes nothing",
+    (await run({ plan: null, interrupt: false })) === "",
+    "the case the old guard was really protecting");
+  check("a finished plan still resumes when a turn was cut off",
+    (await run({ plan: "- [x] done", interrupt: true })).length > 0,
+    "new work outlives the plan that happened to be on disk");
+
+  fsx.rmSync(dir, { recursive: true, force: true });
+}
 
 // --- the diagnostic --------------------------------------------------------
 // The suppressor above is correct in isolation and was still not working live,

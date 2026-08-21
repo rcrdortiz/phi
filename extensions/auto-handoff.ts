@@ -103,6 +103,14 @@ function recordMessageEnd(ctx: { cwd: string }, event: unknown): void {
 	}
 }
 
+/** Footer chip key, so repeated writes replace rather than accumulate. */
+const STATUS_KEY = "phi-context";
+
+/** 28000 -> "28k". Footer space is scarce and the exact digits are in /context. */
+function short(n: number): string {
+	return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+}
+
 export default function autoHandoffExtension(pi: ExtensionAPI) {
 	/**
 	 * Swallow the interruption our own compaction causes.
@@ -135,7 +143,6 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 	 */
 	pi.on("message_end", async (event, ctx) => {
 		if (DEBUG) recordMessageEnd(ctx as unknown as { cwd: string }, event);
-		if (!COMPACT_QUIET) return undefined;
 		const m = (event as {
 			message?: { role?: string; errorMessage?: string; stopReason?: string };
 		}).message;
@@ -143,10 +150,18 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 		if (m.stopReason !== "error" && m.stopReason !== "aborted") return undefined;
 		if (m.errorMessage && !/abort/i.test(m.errorMessage)) return undefined;
 		if (!compactionBusy() && !recentlyCompacted(10_000)) return undefined;
+		// This is the evidence that a turn was genuinely cut off rather than
+		// finishing on its own, and it is what decides whether to resume. Set
+		// before the quiet check, so turning the suppression off does not also
+		// turn off resuming.
+		interrupted = true;
+		if (!COMPACT_QUIET) return undefined;
 		return { message: { ...m, stopReason: "stop", errorMessage: undefined } } as never;
 	});
 
 	let resumes = 0;
+	/** Set when one of our compactions aborted a live turn. See onDone. */
+	let interrupted = false;
 	// Anything the user types is a fresh mandate.
 	pi.on("input", async () => {
 		resumes = 0;
@@ -173,6 +188,10 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 		// while the session is still small.
 		observeContext(u.tokens);
 		const trigger = compactAtTokens(u.contextWindow);
+		// The built-in footer counts against the model's window, which is nearly
+		// twice the depth we actually run to. Show the number that decides when
+		// the context is thrown away.
+		c.ui.setStatus?.(STATUS_KEY, `ctx ${short(u.tokens)}/${short(trigger)}`);
 		if (u.tokens < trigger) return undefined;
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
 		requestCompaction(c, `Context at ${pct}% mid-run`, {
@@ -189,11 +208,21 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 			// half-finished, which defeats the point of unattended progress.
 			onDone: () => {
 				if (!AUTO_CONTINUE) return;
-				// Only when there is demonstrably work left. If the plan is finished,
-				// or there is no plan, the agent stopping is the correct outcome and
-				// nudging it just buys a wasted turn at full context depth.
+				// Resume when work was demonstrably cut off, which is not the same
+				// as "a plan step is outstanding". This used to require a pending
+				// step, so anything not driven by a plan simply died at the
+				// compaction: investigation, a request typed into the chat, even
+				// the turn that was on its way to calling plan_write. The plan was
+				// a proxy for "is there work left", and a poor one.
+				//
+				// `interrupted` is set by the message_end handler above when our
+				// compaction aborted a live turn, so it is evidence rather than
+				// inference. A compaction that interrupted nothing still resumes
+				// nothing, which is the case the old guard was really protecting.
 				const step = pendingStep(c.cwd);
-				if (!step) return;
+				const wasInterrupted = interrupted;
+				interrupted = false;
+				if (!step && !wasInterrupted) return;
 				if (resumes >= MAX_RESUMES) {
 					c.ui.notify(
 						`Paused after ${resumes} compaction resumes (PI_WATCHDOG_MAX_RESUMES). Say continue to carry on.`,
@@ -202,7 +231,11 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 					return;
 				}
 				resumes++;
-				pi.sendUserMessage(`Context was compacted mid-step. Continue with: ${step}`);
+				pi.sendUserMessage(
+					step
+						? `Context was compacted mid-step. Continue with: ${step}`
+						: `Context was compacted mid-task. Carry on with what you were doing; the summary above says where you had got to.`,
+				);
 			},
 		});
 		return undefined;
@@ -243,14 +276,22 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 				ctx.ui.notify("Context usage unknown (just compacted).", "info");
 				return;
 			}
-			const pct = u.percent ?? (u.tokens / u.contextWindow) * 100;
-			const reserve = reserveTokens(u.contextWindow);
-			const trigger = ((u.contextWindow - reserve) / u.contextWindow) * 100;
-			const room = Math.max(0, u.contextWindow - reserve - u.tokens);
+			// Report OUR trigger, not pi's. pi's is the backstop and sits far
+			// above: quoting it says there is half a window of room left when
+			// compaction is in fact a few thousand tokens away. That gap is
+			// exactly why the footer reads as though there is plenty of room.
+			const trigger = compactAtTokens(u.contextWindow);
+			const room = Math.max(0, trigger - u.tokens);
+			const piTrigger = u.contextWindow - reserveTokens(u.contextWindow);
 			ctx.ui.notify(
 				[
-					`${u.tokens.toLocaleString()} / ${u.contextWindow.toLocaleString()} tokens (${pct.toFixed(0)}%)`,
-					`pi compacts above ${trigger.toFixed(0)}% — ${room.toLocaleString()} tokens of room left`,
+					`${u.tokens.toLocaleString()} of ${trigger.toLocaleString()} tokens before compaction, ` +
+						`${room.toLocaleString()} left.`,
+					`The model's window is ${u.contextWindow.toLocaleString()}, which is what the footer counts ` +
+						`against. Compaction is deliberately much earlier: past roughly 18,000 tokens decode speed ` +
+						`is already down to about a third, and a prefix-cache miss deeper than that cannot prefill ` +
+						`before the request is judged idle.`,
+					`pi's own trigger is ${piTrigger.toLocaleString()} and only ever acts on what we miss.`,
 					`Plan steps compact on completion; /handoff compacts now.`,
 				].join("\n"),
 				"info",
