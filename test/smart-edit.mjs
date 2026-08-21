@@ -1,9 +1,26 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import mod from "../extensions/smart-edit.ts";
 
-const DIR = "/private/tmp/claude-501/-Users-rcrd-AI/e8ea8186-91cd-40f5-bdea-c71eea252575/scratchpad/edit-test";
+// The fixture is written here rather than read from disk, and its irregular
+// indentation IS the test: 2, 3 and 5 spaces, with a closing brace at 2. That
+// shape is what defeated the built-in edit tool, so it has to be exact.
+const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "smart-edit-"));
 const FILE = `${DIR}/game.js`;
-const ORIGINAL = fs.readFileSync(FILE, "utf8");
+const ORIGINAL = [
+	"const CONFIG = {",
+	"  WIDTH: 800,",
+	"   HEIGHT: 600,",
+	"     SPEED: 5,",
+	"  };",
+	"",
+	"function start() {",
+	"      return CONFIG.SPEED;",
+	"}",
+	"",
+].join("\n");
+fs.writeFileSync(FILE, ORIGINAL);
 
 const tools = {};
 mod({ registerTool: (t) => (tools[t.name] = t), registerCommand: () => {}, on: () => {} });
