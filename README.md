@@ -65,7 +65,7 @@ cold on an idle machine:
 The cliff sits between 9K and 18K, and past it the model stays at about a third
 of its speed for the rest of the session.
 
-**Compaction fires at 24,000 tokens**, and that number is a hard ceiling rather
+**Compaction fires at 28,000 tokens**, and that number is a hard ceiling rather
 than a preference. pi's HTTP idle timeout maxes at 300s; prefill runs ~120 tok/s
 at depth; so a prefix-cache miss above ~36,000 tokens cannot finish before the
 request is judged idle, and comes back as `Request timed out`. Misses happen —
@@ -128,6 +128,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_NOTE_MAX_CHARS` | `350` | cap on one note |
 | `PI_NOTES_MAX_CHARS` | `4000` | cap on the whole notes file |
 | `PI_COMPACT_AT_TOKENS` | 70% of window | depth at which context is compacted |
+| `PI_MAX_SAFE_DEPTH` | `28000` | absolute cap on that depth |
 | `PI_PLAN_KEEP_DONE` | `3` | completed steps kept in the plan |
 | `PI_PLAN_AUTOCONTINUE` | `1` | run steps unattended (also gates the compaction resume) |
 | `PI_PLAN_MAX_AUTO` | `25` | unattended steps before pausing |

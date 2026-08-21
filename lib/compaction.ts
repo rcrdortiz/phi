@@ -68,8 +68,19 @@ const KEEP_RECENT_FRACTION = 0.35;
 // `failed to restore cache, freeing all caches` at offsets 5,600 / 21,723 /
 // 31,097, each one turning the next request into a full re-prefill.
 //
-// 24,000 leaves the worst case around 200s, inside the timeout with margin.
-const MAX_SAFE_DEPTH = Number(process.env.PI_MAX_SAFE_DEPTH ?? 24000);
+// 28,000 leaves the worst case around 233s, roughly 67s inside the timeout.
+//
+// Set at the TOP of the usable band rather than the bottom, because decode is
+// flat across it: 17 tok/s at 18K, 22 at 27K, 19 at 36K. Compacting sooner buys
+// no speed. The genuinely fast zone is below ~9K, and post-compaction context is
+// floor + summary + keepRecent, about 14K, so that zone is out of reach whatever
+// this is set to.
+//
+// The lower wall is thrash. Below ~16K the headroom between post-compaction and
+// the trigger drops under a few thousand tokens, so a session compacts almost
+// every turn and pays a full re-prefill each time — slower than simply running
+// deeper. That is the wrong end of the trade, not the safe one.
+const MAX_SAFE_DEPTH = Number(process.env.PI_MAX_SAFE_DEPTH ?? 28000);
 const WATCHDOG_FRACTION = 0.7;
 const PI_TRIGGER_FRACTION = 0.75;
 
