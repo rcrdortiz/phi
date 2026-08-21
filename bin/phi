@@ -23,7 +23,7 @@ fi
 PHI_HOME="${PHI_HOME:-$HOME/.phi}"
 export PI_CODING_AGENT_DIR="$PHI_HOME"
 
-if [ ! -f "$PHI_HOME/agent/settings.json" ]; then
+if [ ! -f "$PHI_HOME/settings.json" ]; then
   echo "phi: no configuration at $PHI_HOME. Re-run get-phi.sh." >&2
   exit 1
 fi

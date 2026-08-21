@@ -21,6 +21,10 @@ PHI_REPO="${PHI_REPO:-https://github.com/rcrdortiz/phi}"
 # PI_CODING_AGENT_DIR picks which: two directories are two installs sharing one
 # binary. Everything below that configures phi therefore targets this, never
 # ~/.pi.
+# PI_CODING_AGENT_DIR is the agent directory ITSELF, not its parent. Unset, pi
+# uses ~/.pi/agent, so settings live at <agentdir>/settings.json and cloned
+# packages at <agentdir>/git. Adding an "agent/" underneath PHI_HOME writes a
+# settings file pi never reads and hides the clone one level too deep.
 PHI_HOME="${PHI_HOME:-$HOME/.phi}"
 SKIP_SYSCTL=0; ASSUME_YES=0
 for a in "$@"; do
@@ -186,7 +190,7 @@ fi
 # Only fills in what is missing: an existing choice is the user's, not ours.
 step "phi"
 export PI_CODING_AGENT_DIR="$PHI_HOME"
-mkdir -p "$PHI_HOME/agent"
+mkdir -p "$PHI_HOME"
 if pi list 2>/dev/null | grep -q "$PHI_REPO"; then
   ok "already installed in $PHI_HOME; updating"
   pi update "$PHI_REPO" >/dev/null 2>&1 && ok "up to date" || warn "could not update (offline?)"
@@ -195,7 +199,7 @@ else
 fi
 
 step "Defaults"
-SETTINGS="$PHI_HOME/agent/settings.json"
+SETTINGS="$PHI_HOME/settings.json"
 if python3 - "$SETTINGS" <<'PY'
 import json, os, sys
 p = sys.argv[1]
@@ -223,7 +227,7 @@ else
 fi
 
 step "The phi command"
-WRAPPER="$PHI_HOME/agent/git/github.com/rcrdortiz/phi/bin/phi"
+WRAPPER="$PHI_HOME/git/github.com/rcrdortiz/phi/bin/phi"
 if [ ! -f "$WRAPPER" ]; then
   warn "launcher not found at $WRAPPER; run phi with: PI_CODING_AGENT_DIR=$PHI_HOME pi"
 else

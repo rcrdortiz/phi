@@ -34,9 +34,13 @@ its own directory and behaves exactly as it does on any other machine. Neither
 can disturb the other: they do not share a settings file, and a session started
 in one does not appear in the other.
 
-**No checkout, at any point.** pi clones and manages the package itself, and
-`pi update` refreshes it, printing its own "restart to take effect" notice when
-it does. Nothing here reimplements that.
+**No checkout, at any point.** pi clones and manages the package itself.
+
+**Updates install themselves.** phi checks for a newer pi and a newer phi at
+startup, in the background, and asks once if it finds either. Answer yes and it
+runs them; `/update` does the same later. Both apply on the next launch, because
+node has already loaded the code a running session is using. Set
+`PHI_UPDATE_CHECK=0` to skip the network entirely.
 
 ## What you need
 
@@ -138,6 +142,19 @@ context costs nothing. `/notes-gc` trims notes that have outgrown their welcome.
 than by line number, which is where most failed edits came from. `outline` lists
 a file's declarations for a fraction of the cost of reading it. The built-in
 `read` and `edit` tools are retired in favour of these: one tool per job.
+
+## Commands
+
+| | |
+|---|---|
+| `/model-install` | pull and build a preconfigured model |
+| `/update` | install a newer pi or phi |
+| `/context` | how full the window is, and when it compacts |
+| `/speed` | decode rate, and prefill separately |
+| `/notes-gc` | trim notes that have outgrown their welcome |
+| `/handoff` | summarise and compact now |
+| `/effort` | set thinking level (or `Shift+Tab`) |
+| `/budget` | show the per-tool-result size limit |
 
 ## Tuning
 
