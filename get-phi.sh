@@ -220,6 +220,12 @@ changed = False
 # into the scrollback on the way out: the boot box, every tool call, every
 # banner. Quitting should hand the terminal back the way it was found, so this
 # is "resume-hint" instead.
+# compaction.keepRecentTokens is how much recent conversation pi carries past a
+# compaction. Its default is 20000, sized for a 128K+ window, and on a 64K
+# window that is most of the 28,000 trigger: compacting reclaims almost nothing.
+# Measured live, a compaction at 31,126 tokens left about 29,500, so the session
+# stayed above the trigger, asked to compact on every turn, and handed the next
+# cache miss 26,000 tokens to re-prefill. 9800 is 35% of the trigger.
 # httpIdleTimeoutMs is 300000 by default, and 5 min is the largest value pi's
 # own settings picker offers, but the setting itself takes any millisecond
 # count. It matters here because a prefix-cache miss has to re-prefill the whole
@@ -231,6 +237,7 @@ for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX
              ("theme", "phi-purple"), ("tuiMode", "fullscreen"), ("quietStartup", True),
              ("fullscreenExitOutput", "resume-hint"),
              ("httpIdleTimeoutMs", 500000),
+             ("compaction", {"keepRecentTokens": 9800, "reserveTokens": 16384}),
              ("defaultThinkingLevel", "high")):
     if not s.get(k):
         s[k] = v; changed = True

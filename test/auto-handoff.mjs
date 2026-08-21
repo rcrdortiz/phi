@@ -1,3 +1,9 @@
+// keepRecentTokens now reports what pi WILL keep, read from settings.json,
+// rather than what phi would choose. With no settings file these tests would
+// get pi's default of 20000, which on a small window is most of the trigger and
+// is the production bug being fixed, not the case under test here. Seed the
+// value phi installs. Set before the import: ESM hoists it above assignments.
+process.env.PI_KEEP_RECENT_TOKENS = "9800";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";

@@ -1,7 +1,14 @@
 // Set BEFORE the module is loaded: ESM hoists static imports above assignments,
 // so a plain `import` here would read the default 20s gap and block the test.
 process.env.PI_COMPACT_MIN_GAP_MS = "0";
-const { requestCompaction, resetCompactionState, trackExternalCompactions, keepRecentTokens, observeContext } =
+// keepRecentTokens now reports what pi WILL keep, read from settings.json,
+// rather than what phi would choose. With no settings file these tests would
+// get pi's default of 20000, which on a small window is most of the trigger and
+// is the production bug being fixed, not the case under test here. Seed the
+// value phi installs. Set before the import: ESM hoists it above assignments.
+process.env.PI_KEEP_RECENT_TOKENS = "9800";
+const { requestCompaction, resetCompactionState, trackExternalCompactions, keepRecentTokens,
+  recommendedKeepRecentTokens, compactAtTokens, observeContext } =
   await import("../lib/compaction.ts");
 
 const results = [];
@@ -183,6 +190,29 @@ check("past the ceiling it compacts on a thin margin anyway",
   else process.env.PI_CODING_AGENT_DIR = before;
   resetCompactionState();
   fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// --- pi's own default is the bug ------------------------------------------
+// Measured live: a compaction at 31,126 tokens left about 29,500, because pi
+// keeps compaction.keepRecentTokens of recent messages and defaults to 20000,
+// a number sized for a 128K+ window. On this window that is most of the
+// trigger, so compaction reclaims nothing, the session sits permanently above
+// the trigger, and the next cache miss has 26,000 tokens to re-prefill.
+{
+  const before = process.env.PI_KEEP_RECENT_TOKENS;
+  delete process.env.PI_KEEP_RECENT_TOKENS;
+  resetCompactionState();
+  check("with no setting, keepRecentTokens reports pi's default and not ours",
+    keepRecentTokens(65536) === 20000,
+    "reporting our own preference here is what hid the problem");
+  check("phi's recommendation is a fraction of the trigger, not of the window",
+    recommendedKeepRecentTokens(65536) === 9800);
+  check("pi's default would leave nothing for a compaction to reclaim",
+    keepRecentTokens(65536) > compactAtTokens(65536) * 0.5,
+    "20000 against a 28000 trigger");
+  if (before === undefined) delete process.env.PI_KEEP_RECENT_TOKENS;
+  else process.env.PI_KEEP_RECENT_TOKENS = before;
+  resetCompactionState();
 }
 
 const failed = results.filter((r) => !r).length;

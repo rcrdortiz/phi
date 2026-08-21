@@ -67,6 +67,14 @@ check("exiting fullscreen leaves the scrollback alone",
   /"fullscreenExitOutput", "resume-hint"/.test(script),
   "the default, \"transcript\", dumps the boot box and every tool call");
 
+// The installer has to write compaction.keepRecentTokens, because pi reads it
+// from settings.json and nothing else can change it: CompactOptions has no
+// per-call override. Left unset, pi keeps 20000 on a 64K window and compaction
+// reclaims almost nothing.
+check("the installer seeds pi's compaction numbers",
+  /"compaction", \{"keepRecentTokens": 9800/.test(script),
+  "pi's 20000 default is sized for a 128K window");
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

@@ -112,12 +112,37 @@ export function reserveTokens(contextWindow: number): number {
 /** pi keeps this much recent conversation; below it there is nothing older to
  *  summarise, and a request returns "Nothing to compact (session too small)".
  *  Env: PI_KEEP_RECENT_TOKENS. */
+/**
+ * What pi will actually keep, which is not the same as what we would choose.
+ *
+ * This function decides whether asking for a compaction is worth it, so it has
+ * to report pi's real behaviour. pi reads `compaction.keepRecentTokens` from
+ * settings.json and falls back to 20000, a number sized for a 128K+ window. On
+ * a 64K window that is most of the trigger, so a compaction reclaims almost
+ * nothing: measured live, compacting at 31,126 tokens left about 29,500. The
+ * session then sits permanently above the trigger, every turn asks for a
+ * compaction that cannot help, and the next cache miss has 26,000 tokens to
+ * re-prefill.
+ *
+ * recommendedKeepRecentTokens is what phi seeds into settings.json. Reading
+ * back rather than assuming is the difference between the two.
+ */
 export function keepRecentTokens(contextWindow: number): number {
 	const raw = Number(process.env.PI_KEEP_RECENT_TOKENS);
 	if (Number.isFinite(raw) && raw > 0) return raw;
-	// Derived from the TRIGGER, not the window. Deriving it from the window is
-	// how it ends up larger than the trigger itself, at which point there is
-	// never anything older to summarise and compaction silently stops happening.
+	const configured = Number(piSettings().compaction?.keepRecentTokens);
+	if (Number.isFinite(configured) && configured > 0) return configured;
+	return 20_000; // pi's default, and the number that breaks a small window
+}
+
+/**
+ * What phi seeds into settings.json for a given window.
+ *
+ * Derived from the TRIGGER, not the window. Deriving it from the window is how
+ * it ends up larger than the trigger itself, at which point there is never
+ * anything older to summarise and compaction silently stops happening.
+ */
+export function recommendedKeepRecentTokens(contextWindow: number): number {
 	return Math.round(compactAtTokens(contextWindow) * KEEP_RECENT_FRACTION);
 }
 
@@ -188,23 +213,29 @@ function prefillCeiling(): number {
  * Read from the agent directory's settings rather than assumed, and cached: it
  * cannot change while the process runs, and this is consulted on every turn.
  */
-let cachedTimeoutMs: number | undefined;
-export function httpIdleTimeoutMs(): number {
-	if (cachedTimeoutMs !== undefined) return cachedTimeoutMs;
-	cachedTimeoutMs = 300_000; // pi's own default
+type PiSettings = {
+	httpIdleTimeoutMs?: number | string;
+	compaction?: { keepRecentTokens?: number; reserveTokens?: number };
+};
+
+let cachedSettings: PiSettings | undefined;
+function piSettings(): PiSettings {
+	if (cachedSettings !== undefined) return cachedSettings;
+	cachedSettings = {};
 	const dir = process.env.PI_CODING_AGENT_DIR;
 	if (dir) {
 		try {
-			const raw = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8")) as {
-				httpIdleTimeoutMs?: number | string;
-			};
-			const v = Number(raw.httpIdleTimeoutMs);
-			if (Number.isFinite(v) && v >= 0) cachedTimeoutMs = v;
+			cachedSettings = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8")) as PiSettings;
 		} catch {
-			/* no settings file, or unreadable: pi's default stands */
+			/* no settings file, or unreadable: pi's defaults stand */
 		}
 	}
-	return cachedTimeoutMs;
+	return cachedSettings;
+}
+
+export function httpIdleTimeoutMs(): number {
+	const v = Number(piSettings().httpIdleTimeoutMs);
+	return Number.isFinite(v) && v >= 0 ? v : 300_000; // pi's own default
 }
 
 let baseline = 0;
@@ -308,7 +339,7 @@ export function resetCompactionState(): void {
 	baseline = 0;
 	baselineStale = false;
 	sessionFloor = Number.POSITIVE_INFINITY;
-	cachedTimeoutMs = undefined;
+	cachedSettings = undefined;
 }
 
 /**
