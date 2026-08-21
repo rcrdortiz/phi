@@ -5,19 +5,35 @@ while it runs.** That second half is the whole point. A local coding agent is
 easy to set up and easy to make unusable: give it too much context and the
 machine swaps, give it too little and it forgets what it was doing.
 
-This is [pi](https://github.com/earendil-works/pi-coding-agent) plus a set of
-extensions that keep a 27B model inside its budget — memory, context and
-attention — without you having to think about it.
+## What this sits on
+
+[**pi**](https://github.com/earendil-works/pi-coding-agent) is a terminal coding
+agent. It reads and edits your files, runs commands, and talks to whichever
+model you point it at, local or hosted. It is the thing you actually run.
+
+phi is a package that pi installs. It adds tools and rules that keep a 27B model
+inside its budget of memory, context and attention, so a local model stays
+usable for real work instead of degrading after twenty minutes.
+
+## Install
 
 ```sh
-pi install https://github.com/rcrdortiz/phi
-./bootstrap.sh          # once: Ollama, the GPU wired limit, the login agent
-pi                      # then, inside pi:  /model-install
+npm i -g @earendil-works/pi-coding-agent     # pi itself
+pi install https://github.com/rcrdortiz/phi  # this package
 ```
 
-**No checkout required.** pi clones and manages the package itself, and
-`pi update` refreshes it — pi prints its own "restart to take effect" notice
-when it does. Nothing here reimplements that.
+Then once, for the parts that need root or a package manager:
+
+```sh
+git clone https://github.com/rcrdortiz/phi && cd phi && ./bootstrap.sh
+```
+
+And finally, inside pi, run `/model-install` to pull and build a model.
+
+**Only bootstrap.sh wants a clone**, because a slash command cannot run `sudo`
+or `brew`. Everything else needs no checkout. pi clones and manages the package
+itself, and `pi update` refreshes it, printing its own "restart to take effect"
+notice when it does. Nothing here reimplements that.
 
 ## What you need
 
