@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.2.4 (2026-08-21)
+
 **Fixed: `phi -v` printed pi's version.** The thing you typed is phi, and its
 version is what decides whether you have a given fix. Both are now printed and
 labelled, since almost everything phi does is constrained by the pi underneath.
