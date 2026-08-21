@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { resetCompactionState } from "../lib/compaction.ts";
+import { STATE_DIR, statePath } from "../lib/state-dir.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "auto-"));
 const results = [];
@@ -33,7 +34,7 @@ const ctxFor = (notes, tokens = 12_000) => ({
 
 // 1. Finishing a step continues on its own.
 {
-  fs.rmSync(path.join(DIR, ".pi"), { recursive: true, force: true });
+  fs.rmSync(path.join(DIR, STATE_DIR), { recursive: true, force: true });
   resetCompactionState();
   const { tools, handlers, sent, notes } = await load();
   const ctx = ctxFor(notes);
@@ -46,7 +47,7 @@ const ctxFor = (notes, tokens = 12_000) => ({
 
 // 2. Finishing the LAST step stops rather than continuing.
 {
-  fs.rmSync(path.join(DIR, ".pi"), { recursive: true, force: true });
+  fs.rmSync(path.join(DIR, STATE_DIR), { recursive: true, force: true });
   resetCompactionState();
   const { tools, handlers, sent, notes } = await load();
   const ctx = ctxFor(notes);
@@ -58,7 +59,7 @@ const ctxFor = (notes, tokens = 12_000) => ({
 
 // 3. The unattended run is capped.
 {
-  fs.rmSync(path.join(DIR, ".pi"), { recursive: true, force: true });
+  fs.rmSync(path.join(DIR, STATE_DIR), { recursive: true, force: true });
   resetCompactionState();
   const { tools, handlers, sent, notes } = await load({ PI_PLAN_MAX_AUTO: "2" });
   const ctx = ctxFor(notes);
@@ -81,7 +82,7 @@ const ctxFor = (notes, tokens = 12_000) => ({
 
 // 4. Opt-out works.
 {
-  fs.rmSync(path.join(DIR, ".pi"), { recursive: true, force: true });
+  fs.rmSync(path.join(DIR, STATE_DIR), { recursive: true, force: true });
   resetCompactionState();
   const { tools, handlers, sent, notes } = await load({ PI_PLAN_AUTOCONTINUE: "0", PI_PLAN_MAX_AUTO: "25" });
   const ctx = ctxFor(notes);

@@ -24,14 +24,15 @@ import { EXPIRING_CATEGORY, NOTES_MAX_CHARS, NOTE_MAX_CHARS, duplicateOf, enforc
 import { Type } from "../lib/schema.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { statePath } from "../lib/state-dir.ts";
 
 // Kept under the project's .pi/ directory, next to Pi's own .pi/agent/sessions,
 // so working files never land in the repo root.
-const PLAN_FILE = process.env.PI_PLAN_FILE || ".pi/PLAN.md";
-const NOTES_FILE = process.env.PI_NOTES_FILE || ".pi/NOTES.md";
+const PLAN_FILE = process.env.PI_PLAN_FILE || statePath("PLAN.md");
+const NOTES_FILE = process.env.PI_NOTES_FILE || statePath("NOTES.md");
 // Completed steps move here once there are more than KEEP_DONE of them. The
 // plan is a working document about what is LEFT; the archive is the record.
-const DONE_FILE = process.env.PI_PLAN_DONE_FILE || ".pi/PLAN-DONE.md";
+const DONE_FILE = process.env.PI_PLAN_DONE_FILE || statePath("PLAN-DONE.md");
 const KEEP_DONE = Number(process.env.PI_PLAN_KEEP_DONE ?? 3);
 // A completed step keeps its summary, and the summary is re-injected on every
 // turn for as long as the step is retained. Measured on a live plan: completed

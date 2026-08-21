@@ -9,6 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import mod from "../extensions/auto-handoff.ts";
 import { resetCompactionState, compactAtTokens, keepRecentTokens } from "../lib/compaction.ts";
+import { STATE_DIR, statePath } from "../lib/state-dir.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-"));
 const results = [];
@@ -71,7 +72,7 @@ check("the watchdog fires past its trigger", compactCalls === 1, `${deep} vs tri
 
 // 2. pi's own compaction still lands on disk.
 await fire("session_compact", { compactionEntry: { summary: "pi's summary", tokensBefore: 54_784 } });
-const hp = path.join(DIR, ".pi", "HANDOFF.md");
+const hp = path.join(DIR, STATE_DIR, "HANDOFF.md");
 check("records pi's compaction to disk", fs.existsSync(hp) && /pi's summary/.test(fs.readFileSync(hp, "utf8")),
   fs.existsSync(hp) ? fs.readFileSync(hp, "utf8").split("\n")[2] : "missing");
 
@@ -100,8 +101,8 @@ fs.rmSync(DIR, { recursive: true, force: true });
 // --- the run must survive its own compaction ------------------------------
 // Compaction aborts the in-flight turn. Without a resume, compacting in the
 // middle of a step leaves the agent at a prompt with the work half done.
-fs.mkdirSync(path.join(DIR, ".pi"), { recursive: true });
-fs.writeFileSync(path.join(DIR, ".pi", "PLAN.md"), "# Plan\n\n- [x] one\n- [ ] wire up the HUD\n");
+fs.mkdirSync(path.join(DIR, STATE_DIR), { recursive: true });
+fs.writeFileSync(path.join(DIR, STATE_DIR, "PLAN.md"), "# Plan\n\n- [x] one\n- [ ] wire up the HUD\n");
 resetCompactionState();
 sent.length = 0;
 compactCalls = 0;
@@ -113,7 +114,7 @@ check("the resume names the unfinished step", /wire up the HUD/.test(sent[0] ?? 
 
 // A finished plan must NOT be nudged: stopping is the correct outcome, and a
 // wasted turn at full context depth is expensive.
-fs.writeFileSync(path.join(DIR, ".pi", "PLAN.md"), "# Plan\n\n- [x] one\n- [x] two\n");
+fs.writeFileSync(path.join(DIR, STATE_DIR, "PLAN.md"), "# Plan\n\n- [x] one\n- [x] two\n");
 resetCompactionState();
 sent.length = 0;
 await fire("turn_end", {}, { ...deepCtx, getContextUsage: () => ({ tokens: 5_000, contextWindow: 65_536 }) });
@@ -176,13 +177,13 @@ check("a user message is never touched",
   const osx = await import("node:os");
   const px = await import("node:path");
   const dir = fsx.mkdtempSync(px.join(osx.tmpdir(), "phi-resume-"));
-  fsx.mkdirSync(px.join(dir, ".pi"), { recursive: true });
+  fsx.mkdirSync(px.join(dir, STATE_DIR), { recursive: true });
 
   const run = async ({ plan, interrupt }) => {
     resetCompactionState();
     sent.length = 0;
-    if (plan) fsx.writeFileSync(px.join(dir, ".pi", "PLAN.md"), `# Plan\n\n${plan}\n`);
-    else fsx.rmSync(px.join(dir, ".pi", "PLAN.md"), { force: true });
+    if (plan) fsx.writeFileSync(px.join(dir, STATE_DIR, "PLAN.md"), `# Plan\n\n${plan}\n`);
+    else fsx.rmSync(px.join(dir, STATE_DIR, "PLAN.md"), { force: true });
     let tokens = 4000;
     const c = {
       cwd: dir,
@@ -254,7 +255,7 @@ check("recording is off unless asked for",
   for (const fn of h2.message_end ?? []) {
     await fn({ message: { role: "assistant", stopReason: "error", content: [{ type: "text" }] } }, { cwd: dir, ui: { notify: () => {} } });
   }
-  const log = px.join(dir, ".pi", "message-end.log");
+  const log = px.join(dir, STATE_DIR, "message-end.log");
   const wrote = fsx.existsSync(log) ? JSON.parse(fsx.readFileSync(log, "utf8").trim().split("\n")[0]) : undefined;
   check("a recorded line carries what the decision was made on",
     wrote?.stopReason === "error" && wrote?.role === "assistant" &&

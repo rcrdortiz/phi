@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import mod from "../extensions/plan-notes.ts";
 import { narrationReason, trimNote, pruneExpiring, gcNotes, duplicateOf, enforceBudget, NOTE_MAX_CHARS, NOTES_MAX_CHARS } from "../lib/notes.ts";
+import { STATE_DIR, statePath } from "../lib/state-dir.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };
@@ -53,7 +54,7 @@ const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "notes-"));
 const tools = {};
 mod({ registerTool: (t) => (tools[t.name] = t), registerCommand: () => {}, on: () => {} });
 const ctx = { cwd: DIR, mode: "tui", ui: { notify: () => {}, confirm: async () => true } };
-const notesFile = () => { try { return fs.readFileSync(path.join(DIR, ".pi", "NOTES.md"), "utf8"); } catch { return ""; } };
+const notesFile = () => { try { return fs.readFileSync(path.join(DIR, STATE_DIR, "NOTES.md"), "utf8"); } catch { return ""; } };
 
 const refused = await tools.note_add.execute("1", { category: "technical", note: "Step 1 done: built the thing" }, undefined, undefined, ctx);
 check("note_add refuses a step report", refused.isError === true, refused.content[0].text.slice(0, 80));

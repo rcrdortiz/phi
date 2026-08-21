@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import mod from "../extensions/smart-edit.ts";
 import budget, { looksLikeSourceWrite } from "../extensions/tool-budget.ts";
 import { ReadCache, CACHE_MIN_LINES, alreadyInContext } from "../lib/read-lean.ts";
+import { STATE_DIR, statePath } from "../lib/state-dir.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };
@@ -79,12 +80,12 @@ check("a shell source-write is warned about",
 
 fs.rmSync(DIR, { recursive: true, force: true });
 // --- do not pay twice for what the briefing already injected -------------
-check("PLAN.md is recognised as already in context", alreadyInContext("/x/.pi/PLAN.md") !== undefined);
-check("NOTES.md is recognised as already in context", alreadyInContext("/x/.pi/NOTES.md") !== undefined);
+check("PLAN.md is recognised as already in context", alreadyInContext(`/x/${statePath("PLAN.md")}`) !== undefined);
+check("NOTES.md is recognised as already in context", alreadyInContext(`/x/${statePath("NOTES.md")}`) !== undefined);
 check("ordinary source files are not", alreadyInContext("/x/pang.js") === undefined);
 
-fs.mkdirSync(path.join(DIR, ".pi"), { recursive: true });
-const planFile = path.join(DIR, ".pi", "PLAN.md");
+fs.mkdirSync(path.join(DIR, STATE_DIR), { recursive: true });
+const planFile = path.join(DIR, STATE_DIR, "PLAN.md");
 fs.writeFileSync(planFile, "# Plan\n\n- [ ] one\n");
 const reread = await tools.view_lines.execute("9", { file: planFile }, undefined, undefined, ctx);
 check("reading the plan returns a pointer, not the file",

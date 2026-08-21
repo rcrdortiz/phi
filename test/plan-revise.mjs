@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import mod from "../extensions/plan-notes.ts";
+import { STATE_DIR, statePath } from "../lib/state-dir.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "revise-"));
 const tools = {};
@@ -20,7 +21,7 @@ const ctx = (mode = "tui") => ({
     confirm: async (title, message) => { asked = { title, message }; return true; },
   },
 });
-const plan = () => fs.readFileSync(path.join(DIR, ".pi", "PLAN.md"), "utf8");
+const plan = () => fs.readFileSync(path.join(DIR, STATE_DIR, "PLAN.md"), "utf8");
 const write = (goal, steps, c = ctx()) => tools.plan_write.execute("1", { goal, steps }, undefined, undefined, c);
 
 await write("build a game", ["render the ship", "add enemies", "add sound"]);

@@ -36,6 +36,8 @@
  * model then views the 30 lines it actually wants.
  */
 
+import { statePath } from "./state-dir.ts";
+
 /** Lines returned when a call gives no bound at all. */
 export const DEFAULT_SPAN = 120;
 /** Hard ceiling per call, whatever was asked for. */
@@ -272,8 +274,8 @@ export class ReadCache {
  * so in the tool result is cheaper than letting it find out.
  */
 const INJECTED = [
-	process.env.PI_PLAN_FILE || ".pi/PLAN.md",
-	process.env.PI_NOTES_FILE || ".pi/NOTES.md",
+	process.env.PI_PLAN_FILE || statePath("PLAN.md"),
+	process.env.PI_NOTES_FILE || statePath("NOTES.md"),
 ];
 
 export function alreadyInContext(file: string): string | undefined {

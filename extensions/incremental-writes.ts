@@ -41,7 +41,7 @@ export default function (pi: ExtensionAPI) {
       return {
         block: true,
         reason:
-          `BLOCKED by incremental-writes (~/.pi/extensions/incremental-writes.ts).\n\n${problem}\n\n` +
+          `BLOCKED by incremental-writes.\n\n${problem}\n\n` +
           `Raise the ceiling with --max-write-lines <n> if this file genuinely has to land in one piece.`,
       }
     }

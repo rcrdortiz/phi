@@ -20,6 +20,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { STATE_DIR } from "./state-dir.ts";
+
 /**
  * pi's compaction numbers, mirrored from settings.json `compaction`.
  *
@@ -364,7 +366,7 @@ const SAMPLES = 5;
  * exactly when a session is new and the wait is most surprising.
  */
 function timesPath(cwd: string): string {
-	return path.join(cwd, ".pi", "compaction-times.json");
+	return path.join(cwd, STATE_DIR, "compaction-times.json");
 }
 
 function readTimes(cwd: string | undefined): number[] {

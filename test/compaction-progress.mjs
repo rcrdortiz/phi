@@ -6,6 +6,7 @@ process.env.PI_KEEP_RECENT_TOKENS = "9800";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { STATE_DIR, statePath } from "../lib/state-dir.ts";
 const { requestCompaction, resetCompactionState, progressLabel, estimateMs, recordCompactionMs } =
   await import("../lib/compaction.ts");
 
@@ -28,8 +29,8 @@ check("zero elapsed is not an error", progressLabel(0, 30_000).includes("0s"));
 
 // --- the estimate ----------------------------------------------------------
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phi-progress-"));
-fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
-const timesFile = path.join(dir, ".pi", "compaction-times.json");
+fs.mkdirSync(path.join(dir, STATE_DIR), { recursive: true });
+const timesFile = path.join(dir, STATE_DIR, "compaction-times.json");
 
 check("no file means no estimate", estimateMs(dir) === undefined);
 check("no cwd means no estimate", estimateMs(undefined) === undefined,

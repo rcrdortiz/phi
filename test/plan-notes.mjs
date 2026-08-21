@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import mod from "../extensions/plan-notes.ts";
 import { resetCompactionState } from "../lib/compaction.ts";
+import { STATE_DIR, statePath } from "../lib/state-dir.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "plan-"));
 const tools = {}; const handlers = {};
@@ -19,7 +20,7 @@ const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "
 
 async function scenario(label, ctxExtras, expect) {
   resetCompactionState();
-  fs.rmSync(path.join(DIR, ".pi"), { recursive: true, force: true });
+  fs.rmSync(path.join(DIR, STATE_DIR), { recursive: true, force: true });
   const notes = [];
   const base = { cwd: DIR, ui: { notify: (m) => notes.push(m) } };
   const toolCtx = { ...base };                       // tools get the partial ctx
@@ -50,7 +51,7 @@ await scenario("no compact API", {}, ({ notes }) =>
     !notes.some((n) => /error|failed/i.test(n)), notes.join(" | ") || "(silent)"));
 
 // 4. The plan file still advanced in every case.
-const plan = fs.readFileSync(path.join(DIR, ".pi", "PLAN.md"), "utf8");
+const plan = fs.readFileSync(path.join(DIR, STATE_DIR, "PLAN.md"), "utf8");
 check("plan still records the completed step", /- \[x\] one/.test(plan), plan.trim().split("\n").slice(-2).join(" / "));
 
 fs.rmSync(DIR, { recursive: true, force: true });

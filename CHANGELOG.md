@@ -16,6 +16,19 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: per-project state moved from `.pi` to `.phi`.** `PLAN.md`,
+`NOTES.md`, `PLAN-DONE.md`, `HANDOFF.md` and the compaction timings now live in
+`.phi`. `.pi` is pi's own project directory and holds its `settings.json`;
+sharing it made phi's files indistinguishable from pi's and left phi's state at
+the mercy of whatever pi does with its own directory. Existing projects are
+migrated on the first session, by name and one file at a time, so pi's settings
+are never touched and current state is never overwritten by a stale copy.
+`PHI_STATE_DIR` overrides it.
+
+**Fixed: a test suite in `lib/` that nothing ran.** `incremental-writes-rules.test.ts`
+printed in a format the runner does not parse, so the write gate's nine cases
+claimed coverage they were not providing. Moved into `test/`.
+
 ## 0.5.0 (2026-08-21)
 
 **Added: compaction shows elapsed seconds and a progress bar.** It is a model

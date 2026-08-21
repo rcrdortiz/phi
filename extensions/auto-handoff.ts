@@ -28,9 +28,10 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { compactAtTokens, compactionBusy, observeContext, recentlyCompacted, requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
+import { STATE_DIR, migrateStateDir, statePath } from "../lib/state-dir.ts";
 
-const HANDOFF_FILE = process.env.PI_HANDOFF_FILE || ".pi/HANDOFF.md";
-const PLAN_FILE = process.env.PI_PLAN_FILE || ".pi/PLAN.md";
+const HANDOFF_FILE = process.env.PI_HANDOFF_FILE || statePath("HANDOFF.md");
+const PLAN_FILE = process.env.PI_PLAN_FILE || statePath("PLAN.md");
 // Shared with plan-notes, so switching autonomy off switches off both routes.
 const AUTO_CONTINUE = process.env.PI_PLAN_AUTOCONTINUE !== "0";
 // A resume that produces no progress must not resume forever.
@@ -103,7 +104,7 @@ function recordMessageEnd(ctx: { cwd: string }, event: unknown): void {
 			busy: compactionBusy(),
 			recent: recentlyCompacted(10_000),
 		});
-		const p = path.join(ctx.cwd, ".pi", "message-end.log");
+		const p = path.join(ctx.cwd, STATE_DIR, "message-end.log");
 		fs.mkdirSync(path.dirname(p), { recursive: true });
 		fs.appendFileSync(p, line + "\n");
 	} catch {
@@ -165,6 +166,19 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 		interrupted = true;
 		if (!COMPACT_QUIET) return undefined;
 		return { message: { ...m, stopReason: "stop", errorMessage: undefined } } as never;
+	});
+
+	// Projects opened before 0.6.0 have phi's files in .pi. Move them once, on
+	// the way in, rather than reading from two places forever. Named files only:
+	// .pi/settings.json is pi's, and moving it would silently change how a
+	// project is configured.
+	pi.on("session_start", async (_event, ctx) => {
+		const c = ctx as unknown as ExtensionContext;
+		const moved = migrateStateDir(c.cwd);
+		if (moved.length) {
+			c.ui.notify(`Moved ${moved.join(", ")} from .pi to ${STATE_DIR}.`, "info");
+		}
+		return undefined;
 	});
 
 	let resumes = 0;

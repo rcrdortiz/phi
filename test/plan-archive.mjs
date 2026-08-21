@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import mod from "../extensions/plan-notes.ts";
+import { STATE_DIR, statePath } from "../lib/state-dir.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "archive-"));
 const tools = {}, handlers = {};
@@ -12,7 +13,7 @@ const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "
 
 const notes = [];
 const ctx = { cwd: DIR, mode: "tui", ui: { notify: (m) => notes.push(m), confirm: async () => true } };
-const read = (f) => { try { return fs.readFileSync(path.join(DIR, ".pi", f), "utf8"); } catch { return ""; } };
+const read = (f) => { try { return fs.readFileSync(path.join(DIR, STATE_DIR, f), "utf8"); } catch { return ""; } };
 const plan = () => read("PLAN.md"), done = () => read("PLAN-DONE.md");
 
 const steps = ["one", "two", "three", "four", "five", "six", "seven"];

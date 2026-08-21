@@ -158,7 +158,7 @@ next to it shows the number that actually decides, and `/context` reports both.
 **Compaction shows elapsed seconds and a progress bar.** It is a model call on
 a large prompt, so it takes as long as a turn does, and a slow one and a wedged
 one look identical behind a spinner. The estimate averages the last five
-compactions in this project, kept in `.pi/compaction-times.json`, so a fresh
+compactions in this project, kept in `.phi/compaction-times.json`, so a fresh
 session already has one. The first compaction in a new project shows a clock
 and no bar, because there is nothing to compare against.
 
@@ -212,7 +212,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 The two that change how you work:
 
 **`plan-notes`**. `plan_write` lays out steps, `plan_next` finishes one and
-resets the context. State lives in `.pi/PLAN.md` and `.pi/NOTES.md`, so a wiped
+resets the context. State lives in `.phi/PLAN.md` and `.phi/NOTES.md`, so a wiped
 context costs nothing. `/notes-gc` trims notes that have outgrown their welcome.
 
 A finished plan briefs the model that it is finished, keeps showing `NOTES.md`,
@@ -273,7 +273,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_COLLAPSE_TOOLS` | `1` | `0` renders tool results in full |
 | `PI_COLLAPSE_KEEP` | `1` | lines kept before the expand hint |
 | `PI_COMPACT_SAMPLES` | `5` | past compactions the progress estimate averages |
-| `PHI_DEBUG_MESSAGE_END` | off | `1` logs every assistant message end to `.pi/message-end.log` |
+| `PHI_DEBUG_MESSAGE_END` | off | `1` logs every assistant message end to `.phi/message-end.log` |
 | `PI_EXIT_WORD` | `1` | `0` sends a bare `exit` to the model instead of quitting |
 | `PI_WORKING_TIMER` | `1` | `0` leaves pi's plain "Working..." alone |
 | `PHI_RESUME_HINT` | `1` | `0` leaves pi's exit line alone |
@@ -282,6 +282,7 @@ Everything has a working default. These exist for when it does not.
 | `PHI_UPDATE_CHECK` | `1` | `0` draws the box but skips the network |
 | `PHI_UPDATE_INTERVAL_MS` | `600000` | how often to look again; `0` checks only at startup |
 | `PHI_HOME` | `~/.phi` | where phi's own agent directory lives |
+| `PHI_STATE_DIR` | `.phi` | per-project plan, notes and handoffs |
 
 ## Why things are the way they are
 

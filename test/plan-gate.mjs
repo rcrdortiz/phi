@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import plan, { planIsSpent } from "../extensions/plan-notes.ts";
+import { STATE_DIR, statePath } from "../lib/state-dir.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };
@@ -24,8 +25,8 @@ plan({
 });
 
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "phi-plan-gate-"));
-fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
-const writePlan = (body) => fs.writeFileSync(path.join(cwd, ".pi", "PLAN.md"), `# Plan\n\n${body}\n`);
+fs.mkdirSync(path.join(cwd, STATE_DIR), { recursive: true });
+const writePlan = (body) => fs.writeFileSync(path.join(cwd, STATE_DIR, "PLAN.md"), `# Plan\n\n${body}\n`);
 const call = async (toolName) => {
   let r;
   for (const h of handlers.tool_call ?? []) r = (await h({ toolName, input: {} }, { cwd })) ?? r;
@@ -46,7 +47,7 @@ check("plan_write itself is not gated", (await call("plan_write"))?.block !== tr
 writePlan("- [x] one\n- [ ] two");
 check("an edit with work outstanding goes through", (await call("edit_symbol"))?.block !== true);
 
-fs.rmSync(path.join(cwd, ".pi", "PLAN.md"));
+fs.rmSync(path.join(cwd, STATE_DIR, "PLAN.md"));
 check("a session with no plan is left alone", (await call("edit_symbol"))?.block !== true,
   "otherwise every one-line request has to be planned first");
 
@@ -56,9 +57,9 @@ check("a session with no plan is left alone", (await call("edit_symbol"))?.block
 // it was expected to plan, which is why HANDOFF.md filled with work PLAN.md
 // never mentioned.
 const brief = async (planBody, notes) => {
-  fs.writeFileSync(path.join(cwd, ".pi", "PLAN.md"), `# Plan\n\n**Goal:** ship the thing\n\n${planBody}\n`);
-  if (notes === undefined) fs.rmSync(path.join(cwd, ".pi", "NOTES.md"), { force: true });
-  else fs.writeFileSync(path.join(cwd, ".pi", "NOTES.md"), notes);
+  fs.writeFileSync(path.join(cwd, STATE_DIR, "PLAN.md"), `# Plan\n\n**Goal:** ship the thing\n\n${planBody}\n`);
+  if (notes === undefined) fs.rmSync(path.join(cwd, STATE_DIR, "NOTES.md"), { force: true });
+  else fs.writeFileSync(path.join(cwd, STATE_DIR, "NOTES.md"), notes);
   let out;
   for (const h of handlers.before_agent_start ?? []) out = (await h({ systemPrompt: "BASE" }, { cwd })) ?? out;
   return out?.systemPrompt ?? "BASE";
@@ -82,8 +83,8 @@ check("an unfinished plan still briefs the current step",
 // brief() writes the file, so a genuine "no plan" case has to call the handler
 // directly with nothing on disk. Going through brief() would have tested a plan
 // file with no steps, which is a different thing wearing the same label.
-fs.rmSync(path.join(cwd, ".pi", "PLAN.md"), { force: true });
-fs.rmSync(path.join(cwd, ".pi", "NOTES.md"), { force: true });
+fs.rmSync(path.join(cwd, STATE_DIR, "PLAN.md"), { force: true });
+fs.rmSync(path.join(cwd, STATE_DIR, "NOTES.md"), { force: true });
 let none;
 for (const h of handlers.before_agent_start ?? []) none = (await h({ systemPrompt: "BASE" }, { cwd })) ?? none;
 check("a session with no plan at all is briefed nothing", none === undefined,
