@@ -282,8 +282,7 @@ cost. The budget errs dense deliberately, because under-counting overruns the
 window while over-counting only truncates a little early.
 
 **`smart-edit`**. `edit_symbol` edits a function or method **by name** rather
-than by line number, which is where most failed edits came from. `outline` lists
-a file's declarations for a fraction of the cost of reading it. The built-in
+than by line number, which is where most failed edits came from. `outline` lists a file's declarations, its section banners, and for HTML its tags and inline script, for a fraction of the cost of reading it: 16x cheaper than the file on a 529-line test page. The built-in
 `read` and `edit` tools are retired in favour of these: one tool per job.
 
 **Finding the next thing to optimise.** Run with `PHI_DEBUG=1`, work normally,

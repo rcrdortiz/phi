@@ -79,6 +79,34 @@ c2.record("g.js", A, 300, 400);
 check("a gap between two reads is not reported as covered", !c2.covered("g.js", A, 50, 350));
 check("but each recorded island still is", c2.covered("g.js", A, 310, 390));
 
+// --- outline has to cover the files that actually get read ----------------
+// Measured live: run.html, 529 lines, was read nine times in one session for a
+// third of its entire tool output, because outline returned nothing for .html
+// and ranged reads were the only way to navigate it.
+const html = [
+  "<body>",
+  "  <script>",
+  "    (function () {",
+  "      function check(name, cond) { }",
+  "      // ---- lifecycle: title then play ----",
+  "      var g = new Game();",
+  "      check('starts', true);",
+  "      // ==== firing ====",
+  "      check('fires', true);",
+  "    })();",
+  "  </script>",
+];
+const rows = outline(html, "run.html");
+check("html files outline at all", rows.length > 0, `${rows.length} rows`);
+check("the script tag is an anchor", rows.some((r) => /<script/.test(r.text)));
+check("functions inside the script are found", rows.some((r) => /function check/.test(r.text)));
+check("section banners are anchors", rows.filter((r) => /----|====/.test(r.text)).length === 2,
+  "in a file of flat assertions the banners are the only structure there is");
+check("ordinary comments are not", outline(["// just a note", "function f() {}"], "a.js").length === 1,
+  "outlining every comment would bury the declarations");
+check("banners work in other languages too",
+  outline(["# ---- setup ----", "def f():", "    pass"], "a.py").length === 2);
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

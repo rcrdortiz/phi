@@ -135,6 +135,16 @@ export function resolveRange(req: RangeRequest, totalLines: number): ResolvedRan
 }
 
 /** Declarations worth showing in an outline, per language family. */
+/**
+ * A section banner: a comment whose text is fenced in dashes, equals or stars.
+ *
+ * Deliberately narrow. An ordinary comment is not structure and outlining every
+ * one would bury the declarations, but "// ---- firing ----" is a heading
+ * someone wrote to divide a file, and in a file of flat assertions it is the
+ * only navigation there is.
+ */
+const BANNER = /^\s*(?:\/\/|#|<!--|\/\*|\*)\s*[-=*_]{3,}\s*\S.*?\s*[-=*_]{3,}/;
+
 const DECL: Array<{ ext: RegExp; re: RegExp }> = [
 	{
 		ext: /\.(js|mjs|cjs|jsx|ts|tsx)$/i,
@@ -144,6 +154,14 @@ const DECL: Array<{ ext: RegExp; re: RegExp }> = [
 	{ ext: /\.php$/i, re: /^\s*(?:abstract\s+|final\s+)?(?:public\s+|private\s+|protected\s+|static\s+)*(?:function\s+\w+|class\s+\w+|trait\s+\w+|interface\s+\w+)/ },
 	{ ext: /\.(go|rs)$/i, re: /^\s*(?:pub\s+)?(?:func|fn|type|struct|impl)\s+\w+/ },
 	{ ext: /\.(css|scss)$/i, re: /^[^\s@}][^{}]*\{\s*$/ },
+	// HTML, because a page's structure is its tags plus whatever its inline
+	// script declares. Measured live: run.html, 529 lines, was read nine times
+	// for a third of a session's entire tool output, precisely because outline
+	// had nothing to say about it and ranged reads were the only way to navigate.
+	{
+		ext: /\.(html?|vue|svelte)$/i,
+		re: /^\s*(?:<(?:script|style|body|main|section|template)\b|(?:async\s+)?function\s+\w+|(?:const|let|var)\s+\w+\s*=\s*(?:async\s*)?(?:function|\([^)]*\)\s*=>))/i,
+	},
 	{ ext: /\.(md|markdown)$/i, re: /^#{1,4}\s+\S/ },
 ];
 
@@ -176,7 +194,16 @@ export function outline(lines: string[], filename: string): OutlineEntry[] {
 	const out: OutlineEntry[] = [];
 	for (let i = 0; i < lines.length; i++) {
 		const l = lines[i];
-		if (!l.trim() || l.trim().startsWith("//") || l.trim().startsWith("*")) continue;
+		if (!l.trim()) continue;
+		// A banner comment is a structural marker in any language, and in a file
+		// of flat assertions it is the only one. run.html has 88 checks and five
+		// functions; its sections are "// ---- firing ----" lines. Tested before
+		// the comment skip below, which would otherwise drop them.
+		if (BANNER.test(l)) {
+			out.push({ line: i + 1, text: l.trim() });
+			continue;
+		}
+		if (l.trim().startsWith("//") || l.trim().startsWith("*")) continue;
 		if (CONTROL.test(l)) continue;
 		if (rule.re.test(l)) out.push({ line: i + 1, text: l.trimEnd() });
 	}

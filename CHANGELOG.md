@@ -16,6 +16,14 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: `outline` covers HTML, and section banners in every language.** Found
+in a usage log: `run.html`, 529 lines, was read nine times in one session for a
+third of its entire tool output. `outline` returned nothing for `.html`, so
+ranged reads were the only way to navigate the single most-read file there was.
+It now anchors on tags, inline script declarations, and `// ---- section ----`
+banners, which in a file of flat assertions are the only structure present. 16x
+cheaper than reading that file.
+
 ## 0.9.3 (2026-08-21)
 
 **Changed: the usage log records a read's line range, not just its file.** Six
