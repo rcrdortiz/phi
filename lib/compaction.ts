@@ -17,6 +17,9 @@
  * so everything automatic compacts instead.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+
 /**
  * pi's compaction numbers, mirrored from settings.json `compaction`.
  *
@@ -149,16 +152,60 @@ let lastAt = 0;
  * made a step boundary ask for a compaction that could not succeed.
  */
 /**
+ * Prefill rate at depth, measured on an M4 Max running the 4-bit MLX build.
+ *
+ * Slower than decode-at-zero and roughly flat once the context is large, which
+ * is what makes a ceiling calculable at all.
+ */
+const PREFILL_TOKENS_PER_SECOND = Number(process.env.PI_PREFILL_TOKENS_PER_SECOND ?? 120);
+
+/**
  * Depth beyond which a prefix-cache miss cannot finish prefilling in time.
  *
- * pi's HTTP idle timeout maxes at 300s and prefill measures ~120 tok/s at depth,
- * so a miss above roughly 36,000 tokens is reported as `Request timed out`
- * rather than as a slow reply. Misses do happen: the Ollama log carries
- * `failed to restore cache, freeing all caches`. This is a property of the
- * machine and the runner, not a preference, which is why it is separate from
- * the trigger.
+ * A miss has to re-prefill the whole context. If that takes longer than pi's
+ * HTTP idle timeout the request is reported as `Request timed out` rather than
+ * as a slow reply, and the user loses the turn. Misses do happen: the Ollama
+ * log carries `failed to restore cache, freeing all caches`.
+ *
+ * Derived rather than hardcoded, because it is the product of two numbers that
+ * both move. The timeout is a pi setting, and raising it genuinely raises the
+ * ceiling; a hardcoded value silently stops matching the moment someone changes
+ * it, and the failure that follows looks like a compaction bug rather than a
+ * stale constant.
  */
-const PREFILL_CEILING = Number(process.env.PI_PREFILL_CEILING_TOKENS ?? 36_000);
+function prefillCeiling(): number {
+	const override = Number(process.env.PI_PREFILL_CEILING_TOKENS);
+	if (Number.isFinite(override) && override > 0) return override;
+	const timeoutMs = httpIdleTimeoutMs();
+	// 0 means the timeout is disabled, so nothing can be too deep to prefill.
+	if (timeoutMs <= 0) return Number.POSITIVE_INFINITY;
+	return Math.round((timeoutMs / 1000) * PREFILL_TOKENS_PER_SECOND);
+}
+
+/**
+ * pi's configured HTTP idle timeout, in milliseconds.
+ *
+ * Read from the agent directory's settings rather than assumed, and cached: it
+ * cannot change while the process runs, and this is consulted on every turn.
+ */
+let cachedTimeoutMs: number | undefined;
+export function httpIdleTimeoutMs(): number {
+	if (cachedTimeoutMs !== undefined) return cachedTimeoutMs;
+	cachedTimeoutMs = 300_000; // pi's own default
+	const dir = process.env.PI_CODING_AGENT_DIR;
+	if (dir) {
+		try {
+			const raw = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8")) as {
+				httpIdleTimeoutMs?: number | string;
+			};
+			const v = Number(raw.httpIdleTimeoutMs);
+			if (Number.isFinite(v) && v >= 0) cachedTimeoutMs = v;
+		} catch {
+			/* no settings file, or unreadable: pi's default stands */
+		}
+	}
+	return cachedTimeoutMs;
+}
 
 let baseline = 0;
 let baselineStale = false;
@@ -261,6 +308,7 @@ export function resetCompactionState(): void {
 	baseline = 0;
 	baselineStale = false;
 	sessionFloor = Number.POSITIVE_INFINITY;
+	cachedTimeoutMs = undefined;
 }
 
 /**
@@ -348,7 +396,7 @@ export function requestCompaction(
 		// that comes back "Nothing to compact" costs one cosmetic line, and NOT
 		// compacting costs the user their next prompt with `Request timed out`.
 		// The cheap failure wins.
-		if (usage.tokens < PREFILL_CEILING && since <= keepRecentTokens(usage.contextWindow) * 1.5) return false;
+		if (usage.tokens < prefillCeiling() && since <= keepRecentTokens(usage.contextWindow) * 1.5) return false;
 	}
 
 	inFlight = true;

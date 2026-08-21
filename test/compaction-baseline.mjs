@@ -123,7 +123,7 @@ const firstCompactionDepth = (observeSettled) => {
   return Infinity;
 };
 
-const CEILING = 36000;
+const CEILING = 36000;   // 300s at ~120 tok/s, pi's default timeout
 const withBaseline = firstCompactionDepth(14000);
 check("compaction happens before a prefix-cache miss stops fitting in the timeout",
   withBaseline < CEILING,
@@ -151,6 +151,39 @@ tokens = 36500;
 check("past the ceiling it compacts on a thin margin anyway",
   requestCompaction(ctx, "x", { force: true }) === true,
   "a timed-out prompt is the more expensive failure");
+
+// --- the ceiling is derived, not hardcoded ---------------------------------
+// It is the product of pi's HTTP idle timeout and the measured prefill rate.
+// Both move: the timeout is a setting, and raising it genuinely raises the
+// ceiling. A hardcoded value stops matching the moment someone changes it, and
+// the mistimed compaction that follows looks like a bug rather than a stale
+// constant.
+{
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phi-timeout-"));
+  fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ httpIdleTimeoutMs: 500000 }));
+  const before = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  resetCompactionState();
+  const { httpIdleTimeoutMs } = await import("../lib/compaction.ts");
+  check("the timeout is read from pi's settings, not assumed",
+    httpIdleTimeoutMs() === 500000, "500s configured");
+
+  // At 500s the ceiling is 60,000, so a thin margin at 36,500 no longer forces
+  // a compaction the way it does under the 300s default.
+  observeContext(35500);
+  tokens = 36500;
+  check("a longer timeout moves the ceiling with it",
+    requestCompaction(ctx, "x", { force: true }) === false,
+    "36,500 is past the 300s ceiling but well inside the 500s one");
+
+  if (before === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = before;
+  resetCompactionState();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

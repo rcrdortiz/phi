@@ -122,12 +122,22 @@ The cliff sits between 9K and 18K, and past it the model stays at about a third
 of its speed for the rest of the session.
 
 **Compaction fires at 28,000 tokens**, and that number is a hard ceiling rather
-than a preference. pi's HTTP idle timeout maxes at 300s; prefill runs ~120 tok/s
-at depth; so a prefix-cache miss above ~36,000 tokens cannot finish before the
-request is judged idle, and comes back as `Request timed out`. Misses happen:
-the server log carries `failed to restore cache, freeing all caches`. So the
-working depth has to stay somewhere a miss is survivable. `PI_MAX_SAFE_DEPTH`
-caps it independently of the window.
+than a preference. A prefix-cache miss has to re-prefill the whole context, and
+prefill runs ~120 tok/s at depth, so past a certain depth a miss cannot finish
+before pi's HTTP idle timeout and comes back as `Request timed out` instead of
+slowly. Misses happen: the server log carries `failed to restore cache, freeing
+all caches`. So the working depth has to stay somewhere a miss is survivable.
+`PI_MAX_SAFE_DEPTH` caps it independently of the window.
+
+That ceiling is derived, not hardcoded, because it is the product of two numbers
+that both move. `httpIdleTimeoutMs` is a pi setting: 300s is the default and the
+largest value its settings picker offers, but the setting takes any millisecond
+count, and this install seeds 500s. At ~120 tok/s that moves the ceiling from
+36,000 tokens to 60,000. The cost of raising it is that a genuinely hung request
+takes three minutes longer to admit it, which on a local model is a real
+tradeoff rather than a free win. The compaction trigger deliberately did not
+move with it: 28,000 is also where decode speed has already fallen to about a
+third, so running deeper is slow whether or not it times out.
 
 pi has its own trigger at 75%, deliberately above ours. We check at `turn_end`,
 which fires inside a long run; pi checks at `agent_end`, which does not. Ours
@@ -207,7 +217,8 @@ Everything has a working default. These exist for when it does not.
 | `PI_NOTES_MAX_CHARS` | `4000` | cap on the whole notes file |
 | `PI_COMPACT_AT_TOKENS` | 70% of window | depth at which context is compacted |
 | `PI_MAX_SAFE_DEPTH` | `28000` | absolute cap on that depth |
-| `PI_PREFILL_CEILING_TOKENS` | `36000` | depth past which compaction stops waiting for a clean margin |
+| `PI_PREFILL_CEILING_TOKENS` | derived | depth past which compaction stops waiting for a clean margin |
+| `PI_PREFILL_TOKENS_PER_SECOND` | `120` | measured prefill rate, used to derive that ceiling |
 | `PI_PLAN_KEEP_DONE` | `3` | completed steps kept in the plan |
 | `PI_PLAN_AUTOCONTINUE` | `1` | run steps unattended (also gates the compaction resume) |
 | `PI_PLAN_MAX_AUTO` | `25` | unattended steps before pausing |

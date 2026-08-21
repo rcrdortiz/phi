@@ -220,9 +220,17 @@ changed = False
 # into the scrollback on the way out: the boot box, every tool call, every
 # banner. Quitting should hand the terminal back the way it was found, so this
 # is "resume-hint" instead.
+# httpIdleTimeoutMs is 300000 by default, and 5 min is the largest value pi's
+# own settings picker offers, but the setting itself takes any millisecond
+# count. It matters here because a prefix-cache miss has to re-prefill the whole
+# context: at the measured ~120 tok/s that is 36,000 tokens inside 300s and
+# 60,000 inside 500s. Past the ceiling the turn comes back "Request timed out"
+# instead of slowly. The cost of raising it is that a genuinely hung request
+# takes 3 minutes longer to admit it.
 for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX"),
              ("theme", "phi-purple"), ("tuiMode", "fullscreen"), ("quietStartup", True),
              ("fullscreenExitOutput", "resume-hint"),
+             ("httpIdleTimeoutMs", 500000),
              ("defaultThinkingLevel", "high")):
     if not s.get(k):
         s[k] = v; changed = True
