@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.2.3 (2026-08-21)
+
 **Added: `PHI_DEBUG_MESSAGE_END=1` records every assistant message end.** The
 compaction-error suppressor added in 0.2.1 behaves correctly in isolation and
 was still not suppressing in a live session. Rather than reason about it a
