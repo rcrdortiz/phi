@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.2.1 (2026-08-21)
+
 **Fixed: a finished plan briefed nothing, so the next task never got one.**
 The system-prompt briefing returned an empty string when no step was
 outstanding: no goal, no findings, not even the fact that a plan file existed.
