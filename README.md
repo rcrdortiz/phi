@@ -38,7 +38,8 @@ it does. Nothing here reimplements that.
 - Homebrew and node. `get-phi.sh` installs the rest and is safe to re-run.
 
 It raises the GPU wired limit to ~83% of RAM and installs a login agent for
-Ollama's keep-alive; both survive reboots. Models are not its job, because a
+Ollama's keep-alive; both survive reboots. It also sets the TUI to fullscreen
+and the theme to `phi-purple`, which ships with this package. Models are not its job, because a
 27B pull is not something an installer should start unasked. That is
 `/model-install`.
 
@@ -117,6 +118,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `token-rate` | decode speed in the footer, so a stall is visible |
 | `incremental-writes` | large files written in verified chunks |
 | `model-install` | `/model-install` pulls and builds a preconfigured model, and rebuilds one whose modelfile has changed |
+| `boot-screen` | replaces pi's banner with one about phi, and checks for pi and phi updates in the background |
 
 The two that change how you work:
 
@@ -149,6 +151,8 @@ Everything has a working default. These exist for when it does not.
 | `PI_WATCHDOG_MAX_RESUMES` | `25` | mid-step compaction resumes before pausing |
 | `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |
 | `PI_TOKEN_RATE` | `1` | show decode speed |
+| `PHI_BOOT` | `1` | `0` keeps pi's own startup banner |
+| `PHI_UPDATE_CHECK` | `1` | `0` draws the box but skips the network |
 
 ## Why things are the way they are
 

@@ -197,7 +197,8 @@ try:
 except Exception:
     s = {}
 changed = False
-for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX")):
+for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX"),
+             ("theme", "phi-purple"), ("tuiMode", "fullscreen")):
     if not s.get(k):
         s[k] = v; changed = True
 if changed:
@@ -205,7 +206,7 @@ if changed:
 print("set" if changed else "kept")
 PY
 then
-  ok "provider/model defaults in place (a bare \`pi\` will use the local roster)"
+  ok "defaults in place: local roster, purple theme, fullscreen TUI"
 else
   warn "could not write $SETTINGS — start pi with --provider ollama-local --model qwen3.8-4MLX once"
 fi

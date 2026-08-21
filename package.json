@@ -14,6 +14,9 @@
   "pi": {
     "extensions": [
       "extensions/*.ts"
+    ],
+    "themes": [
+      "themes/*.json"
     ]
   }
 }
