@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.7.0 (2026-08-21)
+
 **Changed: the compaction trigger moves from 28,000 to 36,000 tokens, measured.**
 28,000 was bounded by a 300s idle timeout at an assumed flat 120 tok/s prefill.
 The timeout is now 500s, so that bound moved, and prefill was benchmarked at
