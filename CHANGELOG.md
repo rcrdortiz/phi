@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.2.6 (2026-08-21)
+
 **Fixed: work that was not driven by a plan died at every compaction.** The
 watchdog only resumed when a plan step was outstanding, so investigation, a
 request typed into the chat, and even the turn on its way to calling
