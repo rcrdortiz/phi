@@ -1,4 +1,5 @@
 import mod, { budgetChars, charsPerToken, truncate, shrinkImage, looksLikeFileDump } from "../extensions/tool-budget.ts";
+import { alreadyInContext } from "../lib/read-lean.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
@@ -139,6 +140,23 @@ check("an explicit timeout is respected", explicit.input.timeout === 1800,
 const notBash = { toolName: "view_lines", input: { file: "x.js" } };
 await handlers["tool_call"](notBash, ctx);
 check("other tools are untouched", notBash.input.timeout === undefined);
+
+// --- the in-context note has to survive the state directory moving ---------
+// It was a regex hardcoded to `.pi/`. State moved to `.phi/` in 0.6.0 and the
+// note went quietly dead for six versions: a `cat .phi/PLAN-DONE.md` went
+// through at 974 tokens with no pushback. It now asks the same list view_lines
+// uses.
+check("the injected files are recognised at their real path",
+  alreadyInContext(".phi/PLAN.md") !== undefined && alreadyInContext(".phi/NOTES.md") !== undefined,
+  "a check anchored on the old directory is a check that does nothing");
+check("and by bare name, however the read was reached",
+  alreadyInContext("PLAN.md") !== undefined && alreadyInContext("/x/y/.phi/NOTES.md") !== undefined);
+check("the pre-0.6.0 path still matches", alreadyInContext(".pi/PLAN.md") !== undefined,
+  "a project that never migrated still reads from there");
+check("ordinary files are not claimed to be in context", alreadyInContext("pang.js") === undefined);
+check("the archive is not claimed to be injected, because it is not",
+  alreadyInContext(".phi/PLAN-DONE.md") === undefined,
+  "the briefing names it and tells the model to read it before replanning");
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

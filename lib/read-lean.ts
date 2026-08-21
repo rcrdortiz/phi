@@ -306,6 +306,11 @@ const INJECTED = [
 ];
 
 export function alreadyInContext(file: string): string | undefined {
-	const hit = INJECTED.find((p) => file.endsWith(p) || file.endsWith(p.replace(/^\.pi\//, "")));
-	return hit;
+	// Match on the bare filename as well as the full path, so a read reached by
+	// any route is recognised. The state directory moved once already, and a
+	// check anchored on it went quietly dead for six versions.
+	return INJECTED.find((p) => {
+		const base = p.split("/").pop() ?? p;
+		return file.endsWith(p) || file.endsWith(`/${base}`) || file === base;
+	});
 }

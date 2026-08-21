@@ -16,6 +16,18 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: the "already in your context" steering had been dead since 0.6.0.** It
+tested for `.pi/PLAN.md` with a regex of its own, and state moved to `.phi/` six
+versions ago, so a `cat .phi/PLAN-DONE.md` went through at 974 tokens with no
+pushback at all. It now asks the same list `view_lines` uses, matches the bare
+filename however the read was reached, and still matches the pre-0.6.0 path for
+a project that never migrated.
+
+It also no longer claims `PLAN-DONE.md` is injected every turn, because it is
+not: the briefing names it and tells the model to read it before replanning.
+Large shell reads of any file now get a shorter note instead, saying that
+`view_lines` takes a range and remembers what it has sent.
+
 ## 0.12.0 (2026-08-21)
 
 **Added: a step can be in progress, `[o]`, not just waiting or done.** "Current"

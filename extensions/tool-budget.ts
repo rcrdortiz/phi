@@ -57,6 +57,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import { alreadyInContext } from "../lib/read-lean.ts";
 import { charsPerToken } from "../lib/token-estimate.ts";
 export { charsPerToken } from "../lib/token-estimate.ts";
 
@@ -85,6 +86,9 @@ const ENABLED = process.env.PI_TOOL_BUDGET !== "0";
 
 /** Fraction of the kept text taken from the head; the rest comes from the tail. */
 const HEAD_SHARE = 0.6;
+
+/** Below this, a shell read is too cheap to be worth a word about. */
+const STEER_MIN_CHARS = Number(process.env.PI_STEER_MIN_CHARS ?? 2000);
 
 export function budgetChars(contextWindow: number | undefined, toolName?: string): number {
 	const window = contextWindow && contextWindow > 0 ? contextWindow : 32768;
@@ -270,10 +274,25 @@ export default function toolBudgetExtension(pi: ExtensionAPI) {
 				// two-line `cat` teaches the model to ignore the message.
 				// Same trap through the shell: `cat .pi/NOTES.md` costs 16K characters
 				// for a file the model is already holding.
-				if (dumped && /\.pi\/(PLAN|NOTES|PLAN-DONE)\.md$/.test(dumped)) {
+				// Asked of the same list view_lines uses, rather than a regex of its
+				// own. The bespoke one hardcoded `.pi/`, so when state moved to
+				// `.phi/` this note stopped firing and nobody noticed for six
+				// versions: a `cat .phi/PLAN-DONE.md` went through at 974 tokens
+				// with no pushback at all.
+				const injected = dumped ? alreadyInContext(dumped) : undefined;
+				if (injected) {
 					trimmed +=
 						`\n\n[tool-budget] ${dumped} is already in your context — it is injected into the system prompt ` +
 						`every turn. Reading it through the shell pays for it twice.`;
+				} else if (dumped && part.text.length > STEER_MIN_CHARS) {
+					// A file read through the shell gets no range, no budget shaped
+					// for its content, and no record in the read cache, so the next
+					// read of it pays again. Only worth saying when it actually cost
+					// something: nagging about a two-line `cat` teaches the model to
+					// ignore the message.
+					trimmed +=
+						`\n\n[tool-budget] Reading ${dumped} through the shell sends the whole file. ` +
+						`view_lines takes a line range and remembers what it has already sent.`;
 				}
 				if (wrote) {
 					trimmed +=
