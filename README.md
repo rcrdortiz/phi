@@ -119,7 +119,9 @@ Everything has a working default. These exist for when it does not.
 | `PI_NOTE_MAX_CHARS` | `350` | cap on one note |
 | `PI_COMPACT_AT_TOKENS` | 70% of window | depth at which context is compacted |
 | `PI_PLAN_KEEP_DONE` | `3` | completed steps kept in the plan |
-| `PI_PLAN_AUTOCONTINUE` | `1` | run steps unattended |
+| `PI_PLAN_AUTOCONTINUE` | `1` | run steps unattended (also gates the compaction resume) |
+| `PI_PLAN_MAX_AUTO` | `25` | unattended steps before pausing |
+| `PI_WATCHDOG_MAX_RESUMES` | `25` | mid-step compaction resumes before pausing |
 | `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |
 | `PI_TOKEN_RATE` | `1` | show decode speed |
 

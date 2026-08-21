@@ -9,12 +9,14 @@ const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
 
 resetCompactionState();
-const handlers = {}, cmds = [], notes = [];
+const handlers = {}, cmds = [], notes = [], sent = [];
 let compactCalls = 0;
+let lastCompactOpts = null;
 mod({
   on: (e, h) => (handlers[e] = h),
   registerCommand: (n, o) => { cmds.push(n); handlers["/" + n] = o.handler; },
   registerTool: () => {},
+  sendUserMessage: (m) => sent.push(m),
 });
 const ctx = {
   cwd: DIR,
@@ -22,7 +24,7 @@ const ctx = {
   // Comfortably past the watchdog trigger and the keepRecent margin, expressed
   // relative to them so a window change does not silently disarm this test.
   getContextUsage: () => ({ tokens: Math.round(compactAtTokens(65_536) * 1.1), contextWindow: 65_536 }),
-  compact: (o) => { compactCalls++; o.onComplete?.({ summary: "state summary", tokensBefore: 40_000 }); },
+  compact: (o) => { compactCalls++; lastCompactOpts = o; o.onComplete?.({ summary: "state summary", tokensBefore: 40_000 }); },
 };
 
 // 1. turn_end IS hooked again, as a mid-run watchdog. pi checks for
@@ -68,6 +70,29 @@ await handlers["/context"]("", ctx);
 check("/context reports pi's compaction point", /pi compacts above 75%/.test(notes.join(" ")), notes.join(" ").split("\n")[1]);
 
 fs.rmSync(DIR, { recursive: true, force: true });
+// --- the run must survive its own compaction ------------------------------
+// Compaction aborts the in-flight turn. Without a resume, compacting in the
+// middle of a step leaves the agent at a prompt with the work half done.
+fs.mkdirSync(path.join(DIR, ".pi"), { recursive: true });
+fs.writeFileSync(path.join(DIR, ".pi", "PLAN.md"), "# Plan\n\n- [x] one\n- [ ] wire up the HUD\n");
+resetCompactionState();
+sent.length = 0;
+compactCalls = 0;
+const deepCtx = { ...ctx, getContextUsage: () => ({ tokens: Math.round(compactAtTokens(65_536) * 1.1), contextWindow: 65_536 }) };
+await handlers["turn_end"]({}, { ...deepCtx, getContextUsage: () => ({ tokens: 5_000, contextWindow: 65_536 }) });
+await handlers["turn_end"]({}, deepCtx);
+check("a mid-run compaction resumes the run", sent.length === 1, sent[0] ?? "(nothing sent)");
+check("the resume names the unfinished step", /wire up the HUD/.test(sent[0] ?? ""), sent[0]);
+
+// A finished plan must NOT be nudged: stopping is the correct outcome, and a
+// wasted turn at full context depth is expensive.
+fs.writeFileSync(path.join(DIR, ".pi", "PLAN.md"), "# Plan\n\n- [x] one\n- [x] two\n");
+resetCompactionState();
+sent.length = 0;
+await handlers["turn_end"]({}, { ...deepCtx, getContextUsage: () => ({ tokens: 5_000, contextWindow: 65_536 }) });
+await handlers["turn_end"]({}, deepCtx);
+check("a finished plan is left alone", sent.length === 0, sent.join(" | ") || "(nothing sent)");
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

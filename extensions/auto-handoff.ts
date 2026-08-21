@@ -30,6 +30,24 @@ import * as path from "node:path";
 import { compactAtTokens, compactionBusy, observeContext, requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
 
 const HANDOFF_FILE = process.env.PI_HANDOFF_FILE || ".pi/HANDOFF.md";
+const PLAN_FILE = process.env.PI_PLAN_FILE || ".pi/PLAN.md";
+// Shared with plan-notes, so switching autonomy off switches off both routes.
+const AUTO_CONTINUE = process.env.PI_PLAN_AUTOCONTINUE !== "0";
+// A resume that produces no progress must not resume forever.
+const MAX_RESUMES = Number(process.env.PI_WATCHDOG_MAX_RESUMES ?? 25);
+
+/** The first unfinished step in the plan, if there is one. */
+function pendingStep(cwd: string): string | undefined {
+	try {
+		for (const line of fs.readFileSync(path.join(cwd, PLAN_FILE), "utf8").split("\n")) {
+			const m = /^\s*[-*]\s*\[ \]\s*(.+?)\s*$/.exec(line);
+			if (m) return m[1];
+		}
+	} catch {
+		/* no plan is a perfectly normal state */
+	}
+	return undefined;
+}
 
 const INSTRUCTIONS = [
 	"Summarise the work so far as state, not narrative, for a session that can see the repo but none of this conversation.",
@@ -53,6 +71,13 @@ function writeHandoff(cwd: string, summary: string, tokensBefore: number | undef
 }
 
 export default function autoHandoffExtension(pi: ExtensionAPI) {
+	let resumes = 0;
+	// Anything the user types is a fresh mandate.
+	pi.on("input", async () => {
+		resumes = 0;
+		return undefined;
+	});
+
 	// Mid-run watchdog.
 	//
 	// The note above says pi owns compaction timing. That is true BETWEEN runs:
@@ -82,6 +107,28 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 				"the state of the code, decisions and constraints, and what was just attempted. " +
 				"Drop tool output and the narrative of how earlier steps went.",
 			onSummary: (summary, tokensBefore) => writeHandoff(c.cwd, summary, tokensBefore, "mid-run watchdog"),
+			// Compaction aborts whatever the agent was doing — the abort is what
+			// "This operation was aborted" reports. plan-notes resumes after a
+			// step-boundary compaction; without the same here, compacting in the
+			// MIDDLE of a step left the run sitting at a prompt with the step
+			// half-finished, which defeats the point of unattended progress.
+			onDone: () => {
+				if (!AUTO_CONTINUE) return;
+				// Only when there is demonstrably work left. If the plan is finished,
+				// or there is no plan, the agent stopping is the correct outcome and
+				// nudging it just buys a wasted turn at full context depth.
+				const step = pendingStep(c.cwd);
+				if (!step) return;
+				if (resumes >= MAX_RESUMES) {
+					c.ui.notify(
+						`Paused after ${resumes} compaction resumes (PI_WATCHDOG_MAX_RESUMES). Say continue to carry on.`,
+						"warning",
+					);
+					return;
+				}
+				resumes++;
+				pi.sendUserMessage(`Context was compacted mid-step. Continue with: ${step}`);
+			},
 		});
 		return undefined;
 	});
