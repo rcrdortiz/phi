@@ -10,7 +10,10 @@ const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "
 async function load(env = {}) {
   for (const [k, v] of Object.entries(env)) process.env[k] = v;
   // Fresh module instance so env changes take effect.
-  const mod = (await import(`/Users/rcrd/AI/phi/extensions/plan-notes.ts?${Math.random()}`)).default;
+  // Cache-busted so each case gets a fresh module, but resolved against THIS
+  // file rather than an absolute path, which only existed on one machine.
+  const url = new URL("../extensions/plan-notes.ts", import.meta.url);
+  const mod = (await import(`${url.href}?${Math.random()}`)).default;
   const tools = {}, handlers = {}, sent = [], notes = [];
   mod({
     registerTool: (t) => (tools[t.name] = t),

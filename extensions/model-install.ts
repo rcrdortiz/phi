@@ -6,7 +6,7 @@
  * checkout to run a script from, and the one thing install.sh still genuinely
  * needs — sudo for the GPU wired limit, brew for Ollama — is the one thing a
  * slash command cannot do. So the split is by privilege, not by convenience:
- * bootstrap.sh handles what needs root, /model-install handles the rest.
+ * get-phi.sh handles what needs root, /model-install handles the rest.
  *
  * A "model" here is a base pulled from Ollama's registry plus a modelfile that
  * fixes its context window and sampling. Both matter: the roster's
@@ -152,7 +152,7 @@ export default function modelInstallExtension(pi: ExtensionAPI) {
 			try {
 				execFileSync("ollama", ["--version"], { stdio: "ignore", timeout: 5000 });
 			} catch {
-				ctx.ui.notify("Ollama is not installed or not on PATH. Run bootstrap.sh first.", "error");
+				ctx.ui.notify("Ollama is not installed or not on PATH. Re-run get-phi.sh.", "error");
 				return;
 			}
 

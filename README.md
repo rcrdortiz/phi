@@ -18,33 +18,29 @@ usable for real work instead of degrading after twenty minutes.
 ## Install
 
 ```sh
-npm i -g @earendil-works/pi-coding-agent     # pi itself
-pi install https://github.com/rcrdortiz/phi  # this package
+curl -fsSL https://raw.githubusercontent.com/rcrdortiz/phi/master/get-phi.sh | bash
 ```
 
-Then once, for the parts that need root or a package manager:
+That installs Ollama, pi, and phi, raises the GPU wired limit, and sets up the
+login agent for Ollama's keep-alive. It asks before anything that needs `sudo`,
+and is safe to re-run: it skips whatever is already in place.
 
-```sh
-git clone https://github.com/rcrdortiz/phi && cd phi && ./bootstrap.sh
-```
+Then start `pi` and run `/model-install` to pull and build a model.
 
-And finally, inside pi, run `/model-install` to pull and build a model.
-
-**Only bootstrap.sh wants a clone**, because a slash command cannot run `sudo`
-or `brew`. Everything else needs no checkout. pi clones and manages the package
-itself, and `pi update` refreshes it, printing its own "restart to take effect"
-notice when it does. Nothing here reimplements that.
+**No checkout, at any point.** pi clones and manages the package itself, and
+`pi update` refreshes it, printing its own "restart to take effect" notice when
+it does. Nothing here reimplements that.
 
 ## What you need
 
 - Apple Silicon, **48 GB minimum**. The model peaks at ~27 GB with a full
   context; below 48 GB there is nothing left for a desktop.
-- Homebrew and node. `bootstrap.sh` installs Ollama and is safe to re-run.
+- Homebrew and node. `get-phi.sh` installs the rest and is safe to re-run.
 
-`bootstrap.sh` covers only what needs root or a package manager: installing
-Ollama, raising the GPU wired limit to ~83% of RAM, and a login agent for
-Ollama's keep-alive. Both survive reboots. Models are not its job — that is
-`/model-install`, which needs no checkout to run from.
+It raises the GPU wired limit to ~83% of RAM and installs a login agent for
+Ollama's keep-alive; both survive reboots. Models are not its job, because a
+27B pull is not something an installer should start unasked. That is
+`/model-install`.
 
 ## The model
 

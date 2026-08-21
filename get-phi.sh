@@ -1,19 +1,21 @@
 #!/bin/bash
-# bootstrap.sh — the parts of setup that a slash command cannot do.
+# get-phi.sh — install phi and everything it needs, from nothing.
 #
-# Everything here needs either root or a package manager: installing Ollama,
-# raising the GPU wired limit, and the login agent that exports Ollama's env
-# before the app starts. Models are NOT here — run /model-install inside pi,
-# which needs no checkout and knows which variants are preconfigured.
+# curl -fsSL https://raw.githubusercontent.com/rcrdortiz/phi/master/get-phi.sh | bash
+#
+# Installs Ollama, pi, and phi as a pi package, raises the GPU wired limit, and
+# sets up the login agent that exports Ollama's env before the app starts.
+# Models are NOT here: run /model-install inside pi, which knows which variants
+# are preconfigured and needs no checkout.
 #
 # Idempotent: safe to re-run, skips anything already in place.
 #
-#   ./bootstrap.sh                 everything
-#   ./bootstrap.sh --skip-sysctl   don't touch the GPU memory limit (no sudo)
-#   ./bootstrap.sh --yes           don't ask
+#   | bash                 everything
+#   | bash -s -- --yes     don't ask
+#   | bash -s -- --skip-sysctl   leave the GPU memory limit alone (no sudo)
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PHI_REPO="${PHI_REPO:-https://github.com/rcrdortiz/phi}"
 SKIP_SYSCTL=0; ASSUME_YES=0
 for a in "$@"; do
   case "$a" in
@@ -32,7 +34,15 @@ step() { echo; echo "${b}==> $*${r}"; }
 ok()   { echo "  ${gn}✓${r} $*"; }
 warn() { echo "  ${yl}!${r} $*"; }
 die()  { echo "  ${rd}✗${r} $*"; exit 1; }
-ask()  { [[ $ASSUME_YES -eq 1 ]] && return 0; read -r -p "  $1 [y/N] " a; [[ "$a" =~ ^[Yy] ]]; }
+# Read from the terminal explicitly. Under `curl | bash` stdin is the script
+# itself, so a plain `read` consumes the script's own remaining lines and the
+# answer is whatever bash was about to execute next.
+ask()  {
+  [[ $ASSUME_YES -eq 1 ]] && return 0
+  [[ -r /dev/tty ]] || { warn "no terminal to ask on; assuming no. Re-run with --yes to accept."; return 1; }
+  read -r -p "  $1 [y/N] " a < /dev/tty
+  [[ "$a" =~ ^[Yy] ]]
+}
 
 # GPU memory ceiling. macOS defaults to ~75% of RAM. We take ~83%, leaving
 # ~8GB for the OS on a 48GB machine, and scale it rather than hardcoding: on a
@@ -168,6 +178,14 @@ fi
 # fresh one has nothing to persist yet, and without this the first `pi` opens
 # on whatever provider it can find rather than the local roster.
 # Only fills in what is missing: an existing choice is the user's, not ours.
+step "phi"
+if pi list 2>/dev/null | grep -q "$PHI_REPO"; then
+  ok "already installed; updating"
+  pi update "$PHI_REPO" >/dev/null 2>&1 && ok "up to date" || warn "could not update (offline?)"
+else
+  pi install "$PHI_REPO" >/dev/null 2>&1 && ok "installed as a pi package" || die "pi install $PHI_REPO failed"
+fi
+
 step "Defaults"
 SETTINGS="$HOME/.pi/agent/settings.json"
 if python3 - "$SETTINGS" <<'PY'
@@ -201,13 +219,13 @@ else
   warn "Ollama not responding — start Ollama.app or run: brew services start ollama"
 fi
 
-if pi list 2>/dev/null | grep -qi phi; then
+if pi list 2>/dev/null | grep -q "$PHI_REPO"; then
   ok "phi is installed as a pi package"
 else
-  warn "phi is not installed yet — run: pi install https://github.com/rcrdortiz/phi"
+  warn "phi is not installed — re-run this script"
 fi
 
 echo
-echo "${b}Done.${r} Now, inside pi:  ${b}/model-install${r}  then  ${b}pi${r}"
+echo "${b}Done.${r} Start pi, then run  ${b}/model-install${r}  to pull and build a model."
 echo "${d}The provider and model defaults are set, and pi remembers whatever you pick with /model.${r}"
 echo "${d}Low on memory? The guard offers models that fit. Quitting Chrome frees the most.${r}"
