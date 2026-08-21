@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.4.0 (2026-08-21)
+
 **Added: the working indicator says what the model is doing.**
 `Working... Reading pang.js 1m 05s`, `Working... Running ./verify.sh 5m 52s`,
 `Working... Thinking 12s`. Costs nothing: pi hands over the tool name and its
