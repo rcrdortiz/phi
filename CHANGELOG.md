@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.7.2 (2026-08-21)
+
 **Fixed: shell output was budgeted as though it cost half what it does.**
 `tool-budget` converted characters to tokens at a flat 3.6, taken from a
 transcript of mixed code and prose. Measured against the model's own tokenizer,
