@@ -16,6 +16,14 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: quitting writes a "where this stopped" note.** Ctrl+C now leaves the
+plan step in progress, anything cut off mid-call, the files changed and the last
+few actions at the top of `.phi/HANDOFF.md`. Assembled from what is already
+known rather than summarised, because a summary is a model call on the whole
+context and the one thing someone pressing ctrl+c has said is that they want out
+now. It sits above the previous compaction summary rather than replacing it, and
+a session that did nothing writes nothing.
+
 ## 0.10.0 (2026-08-21)
 
 **Added: `outline` covers HTML, and section banners in every language.** Found

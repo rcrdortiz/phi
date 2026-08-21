@@ -39,6 +39,7 @@ const AUTO_CONTINUE = process.env.PI_PLAN_AUTOCONTINUE !== "0";
 const MAX_RESUMES = Number(process.env.PI_WATCHDOG_MAX_RESUMES ?? 25);
 /** Hide the interruption our own compaction causes. See the message_end handler. */
 const COMPACT_QUIET = process.env.PI_COMPACT_QUIET !== "0";
+const EXIT_HANDOFF = process.env.PI_EXIT_HANDOFF !== "0";
 /**
  * Record every assistant message_end to `.pi/message-end.log`.
  *
@@ -78,6 +79,55 @@ const INSTRUCTIONS = [
 	"Record what was decided, not the deliberation that reached it. An option considered and rejected belongs under Dead ends as one line with the reason; do not replay the weighing up.",
 	"Never carry over self-questioning, second-guessing, or restatements of the task. If a sentence would not change what the next session does, leave it out.",
 ].join("\n");
+
+/**
+ * What was happening when the session stopped, written without asking the model.
+ *
+ * A proper summary is a model call on the whole context, which takes as long as
+ * a turn. On the way out of ctrl+c that is unacceptable: the one thing someone
+ * pressing it has told you is that they want out now. So this is assembled from
+ * what is already known, instantly, and says only things it can be sure of.
+ *
+ * Deliberately not a second file. A resume file and a handoff file both answer
+ * "where was I", they drift, and then the next session has to decide which one
+ * to believe. The compaction summary above it is preserved, because a
+ * model-written account of the work is worth more than this and losing it to an
+ * exit would be a bad trade.
+ */
+export function resumeNote(o: {
+	step?: string;
+	inFlight: { tool: string; detail: string; seconds: number }[];
+	recent: { tool: string; detail: string }[];
+	touched: string[];
+}): string {
+	const lines = ["## Where this stopped", ""];
+	lines.push(o.step ? `Plan step in progress: ${o.step}` : "No plan step was in progress.");
+	if (o.inFlight.length) {
+		lines.push(
+			"",
+			"Interrupted mid-call, so this may have half-finished:",
+			...o.inFlight.map((c) => `- ${c.tool} ${c.detail} (${c.seconds}s in)`),
+		);
+	}
+	if (o.touched.length) lines.push("", `Files changed this session: ${o.touched.join(", ")}`);
+	if (o.recent.length) {
+		lines.push("", "Last few actions, newest first:", ...o.recent.map((c) => `- ${c.tool} ${c.detail}`.trimEnd()));
+	}
+	return lines.join("\n");
+}
+
+/**
+ * Put the exit note above whatever was there, rather than over it.
+ *
+ * The previous contents are a compaction summary the model wrote about this
+ * work. It is better material than anything assembled here, and an exit is no
+ * reason to lose it.
+ */
+export function mergeHandoff(existing: string, note: string, stamp: string): string {
+	const prior = existing.replace(/^# Handoff\n+/, "").trim();
+	const kept = prior ? `\n\n## Before that\n\n${prior}\n` : "\n";
+	return `# Handoff\n\n_${stamp} (interrupted)._\n\n${note}\n${kept}`;
+}
 
 function writeHandoff(cwd: string, summary: string, tokensBefore: number | undefined, reason: string) {
 	try {
@@ -183,11 +233,88 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 	});
 
 	let resumes = 0;
+	// Kept here rather than read back from the usage log, because that is opt-in
+	// and an exit note has to work on an ordinary session too.
+	const RECENT = 6;
+	const recent: { tool: string; detail: string }[] = [];
+	const inFlight = new Map<string, { tool: string; detail: string; at: number }>();
+	const touched = new Set<string>();
+	const MUTATES = new Set(["edit_symbol", "edit_block", "replace_lines", "edit", "write", "multi_edit"]);
 	/** Set when one of our compactions aborted a live turn. See onDone. */
 	let interrupted = false;
 	// Anything the user types is a fresh mandate.
 	pi.on("input", async () => {
 		resumes = 0;
+		return undefined;
+	});
+
+	pi.on("tool_execution_start", async (event) => {
+		const e = event as { toolCallId?: string; toolName?: string; args?: unknown };
+		if (!e.toolCallId || !e.toolName) return undefined;
+		const a = (e.args ?? {}) as Record<string, unknown>;
+		const file = a.file ?? a.path ?? a.file_path ?? a.filePath;
+		const detail =
+			typeof a.command === "string"
+				? a.command.trim().split("\n")[0].slice(0, 60)
+				: typeof file === "string"
+					? file
+					: "";
+		inFlight.set(e.toolCallId, { tool: e.toolName, detail, at: Date.now() });
+		if (MUTATES.has(e.toolName) && typeof file === "string" && file) touched.add(file);
+		return undefined;
+	});
+
+	pi.on("tool_execution_end", async (event) => {
+		const e = event as { toolCallId?: string };
+		const open = e.toolCallId ? inFlight.get(e.toolCallId) : undefined;
+		if (e.toolCallId) inFlight.delete(e.toolCallId);
+		if (open) {
+			recent.unshift({ tool: open.tool, detail: open.detail });
+			recent.length = Math.min(recent.length, RECENT);
+		}
+		return undefined;
+	});
+
+	/**
+	 * On the way out, leave a note saying where this stopped.
+	 *
+	 * Anything still open in inFlight was cut off by the exit, which is exactly
+	 * what the next session needs told: a half-written file or an aborted test
+	 * run looks like a completed one otherwise.
+	 */
+	pi.on("session_shutdown", async (event, ctx) => {
+		if (!EXIT_HANDOFF) return undefined;
+		const reason = (event as { reason?: string }).reason;
+		if (reason && reason !== "quit" && reason !== "new") return undefined;
+		try {
+			const c = ctx as unknown as ExtensionContext;
+			const step = pendingStep(c.cwd);
+			const note = resumeNote({
+				step: step ? step.split(" \u2014 ")[0].slice(0, 200) : undefined,
+				inFlight: [...inFlight.values()].map((v) => ({
+					tool: v.tool,
+					detail: v.detail,
+					seconds: Math.round((Date.now() - v.at) / 1000),
+				})),
+				recent,
+				touched: [...touched],
+			});
+			// Nothing happened, so there is nothing to resume and no reason to
+			// overwrite a summary that says more than this would.
+			if (!step && !inFlight.size && !recent.length && !touched.size) return undefined;
+			const p = path.join(c.cwd, HANDOFF_FILE);
+			const stamp = new Date().toISOString().replace("T", " ").slice(0, 16);
+			fs.mkdirSync(path.dirname(p), { recursive: true });
+			let existing = "";
+			try {
+				existing = fs.readFileSync(p, "utf8");
+			} catch {
+				/* first handoff in this project */
+			}
+			fs.writeFileSync(p, mergeHandoff(existing, note, stamp), "utf8");
+		} catch {
+			/* an exit must not fail because a note could not be written */
+		}
 		return undefined;
 	});
 

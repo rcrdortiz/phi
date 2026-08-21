@@ -218,7 +218,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `smart-edit` | edits that survive a model with imperfect whitespace recall |
 | `tool-budget` | stops one tool result eating the window |
 | `collapse` (lib) | tool results render as one line until `ctrl+o` |
-| `auto-handoff` | compacts mid-run, resumes what it interrupted, and records every compaction to disk |
+| `auto-handoff` | compacts mid-run, resumes what it interrupted, and writes a handoff on every compaction and on exit |
 | `token-rate` | decode speed in the footer, so a stall is visible |
 | `incremental-writes` | large files written in verified chunks |
 | `model-install` | `/model-install` pulls and builds a preconfigured model, and rebuilds one whose modelfile has changed |
@@ -354,6 +354,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |
 | `PI_TOKEN_RATE` | `1` | show decode speed |
 | `PI_COMPACT_QUIET` | `1` | `0` shows the interruption our own compaction causes |
+| `PI_EXIT_HANDOFF` | `1` | `0` skips the note written when you quit |
 | `PI_COLLAPSE_TOOLS` | `1` | `0` renders tool results in full |
 | `PI_COLLAPSE_KEEP` | `1` | lines kept before the expand hint |
 | `PI_COMPACT_SAMPLES` | `5` | past compactions the progress estimate averages |
@@ -381,6 +382,18 @@ measured and why.
 Deliberately not duplicated here: this file used to carry all of it, and a
 README that repeats what the code already explains goes stale in exactly the way
 the code does not.
+
+**Quitting leaves a note.** Ctrl+C writes a "where this stopped" section to the
+top of `.phi/HANDOFF.md`: the plan step in progress, anything cut off mid-call,
+the files changed, and the last few actions. Assembled from what is already
+known rather than summarised by the model, because a summary is a model call on
+the whole context and the one thing someone pressing ctrl+c has said is that
+they want out now.
+
+It goes above the previous compaction summary rather than over it. That summary
+is a model-written account of the work and is better material than this; an exit
+is no reason to lose it. A session that did nothing writes nothing, so a stub
+never replaces a real summary.
 
 ## Releases
 
