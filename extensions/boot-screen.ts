@@ -27,6 +27,25 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 const ENABLED = process.env.PHI_BOOT !== "0";
 const CHECK_UPDATES = process.env.PHI_UPDATE_CHECK !== "0";
+/**
+ * How often to look again, for a session that stays open.
+ *
+ * Ten minutes because the check costs one `npm view` and one `git fetch` of a
+ * small repo, and the thing it is watching changes on the order of hours. 0
+ * checks once at startup and never again.
+ */
+export function parseInterval(raw: string | undefined): number {
+	if (raw === undefined || raw.trim() === "") return 600_000;
+	const n = Number(raw);
+	// A garbage value should not silently become "never look again", which is
+	// indistinguishable from the feature working.
+	if (!Number.isFinite(n) || n < 0) return 600_000;
+	// Anything under a minute is a typo or a misunderstanding of the units. The
+	// thing being watched changes on the order of hours.
+	if (n > 0 && n < 60_000) return 60_000;
+	return n;
+}
+const RECHECK_MS = parseInterval(process.env.PHI_UPDATE_INTERVAL_MS);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 
@@ -393,46 +412,77 @@ export default function bootScreenExtension(pi: ExtensionAPI) {
 			};
 		});
 
+		/**
+		 * Run the checks and redraw.
+		 *
+		 * `prompt` is false for the repeating check, and that is deliberate. A
+		 * modal that appears ten minutes into a run interrupts whatever is on
+		 * screen to ask about a typo fix, and the answer to "install now?" while
+		 * the model is mid-edit is always no. The box already carries the
+		 * answer, and /update installs it whenever the moment is right.
+		 */
+		const runChecks = async (prompt: boolean) => {
+			// A check that lands while an install is running would report the old
+			// state back over the new one.
+			if (updates.phase === "installing") return;
+			let a: UpdateState["pi"];
+			let b: UpdateState["phi"];
+			const declined = updates.phase === "declined";
+			try {
+				[a, b] = await Promise.all([
+					piVersion().then(checkPi).catch(() => undefined),
+					checkPhi(ROOT),
+				]);
+				updates.pi = a;
+				updates.phi = b;
+			} finally {
+				// Whatever happened, stop saying "checking". A check that
+				// failed looks exactly like one still running, and the running
+				// one never ends, so the box would sit there indefinitely
+				// claiming work it is not doing. Nothing found means nothing
+				// shown: "up to date" is noise on every single start.
+				updates.checked = true;
+				// A declined update stays declined while it is the same update.
+				// Re-announcing it every ten minutes is nagging, and the user
+				// already said not now.
+				updates.phase = updates.pi || updates.phi ? (declined ? "declined" : "available") : "idle";
+				invalidate?.();
+			}
+			if (!prompt || !(a || b) || typeof c.ui.confirm !== "function") return;
+
+			// Ask rather than update silently. Replacing the binary someone is
+			// running is not a decision to make on their behalf, and the answer
+			// may reasonably be "not in the middle of this".
+			const what = [
+				a ? "pi " + a.current + " to " + a.latest : "",
+				b ? "phi is " + b.behind + " commit(s) behind" : "",
+			].filter(Boolean).join("\n");
+			const yes = await c.ui.confirm("Update available", what + "\n\nInstall now? It applies when pi restarts.");
+			if (!yes) {
+				updates.phase = "declined";
+				invalidate?.();
+				return;
+			}
+			await install(c);
+		};
+
 		if (CHECK_UPDATES) {
 			// Detached: the prompt is usable immediately and the box redraws when
 			// an answer arrives.
-			void (async () => {
-				let a: UpdateState["pi"];
-				let b: UpdateState["phi"];
-				try {
-					[a, b] = await Promise.all([
-						piVersion().then(checkPi).catch(() => undefined),
-						checkPhi(ROOT),
-					]);
-					updates.pi = a;
-					updates.phi = b;
-				} finally {
-					// Whatever happened, stop saying "checking". A check that
-					// failed looks exactly like one still running, and the running
-					// one never ends, so the box would sit there indefinitely
-					// claiming work it is not doing. Nothing found means nothing
-					// shown: "up to date" is noise on every single start.
-					updates.checked = true;
-					updates.phase = updates.pi || updates.phi ? "available" : "idle";
-					invalidate?.();
-				}
-				if (!(a || b) || typeof c.ui.confirm !== "function") return;
+			void runChecks(true);
 
-				// Ask rather than update silently. Replacing the binary someone is
-				// running is not a decision to make on their behalf, and the answer
-				// may reasonably be "not in the middle of this".
-				const what = [
-					a ? "pi " + a.current + " to " + a.latest : "",
-					b ? "phi is " + b.behind + " commit(s) behind" : "",
-				].filter(Boolean).join("\n");
-				const yes = await c.ui.confirm("Update available", what + "\n\nInstall now? It applies when pi restarts.");
-				if (!yes) {
-					updates.phase = "declined";
-					invalidate?.();
-					return;
-				}
-				await install(c);
-			})();
+			if (RECHECK_MS > 0) {
+				// A session that stays open all day would otherwise report the
+				// state of the world at the moment it started.
+				const timer = setInterval(() => void runChecks(false), RECHECK_MS);
+				// Node keeps the process alive for a pending interval, which would
+				// stop pi exiting between the last turn and shutdown.
+				timer.unref?.();
+				pi.on("session_shutdown", async () => {
+					clearInterval(timer);
+					return undefined;
+				});
+			}
 		}
 		return undefined;
 	});

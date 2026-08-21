@@ -16,6 +16,12 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: updates are checked every ten minutes, not only at startup.** A
+session left open all day was reporting the state of the world at the moment it
+started. The repeating check updates the box and never opens a dialog, since a
+modal mid-run interrupts the work to ask about a typo fix. A declined update
+stays declined. `PHI_UPDATE_INTERVAL_MS=0` restores the old behaviour.
+
 **Fixed: new work could start with no plan, and no recap.** A task finishing
 left its completed plan on disk; the next request was investigated and edited
 against it with nothing shown to the user in between. An edit is now refused

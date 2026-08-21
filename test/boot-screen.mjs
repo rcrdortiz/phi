@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import mod, { renderBox, checkPi, checkPhi, applyUpdates } from "../extensions/boot-screen.ts";
+import mod, { renderBox, checkPi, checkPhi, applyUpdates, parseInterval } from "../extensions/boot-screen.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };
@@ -117,6 +117,34 @@ check("the purple theme ships and is named", theme.name === "phi-purple");
 check("every colour resolves to a var or a literal",
   Object.values(theme.colors).every((v) => String(v).startsWith("#") || v in theme.vars),
   "an unresolved name silently falls back to a default");
+
+// --- the repeating check ---------------------------------------------------
+// A session left open all day would otherwise report the state of the world at
+// the moment it started.
+check("the default interval is ten minutes", parseInterval(undefined) === 600_000);
+check("an explicit interval is honoured", parseInterval("900000") === 900_000);
+check("zero means check once at startup and never again", parseInterval("0") === 0);
+check("a value under a minute is raised rather than obeyed",
+  parseInterval("5000") === 60_000, "5000 is a units mistake, not a request");
+check("garbage falls back to the default rather than to never",
+  parseInterval("soon") === 600_000 && parseInterval("-1") === 600_000,
+  "never looking again is indistinguishable from the feature working");
+
+// The timer has to be unref'd and cleared, or pi cannot exit between the last
+// turn and shutdown. Neither is observable without letting the checks reach the
+// network, so they are asserted at the source.
+const src = fs.readFileSync(new URL("../extensions/boot-screen.ts", import.meta.url), "utf8");
+check("the interval does not hold the process open", /timer\.unref\?\.\(\)/.test(src));
+check("the interval is cleared on shutdown",
+  /session_shutdown[\s\S]{0,120}clearInterval\(timer\)/.test(src));
+check("the repeating check does not open a dialog",
+  /runChecks\(false\)/.test(src) && /void runChecks\(true\)/.test(src),
+  "a modal ten minutes into a run interrupts the work to ask about a typo fix");
+check("a check landing during an install is dropped",
+  /phase === "installing"\) return;/.test(src));
+check("a declined update stays declined",
+  /declined \? "declined" : "available"/.test(src),
+  "re-announcing it every ten minutes is nagging");
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

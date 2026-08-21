@@ -62,6 +62,14 @@ runs them; `/update` does the same later. Both apply on the next launch, because
 node has already loaded the code a running session is using. Set
 `PHI_UPDATE_CHECK=0` to skip the network entirely.
 
+It looks again every ten minutes, so a session left open all day is not still
+reporting the state of the world at the moment it started. The repeating check
+never opens a dialog: a modal appearing mid-run interrupts the work to ask
+about a typo fix, and the answer to "install now?" while the model is mid-edit
+is always no. It updates the box, and `/update` installs when the moment is
+right. A declined update stays declined rather than being re-announced every
+ten minutes. `PHI_UPDATE_INTERVAL_MS=0` checks once at startup and never again.
+
 The boot box is the only place updates are reported. The `phi` command sets
 `PI_OFFLINE=1`, which turns off pi's own startup version and package banners so
 the same two facts are not announced twice, in two places, one of them handing
@@ -239,6 +247,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_KEEP_RECENT_TOKENS` | from settings | what pi keeps past a compaction |
 | `PHI_BOOT` | `1` | `0` keeps pi's own startup banner |
 | `PHI_UPDATE_CHECK` | `1` | `0` draws the box but skips the network |
+| `PHI_UPDATE_INTERVAL_MS` | `600000` | how often to look again; `0` checks only at startup |
 | `PHI_HOME` | `~/.phi` | where phi's own agent directory lives |
 
 ## Why things are the way they are
