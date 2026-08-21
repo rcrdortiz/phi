@@ -10,7 +10,7 @@ const ANSI = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
 // --- layout ---------------------------------------------------------------
 // A box whose rows disagree on width is visibly broken, and colour codes are
 // the usual cause: they add bytes that are not columns.
-for (const w of [40, 60, 78, 120, 200]) {
+for (const w of [40, 60, 61, 62, 63, 64, 78, 120, 200]) {
   const out = renderBox(w, { ...base, model: "qwen3.8-4MLX", contextWindow: 65536, thinking: "high" });
   const widths = new Set(out.map((l) => l.length));
   check(`rows align at width ${w}`, widths.size === 1, `widths: ${[...widths].join(", ")}`);
@@ -35,7 +35,19 @@ check("colour does not disturb alignment", new Set(stripped.map((l) => l.length)
 const withModel = renderBox(78, { ...base, model: "qwen3.8-4MLX", contextWindow: 65536, thinking: "high" }).join("\n");
 check("names the model, window and thinking level",
   /qwen3\.8-4MLX/.test(withModel) && /64K context/.test(withModel) && /thinking high/.test(withModel));
-check("shows the phi symbol", withModel.includes("Φ"));
+// The mark is drawn large when there is room and falls back to the glyph when
+// there is not, so "is the mark there" is two different questions by width.
+check("draws the large mark when the terminal is wide enough",
+  withModel.includes("\u2588\u2588\u2588\u2588\u2588") && !withModel.includes("\u03a6"),
+  "block art, not the glyph");
+const narrow = renderBox(40, { ...base, model: "qwen3.8-4MLX" }).join("\n");
+check("falls back to the framed glyph on a narrow terminal",
+  narrow.includes("\u03a6") && !narrow.includes("\u2588\u2588\u2588\u2588\u2588"),
+  "25 columns of art is most of a 40 column terminal");
+check("the large mark is shaded rather than flat",
+  new Set(renderBox(78, { ...base, model: "m", paint: (role, t) => "<" + role + ">" + t })
+    .join("\n").match(/<(accent|border|muted|dim)>/g) ?? []).size >= 3,
+  "a light source needs more than one tone");
 check("titles the box Phi with its version", /Phi 0\.1\.0/.test(withModel));
 
 const noModel = renderBox(78, { ...base }).join("\n");

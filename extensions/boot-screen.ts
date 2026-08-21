@@ -31,14 +31,72 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 
 /**
- * The symbol itself, framed rather than drawn in ASCII art.
+ * The mark, drawn large when there is room for it.
  *
- * A hand-drawn phi at this size reads as noise: the letter is a circle with a
- * bar through it, and three rows of ASCII cannot say that unambiguously. The
- * real glyph can, and every terminal that can render the box-drawing characters
- * around it can render a Greek capital too.
+ * Shading is by column and row rather than a hand-maintained tone map: a light
+ * source at the top left means brightness falls as x and y increase, which is
+ * one rule instead of 250 hand-placed characters that would have to be edited
+ * in lockstep every time the silhouette changes.
+ *
+ * The small form is not a nicety. A 25-column logo eats a third of an 80-column
+ * terminal and all of a 40-column one, so below a threshold the frame keeps the
+ * glyph and drops the drawing.
  */
-const LOGO = [" \u256d\u2500\u2500\u2500\u256e ", " \u2502 \u03a6 \u2502 ", " \u2570\u2500\u2500\u2500\u256f "];
+const LOGO_BIG = [
+	"          \u2584\u2588\u2588\u2588\u2584          ",
+	"      \u2584\u2584\u2584\u2584\u2588\u2588\u2588\u2588\u2588\u2584\u2584\u2584\u2584      ",
+	"    \u2584\u2588\u2588\u2580\u2580\u2580\u2588\u2588\u2588\u2588\u2588\u2580\u2580\u2580\u2588\u2588\u2584    ",
+	"   \u2588\u2588\u2580    \u2588\u2588\u2588\u2588\u2588    \u2580\u2588\u2588   ",
+	"  \u2588\u2588\u258c     \u2588\u2588\u2588\u2588\u2588     \u2590\u2588\u2588  ",
+	"  \u2588\u2588\u258c     \u2588\u2588\u2588\u2588\u2588     \u2590\u2588\u2588  ",
+	"   \u2588\u2588\u2584    \u2588\u2588\u2588\u2588\u2588    \u2584\u2588\u2588   ",
+	"    \u2580\u2588\u2588\u2584\u2584\u2584\u2588\u2588\u2588\u2588\u2588\u2584\u2584\u2584\u2588\u2588\u2580    ",
+	"      \u2580\u2580\u2580\u2580\u2588\u2588\u2588\u2588\u2588\u2580\u2580\u2580\u2580      ",
+	"          \u2580\u2588\u2588\u2588\u2580          ",
+];
+const LOGO_SMALL = [" \u256d\u2500\u2500\u2500\u256e ", " \u2502 \u03a6 \u2502 ", " \u2570\u2500\u2500\u2500\u256f "];
+/** Below this many usable columns the drawing is dropped for the framed glyph. */
+const BIG_LOGO_MIN_WIDTH = 62;
+
+/** Theme roles used as a four-step ramp from lit to shadowed. */
+const TONES = ["accent", "border", "muted", "dim"] as const;
+
+/**
+ * Paint one row of the mark, lit from the top left.
+ *
+ * The last row is pushed a step darker than its position alone would give, so
+ * the glyph sits on a shadow rather than ending flat.
+ */
+function paintArtRow(row: string, y: number, rows: number, paint: (role: string, s: string) => string): string {
+	const w = row.length;
+	let out = "";
+	let run = "";
+	let runTone = -1;
+	const flush = () => {
+		if (run) out += paint(TONES[Math.min(runTone, TONES.length - 1)], run);
+		run = "";
+	};
+	for (let x = 0; x < w; x++) {
+		const ch = row[x];
+		if (ch === " ") {
+			flush();
+			runTone = -1;
+			out += " ";
+			continue;
+		}
+		// Brightness falls with distance from the top-left corner.
+		let tone = Math.floor((x / w) * 2.4 + (y / rows) * 1.2);
+		if (y === rows - 1) tone += 1;
+		tone = Math.min(tone, TONES.length - 1);
+		if (tone !== runTone) {
+			flush();
+			runTone = tone;
+		}
+		run += ch;
+	}
+	flush();
+	return out;
+}
 
 const ESC = String.fromCharCode(27);
 const ANSI = new RegExp(ESC + "\\[[0-9;]*m", "g");
@@ -132,6 +190,21 @@ export async function checkPhi(repoDir: string): Promise<UpdateState["phi"]> {
 }
 
 /**
+ * The environment for a command that genuinely needs the network.
+ *
+ * The phi wrapper sets PI_OFFLINE so pi keeps its own update banners quiet and
+ * lets this box be the only place updates are reported. A child `pi update`
+ * would inherit that and silently do nothing, which looks exactly like a
+ * successful update, so the flag is dropped for commands whose whole job is to
+ * fetch something.
+ */
+function online(): NodeJS.ProcessEnv {
+	const env = { ...process.env };
+	delete env.PI_OFFLINE;
+	return env;
+}
+
+/**
  * Install whatever is out of date.
  *
  * Both are done in place and neither takes effect until pi restarts: node has
@@ -145,7 +218,7 @@ export async function checkPhi(repoDir: string): Promise<UpdateState["phi"]> {
  */
 export async function applyUpdates(
 	u: UpdateState,
-	exec: (cmd: string, args: string[]) => Promise<unknown> = (cmd, args) => run(cmd, args, { timeout: 300000 }),
+	exec: (cmd: string, args: string[]) => Promise<unknown> = (cmd, args) => run(cmd, args, { timeout: 300000, env: online() }),
 ): Promise<{ ok: boolean; error?: string }> {
 	try {
 		if (u.pi) await exec("npm", ["i", "-g", "@earendil-works/pi-coding-agent"]);
@@ -192,7 +265,16 @@ export function renderBox(width: number, o: BoxOptions): string[] {
 	}
 	facts.push(o.paint("dim", shorten(o.cwd)));
 
-	LOGO.forEach((art, i) => line(o.paint("accent", art) + "  " + (facts[i] ?? "")));
+	const big = inner - 2 >= BIG_LOGO_MIN_WIDTH;
+	const art = big ? LOGO_BIG : LOGO_SMALL;
+	// Sit the facts against the middle of the mark rather than its first rows,
+	// so a ten-row logo does not leave them stranded at the top.
+	const factTop = Math.max(0, Math.floor((art.length - facts.length) / 2));
+	art.forEach((row, i) => {
+		const painted = paintArtRow(row, i, art.length, o.paint);
+		const fact = facts[i - factTop] ?? "";
+		line(painted + (fact ? "  " + fact : ""));
+	});
 	line();
 	line(o.paint("accent", "/model-install") + "   pull and build a preconfigured model");
 	line(o.paint("accent", "/context") + "         how full the window is, and when it compacts");
@@ -308,12 +390,25 @@ export default function bootScreenExtension(pi: ExtensionAPI) {
 			// Detached: the prompt is usable immediately and the box redraws when
 			// an answer arrives.
 			void (async () => {
-				const [a, b] = await Promise.all([checkPi(await piVersion()), checkPhi(ROOT)]);
-				updates.pi = a;
-				updates.phi = b;
-				updates.checked = true;
-				updates.phase = a || b ? "available" : "idle";
-				invalidate?.();
+				let a: UpdateState["pi"];
+				let b: UpdateState["phi"];
+				try {
+					[a, b] = await Promise.all([
+						piVersion().then(checkPi).catch(() => undefined),
+						checkPhi(ROOT),
+					]);
+					updates.pi = a;
+					updates.phi = b;
+				} finally {
+					// Whatever happened, stop saying "checking". A check that
+					// failed looks exactly like one still running, and the running
+					// one never ends, so the box would sit there indefinitely
+					// claiming work it is not doing. Nothing found means nothing
+					// shown: "up to date" is noise on every single start.
+					updates.checked = true;
+					updates.phase = updates.pi || updates.phi ? "available" : "idle";
+					invalidate?.();
+				}
 				if (!(a || b) || typeof c.ui.confirm !== "function") return;
 
 				// Ask rather than update silently. Replacing the binary someone is
