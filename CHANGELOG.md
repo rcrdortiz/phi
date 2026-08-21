@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.9.2 (2026-08-21)
+
 **Fixed: `cat file 2>/dev/null` walked past the steering that exists to stop
 it.** The guard treated any `|` or `>` as a pipeline that filters output before
 it reaches the context, which is true of `cat x | grep y` and false of
