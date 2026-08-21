@@ -222,9 +222,9 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			"Never use sed/awk to splice files; edit_block or replace_lines are safer and report what went wrong.",
 		],
 		parameters: Type.Object({
-			file: Type.String({ description: "Path to the file" }),
-			old_text: Type.String({ description: "Lines to replace. Indentation is ignored when matching." }),
-			new_text: Type.String({ description: "Replacement lines. Indentation is adjusted to the file." }),
+			file: Type.String(),
+			old_text: Type.String({ description: "Indentation ignored when matching" }),
+			new_text: Type.String({ description: "Indentation is adjusted to the file" }),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const file = resolve(ctx.cwd, params.file);
@@ -304,13 +304,12 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			"Use after view_lines. Pass `expect` with a distinctive substring from the range as a safety check.",
 		promptSnippet: "Replace an exact line range (use after view_lines)",
 		promptGuidelines: [
-			"Use replace_lines when edit_block cannot find a unique match — never fall back to sed or awk.",
-			"Always call view_lines first so the numbers are current: they shift after every edit.",
+			"Prefer edit_symbol inside a named function or class. Use replace_lines only for code that is not in one, and call view_lines first: line numbers shift after every edit.",
 		],
 		parameters: Type.Object({
 			file: Type.String(),
-			start_line: Type.Number({ description: "First line to replace (1-based, inclusive)" }),
-			end_line: Type.Number({ description: "Last line to replace (1-based, inclusive)" }),
+			start_line: Type.Number({ description: "1-based, inclusive" }),
+			end_line: Type.Number({ description: "1-based, inclusive" }),
 			new_text: Type.String({ description: "Replacement text. Use an empty string to delete the range." }),
 			expect: Type.Optional(
 				Type.String({ description: "Substring that must appear in the range being replaced" }),
@@ -462,7 +461,7 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 		description:
 			"List a file's functions, classes and headings with their line numbers. Use this FIRST to find where something is, then view_lines that range. Far cheaper than reading the file.",
 		promptSnippet: "List declarations with line numbers",
-		rules: [
+		promptGuidelines: [
 			"To find something in a file you have not read, call outline before view_lines.",
 		],
 		parameters: Type.Object({ file: Type.String() }),
@@ -510,15 +509,14 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			"actions: replace (the whole thing), append / prepend (inside its body), before / after (outside it). " +
 			"Use `Class.method` when a name appears more than once. Prefer this over replace_lines for anything inside a named block.",
 		promptSnippet: "Edit a function/method/class by name",
-		rules: [
-			"To change code inside a named function, method or class, use edit_symbol — not replace_lines. Line numbers go stale and ranges cut across braces.",
-			"Use outline first if you do not know the symbol's name.",
+		promptGuidelines: [
+			"To change code inside a named function, method or class, use edit_symbol, not replace_lines: line numbers go stale and ranges cut across braces.",
 		],
 		parameters: Type.Object({
 			file: Type.String(),
 			symbol: Type.String({ description: "Name, or Class.method to disambiguate" }),
 			action: Type.String({ description: "replace | append | prepend | before | after" }),
-			text: Type.String({ description: "Code to write. Indentation is adjusted to the file." }),
+			text: Type.String({ description: "Indentation is adjusted to the file" }),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const file = resolve(ctx.cwd, params.file);

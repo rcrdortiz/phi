@@ -303,7 +303,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			`Steps that still apply should be repeated verbatim in the revision; their completed state is preserved automatically.`,
 		],
 		parameters: Type.Object({
-			goal: Type.String({ description: "One sentence describing the overall objective" }),
+			goal: Type.String({ description: "one sentence" }),
 			steps: Type.Array(Type.String(), {
 				description: "Ordered steps, each independently verifiable",
 			}),
@@ -368,13 +368,12 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			`condition of the work; those are dropped at the next step boundary. Keep it to one or two sentences.`,
 		promptSnippet: `Record a finding in ${NOTES_FILE} (technical/product/design/gotcha/decision)`,
 		promptGuidelines: [
-			`Use note_add for anything that would be expensive to rediscover: a constraint, a gotcha, a decision and its reason.`,
-			`Do not use note_add for narration of what you just did — only for things that stay true afterwards. Step summaries belong in plan_next.`,
-			`If a finding is only true right now ("3 tests still fail", "this file has not been rewritten yet"), use category "${EXPIRING_CATEGORY}" so it expires instead of rotting into a false statement.`,
+			`note_add records what would be expensive to rediscover: a constraint, a gotcha, a decision and its reason. Not what you just did — step summaries belong in plan_next.`,
+			`Use category "${EXPIRING_CATEGORY}" for anything only true right now ("3 tests still fail"), so it expires instead of rotting into a false statement.`,
 		],
 		parameters: Type.Object({
-			category: Type.String({ description: `One of: ${CATEGORIES.join(", ")}` }),
-			note: Type.String({ description: "The finding, one or two sentences" }),
+			category: Type.String({ description: CATEGORIES.join("|") }),
+			note: Type.String({ description: "one or two sentences" }),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const p = notesPath(ctx);
