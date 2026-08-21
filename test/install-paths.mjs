@@ -49,6 +49,18 @@ check("a failed link warns with what to run instead",
 check("the shell command cache is cleared before verifying",
   /hash -r/.test(script), "a brand new link is invisible to the running shell otherwise");
 
+// One place reports updates. Two banners saying the same thing in different
+// words, one of them telling you to run a command by hand, is what this
+// silences, and the update commands have to opt back in or they no-op.
+const boot = fs.readFileSync(new URL("../extensions/boot-screen.ts", import.meta.url), "utf8");
+check("the wrapper puts pi's own update banners away",
+  /export PI_OFFLINE=/.test(wrapper), "the boot box is the only place updates are reported");
+check("the wrapper still lets PI_OFFLINE be overridden",
+  /PI_OFFLINE="\$\{PI_OFFLINE:-1\}"/.test(wrapper));
+check("update commands drop the flag again",
+  /delete env\.PI_OFFLINE/.test(boot) && /env: online\(\)/.test(boot),
+  "`pi update` under PI_OFFLINE succeeds and does nothing, which looks like success");
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

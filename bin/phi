@@ -23,6 +23,15 @@ fi
 PHI_HOME="${PHI_HOME:-$HOME/.phi}"
 export PI_CODING_AGENT_DIR="$PHI_HOME"
 
+# phi reports pi and phi updates itself, in the boot box, with a prompt that
+# installs them. pi's own startup checks would report the same two things again
+# a second later, in a different place, telling you to run a command by hand.
+# PI_OFFLINE turns off pi's startup network calls (its version banner, its
+# package-update banner, the remote model catalog refresh). Nothing here needs
+# that catalog: the models are local. The update commands drop the flag again,
+# see online() in extensions/boot-screen.ts.
+export PI_OFFLINE="${PI_OFFLINE:-1}"
+
 if [ ! -f "$PHI_HOME/settings.json" ]; then
   echo "phi: no configuration at $PHI_HOME. Re-run get-phi.sh." >&2
   exit 1
