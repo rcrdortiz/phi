@@ -16,6 +16,28 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: the compaction trigger moves from 28,000 to 36,000 tokens, measured.**
+28,000 was bounded by a 300s idle timeout at an assumed flat 120 tok/s prefill.
+The timeout is now 500s, so that bound moved, and prefill was benchmarked at
+depth rather than assumed: 142 tok/s at 32K, 119 at 40K, 115 at 48K. It
+degrades, so the assumption of flatness was wrong, but the deep-end rate is
+still faster than the 120 that was being used. 36,000 costs 335s to recover
+from a cache miss against a 500s timeout. 48,000 was rejected at 87s of margin,
+and 40,000 at 165s, because the benchmark ran on an idle machine and this one is
+meant to be used while the model runs. Work between compactions rises 55%.
+
+**Fixed: the trigger is now bounded by the timeout instead of set beside it.**
+It is the lowest of 70% of the window, a fixed cap, and 70% of what prefill can
+cover before the timeout expires. A literal 36,000 on a default 300s install
+would sit above that install's 34,500 ceiling, which is a guaranteed
+`Request timed out` dressed up as a configuration choice. Lowering
+`httpIdleTimeoutMs` now lowers the working depth with it.
+
+**Fixed: `keepRecentTokens` no longer scales with the trigger.** It was 35% of
+it, so raising the trigger to hold more work would have raised how much is kept
+and cancelled most of the gain. It answers a question about continuity, not
+about depth, and is a fixed 9,800.
+
 ## 0.6.0 (2026-08-21)
 
 **Changed: per-project state moved from `.pi` to `.phi`.** `PLAN.md`,

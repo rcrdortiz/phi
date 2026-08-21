@@ -36,7 +36,22 @@ import { STATE_DIR } from "./state-dir.ts";
  * Deriving from the window means changing num_ctx does not require remembering
  * to change two more numbers somewhere else.
  */
-const KEEP_RECENT_FRACTION = 0.35;
+/**
+ * How much recent conversation survives a compaction.
+ *
+ * A fixed count, not a fraction of the trigger, and that is a correction. It
+ * began as 35% of a 28,000 trigger, which quietly made it scale: raising the
+ * trigger to hold more work would also have raised how much is kept, cancelling
+ * out most of the gain. It answers a different question anyway, one about
+ * continuity rather than depth. How much of the immediate past does the model
+ * need to carry on coherently, given the summary already carries the rest?
+ * 9,800 tokens is a few turns of real work and does not change because the
+ * session is allowed to run deeper before compacting.
+ *
+ * It must also match settings.json, since pi is what enforces it. See
+ * keepRecentTokens, which reads back what pi will really do.
+ */
+const KEEP_RECENT_TOKENS = Number(process.env.PI_KEEP_RECENT_RECOMMENDED ?? 9800);
 
 /**
  * Our watchdog fires BELOW pi's own trigger, and that gap is load-bearing.
@@ -85,7 +100,10 @@ const KEEP_RECENT_FRACTION = 0.35;
 // the trigger drops under a few thousand tokens, so a session compacts almost
 // every turn and pays a full re-prefill each time — slower than simply running
 // deeper. That is the wrong end of the trade, not the safe one.
-const MAX_SAFE_DEPTH = Number(process.env.PI_MAX_SAFE_DEPTH ?? 28000);
+/** Share of the prefill ceiling the working depth may use. See compactAtTokens. */
+const CEILING_FRACTION = Number(process.env.PI_CEILING_FRACTION ?? 0.7);
+
+const MAX_SAFE_DEPTH = Number(process.env.PI_MAX_SAFE_DEPTH ?? 36000);
 const WATCHDOG_FRACTION = 0.7;
 const PI_TRIGGER_FRACTION = 0.75;
 
@@ -99,7 +117,24 @@ function fromEnvOr(name: string, contextWindow: number, fraction: number): numbe
 export function compactAtTokens(contextWindow: number): number {
 	const raw = Number(process.env.PI_COMPACT_AT_TOKENS);
 	if (Number.isFinite(raw) && raw > 0) return raw;
-	return Math.min(Math.round(contextWindow * WATCHDOG_FRACTION), MAX_SAFE_DEPTH);
+	// Three bounds, and the session runs to the lowest.
+	//
+	// The window itself, obviously. A fixed depth, because past the decode cliff
+	// deeper is slower and the cliff does not move with the window. And the
+	// prefill ceiling, which is the one that used to be missing: a trigger above
+	// the depth a cache miss can recover from is a guaranteed `Request timed
+	// out`, and the ceiling depends on a setting, so a literal trigger and a
+	// changed timeout drift apart silently. That is how 36,000 came to sit above
+	// a 34,500 ceiling on a default 300s install.
+	//
+	// 0.7 of the ceiling rather than all of it: at 36,000 a miss measured 335s
+	// against a 500s timeout, which is 67%, and the benchmark ran on an idle
+	// machine. One that is being used for something else prefills slower.
+	return Math.min(
+		Math.round(contextWindow * WATCHDOG_FRACTION),
+		MAX_SAFE_DEPTH,
+		Math.round(prefillCeiling() * CEILING_FRACTION),
+	);
 }
 
 /** pi compacts above contextWindow - this. Env: PI_RESERVE_TOKENS. */
@@ -144,8 +179,8 @@ export function keepRecentTokens(contextWindow: number): number {
  * it ends up larger than the trigger itself, at which point there is never
  * anything older to summarise and compaction silently stops happening.
  */
-export function recommendedKeepRecentTokens(contextWindow: number): number {
-	return Math.round(compactAtTokens(contextWindow) * KEEP_RECENT_FRACTION);
+export function recommendedKeepRecentTokens(_contextWindow?: number): number {
+	return KEEP_RECENT_TOKENS;
 }
 
 export interface CompactableContext {
@@ -187,10 +222,19 @@ let lastAt = 0;
 /**
  * Prefill rate at depth, measured on an M4 Max running the 4-bit MLX build.
  *
- * Slower than decode-at-zero and roughly flat once the context is large, which
- * is what makes a ceiling calculable at all.
+ * NOT flat, which an earlier version of this assumed. Measured on an idle
+ * machine with the weights resident, forcing a cache miss each time:
+ *
+ *   12,193 tokens  165 tok/s      31,772 tokens  142 tok/s
+ *   18,271 tokens  145 tok/s      39,698 tokens  119 tok/s
+ *   24,344 tokens  136 tok/s      47,625 tokens  115 tok/s
+ *
+ * The deep-end figure is the one used, because the ceiling only matters at the
+ * deep end and a rate taken from shallow context would flatter it. Idle, too:
+ * a machine being used alongside the model prefills slower than this, which is
+ * the normal case here and another reason not to run the number to its edge.
  */
-const PREFILL_TOKENS_PER_SECOND = Number(process.env.PI_PREFILL_TOKENS_PER_SECOND ?? 120);
+const PREFILL_TOKENS_PER_SECOND = Number(process.env.PI_PREFILL_TOKENS_PER_SECOND ?? 115);
 
 /**
  * Depth beyond which a prefix-cache miss cannot finish prefilling in time.
@@ -206,7 +250,7 @@ const PREFILL_TOKENS_PER_SECOND = Number(process.env.PI_PREFILL_TOKENS_PER_SECON
  * it, and the failure that follows looks like a compaction bug rather than a
  * stale constant.
  */
-function prefillCeiling(): number {
+export function prefillCeiling(): number {
 	const override = Number(process.env.PI_PREFILL_CEILING_TOKENS);
 	if (Number.isFinite(override) && override > 0) return override;
 	const timeoutMs = httpIdleTimeoutMs();

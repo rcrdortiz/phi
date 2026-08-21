@@ -132,27 +132,45 @@ cold on an idle machine:
 The cliff sits between 9K and 18K, and past it the model stays at about a third
 of its speed for the rest of the session.
 
-**Compaction fires at 28,000 tokens**, and that number is a hard ceiling rather
-than a preference. A prefix-cache miss has to re-prefill the whole context, and
+**Compaction fires at 36,000 tokens**, and that number is a measured bound
+rather than a preference. A prefix-cache miss has to re-prefill the whole context, and
 prefill runs ~120 tok/s at depth, so past a certain depth a miss cannot finish
 before pi's HTTP idle timeout and comes back as `Request timed out` instead of
 slowly. Misses happen: the server log carries `failed to restore cache, freeing
 all caches`. So the working depth has to stay somewhere a miss is survivable.
 `PI_MAX_SAFE_DEPTH` caps it independently of the window.
 
-That ceiling is derived, not hardcoded, because it is the product of two numbers
-that both move. `httpIdleTimeoutMs` is a pi setting: 300s is the default and the
-largest value its settings picker offers, but the setting takes any millisecond
-count, and this install seeds 500s. At ~120 tok/s that moves the ceiling from
-36,000 tokens to 60,000. The cost of raising it is that a genuinely hung request
-takes three minutes longer to admit it, which on a local model is a real
-tradeoff rather than a free win. The compaction trigger deliberately did not
-move with it: 28,000 is also where decode speed has already fallen to about a
-third, so running deeper is slow whether or not it times out.
+Prefill rate is not flat, which an earlier version of this assumed. Measured on
+an idle machine with the weights resident, forcing a cache miss each time:
+
+| depth | prefill | rate | margin under a 500s timeout |
+|---|---|---|---|
+| 12,193 | 74s | 165 tok/s | |
+| 18,271 | 126s | 145 tok/s | |
+| 31,772 | 224s | 142 tok/s | 276s |
+| 39,698 | 335s | 119 tok/s | 165s |
+| 47,625 | 413s | 115 tok/s | 87s |
+
+`httpIdleTimeoutMs` is a pi setting: 300s is the default and the largest value
+its settings picker offers, but it takes any millisecond count, and this install
+seeds 500s. That is what makes 36,000 possible at all; under 300s the same
+depth cannot recover from a miss. The cost of the longer timeout is that a
+genuinely hung request takes three minutes longer to admit it.
+
+**The trigger is bounded by the timeout, not set beside it.** It is the lowest
+of three: 70% of the window, a fixed 36,000, and 70% of what prefill can cover
+before the timeout. So lowering `httpIdleTimeoutMs` lowers the working depth
+automatically. A literal trigger and a changed timeout drift apart silently, and
+36,000 above a 300s install's 34,500 ceiling is a guaranteed `Request timed out`
+dressed up as a configuration choice.
+
+48,000 was rejected: 413s against a 500s timeout is 87s of margin, and these
+numbers come from an idle machine. One being used for something else, which is
+the entire point here, prefills slower than this.
 
 **The footer counts against the model's window, not against the trigger.** It
-reads 66K because that is what the model can hold; compaction fires at 28,000,
-so a footer showing 45% is already at the point of compacting. The `ctx` chip
+reads 66K because that is what the model can hold; compaction fires at 36,000,
+so a footer showing 55% is already at the point of compacting. The `ctx` chip
 next to it shows the number that actually decides, and `/context` reports both.
 
 **Compaction shows elapsed seconds and a progress bar.** It is a model call on
@@ -259,9 +277,10 @@ Everything has a working default. These exist for when it does not.
 | `PI_NOTE_MAX_CHARS` | `350` | cap on one note |
 | `PI_NOTES_MAX_CHARS` | `4000` | cap on the whole notes file |
 | `PI_COMPACT_AT_TOKENS` | 70% of window | depth at which context is compacted |
-| `PI_MAX_SAFE_DEPTH` | `28000` | absolute cap on that depth |
+| `PI_MAX_SAFE_DEPTH` | `36000` | absolute cap on that depth |
+| `PI_CEILING_FRACTION` | `0.7` | share of the prefill ceiling the depth may use |
 | `PI_PREFILL_CEILING_TOKENS` | derived | depth past which compaction stops waiting for a clean margin |
-| `PI_PREFILL_TOKENS_PER_SECOND` | `120` | measured prefill rate, used to derive that ceiling |
+| `PI_PREFILL_TOKENS_PER_SECOND` | `115` | measured prefill rate at depth, used to derive that ceiling |
 | `PI_PLAN_KEEP_DONE` | `3` | completed steps kept in the plan |
 | `PI_PLAN_AUTOCONTINUE` | `1` | run steps unattended (also gates the compaction resume) |
 | `PI_PLAN_GATE` | `1` | `0` allows edits when the plan on disk is finished |

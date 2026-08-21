@@ -8,7 +8,7 @@ process.env.PI_COMPACT_MIN_GAP_MS = "0";
 // value phi installs. Set before the import: ESM hoists it above assignments.
 process.env.PI_KEEP_RECENT_TOKENS = "9800";
 const { requestCompaction, resetCompactionState, trackExternalCompactions, keepRecentTokens,
-  recommendedKeepRecentTokens, compactAtTokens, observeContext } =
+  recommendedKeepRecentTokens, compactAtTokens, observeContext, prefillCeiling } =
   await import("../lib/compaction.ts");
 
 const results = [];
@@ -130,7 +130,7 @@ const firstCompactionDepth = (observeSettled) => {
   return Infinity;
 };
 
-const CEILING = 36000;   // 300s at ~120 tok/s, pi's default timeout
+const CEILING = prefillCeiling();
 const withBaseline = firstCompactionDepth(14000);
 check("compaction happens before a prefix-cache miss stops fitting in the timeout",
   withBaseline < CEILING,
@@ -146,15 +146,19 @@ check("without a low reading it runs deep, which is what the fix addresses",
 // --- the ceiling valve -----------------------------------------------------
 // Past the prefill ceiling the margin stops applying: a cosmetic "Nothing to
 // compact" is cheaper than the user's next prompt timing out.
+// Derived, not hardcoded: the ceiling is the idle timeout times the measured
+// prefill rate, and both have moved. A literal here goes stale silently and
+// the test then asserts the wrong side of the line.
+const CEIL = prefillCeiling();
 resetCompactionState();
-observeContext(34000);
-tokens = 35000;
+observeContext(CEIL - 2000);
+tokens = CEIL - 1000;
 check("just under the ceiling, a thin margin still stands down",
   requestCompaction(ctx, "x", { force: true }) === false,
-  "1000 accumulated against keepRecent " + KEEP);
+  `1000 accumulated against keepRecent ${KEEP}, ceiling ${CEIL}`);
 resetCompactionState();
-observeContext(35500);
-tokens = 36500;
+observeContext(CEIL);
+tokens = CEIL + 1000;
 check("past the ceiling it compacts on a thin margin anyway",
   requestCompaction(ctx, "x", { force: true }) === true,
   "a timed-out prompt is the more expensive failure");
@@ -214,6 +218,51 @@ check("past the ceiling it compacts on a thin margin anyway",
   else process.env.PI_KEEP_RECENT_TOKENS = before;
   resetCompactionState();
 }
+
+// --- the trigger and what it costs ----------------------------------------
+// Measured, not assumed: prefill at depth, forcing a cache miss each time, on
+// an idle machine with the weights already resident.
+//
+//   31,772 tokens  224s  142 tok/s     margin under a 500s timeout: 276s
+//   39,698 tokens  335s  119 tok/s                                  165s
+//   47,625 tokens  413s  115 tok/s                                   87s
+//
+// 36,000 takes most of the gain from the longer timeout while keeping enough
+// margin to absorb a machine that is being used for something else, which is
+// the normal case here and is not what the benchmark measured.
+check("the trigger never exceeds what a cache miss can recover from",
+  compactAtTokens(65536) <= prefillCeiling() * 0.75,
+  `${compactAtTokens(65536)} against a ceiling of ${prefillCeiling()}`);
+
+// A shorter timeout has to pull the trigger down with it. A literal 36,000 sat
+// above the 34,500 ceiling of a default 300s install, which is a guaranteed
+// timeout dressed up as a configuration choice.
+{
+  const fsx = await import("node:fs");
+  const osx = await import("node:os");
+  const px = await import("node:path");
+  const dir = fsx.mkdtempSync(px.join(osx.tmpdir(), "phi-trigger-"));
+  const at = (ms) => {
+    fsx.writeFileSync(px.join(dir, "settings.json"), JSON.stringify({ httpIdleTimeoutMs: ms }));
+    process.env.PI_CODING_AGENT_DIR = dir;
+    resetCompactionState();
+    return compactAtTokens(65536);
+  };
+  const before = process.env.PI_CODING_AGENT_DIR;
+  check("a 500s timeout allows the full working depth", at(500_000) === 36000, String(at(500_000)));
+  check("pi's 300s default pulls the trigger down", at(300_000) < 36000, String(at(300_000)));
+  check("a 60s timeout makes it much shallower still", at(60_000) < at(300_000));
+  if (before === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = before;
+  resetCompactionState();
+  fsx.rmSync(dir, { recursive: true, force: true });
+}
+
+// keepRecent answers a question about continuity, not about depth. Scaling it
+// with the trigger would have cancelled most of the gain from raising one.
+check("raising the trigger does not raise what is kept",
+  recommendedKeepRecentTokens(65536) === 9800 && recommendedKeepRecentTokens(32768) === 9800,
+  "it used to be 35% of the trigger, which quietly made it scale");
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
