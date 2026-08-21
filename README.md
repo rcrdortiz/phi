@@ -31,7 +31,7 @@ Ollama's keep-alive. Both survive reboots.
 
 ## The model
 
-One model, `qwen3.8-4MLX` — Qwen3.8 27B at 4-bit MLX, **80K context**.
+One model, `qwen3.8-4MLX` — Qwen3.8 27B at 4-bit MLX, **64K context**.
 
 The size of that window is set by the goal, not by taste. Measured on a clean
 load with nothing else resident:
@@ -40,8 +40,12 @@ load with nothing else resident:
 |---|---|
 | weights | 18.49 GB (flat — the MLX runner allocates its cache lazily) |
 | context cache | ~113 KB per token, measured across the full window |
-| at a full 80K | **~27.3 GB** |
-| left for your desktop | **~21 GB** |
+| at a full 64K | **25.8 GB** |
+| left for your desktop | **~22 GB** |
+
+An 80K window was tried and reverted: it measured **31.9 GB**, not the 27 the
+per-token figure predicted, because Ollama retains several prefix-cache
+snapshots and their cost is not linear in the window.
 
 That last row is the design constraint. `memory-guard` refuses to start below
 28 GB free for the same reason: under that, finishing a long session means
@@ -60,10 +64,15 @@ cold on an idle machine:
 | 53K | 15 tok/s | 32% |
 
 The cliff sits between 9K and 18K, and past it the model stays at about a third
-of its speed for the rest of the session. **Compaction fires at 70% of the
-window** (56K of 80K), which favours a long working memory over speed — the
-model spends most of a session past the cliff. Lower `PI_COMPACT_AT_TOKENS` to
-trade window for pace; at ~9K the model runs roughly three times faster.
+of its speed for the rest of the session.
+
+**Compaction fires at 24,000 tokens**, and that number is a hard ceiling rather
+than a preference. pi's HTTP idle timeout maxes at 300s; prefill runs ~120 tok/s
+at depth; so a prefix-cache miss above ~36,000 tokens cannot finish before the
+request is judged idle, and comes back as `Request timed out`. Misses happen —
+the server log carries `failed to restore cache, freeing all caches` — so the
+working depth has to stay somewhere a miss is survivable. `PI_MAX_SAFE_DEPTH`
+caps it independently of the window.
 
 pi has its own trigger at 75%, deliberately above ours. We check at `turn_end`,
 which fires inside a long run; pi checks at `agent_end`, which does not. Ours

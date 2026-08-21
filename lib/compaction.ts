@@ -55,6 +55,21 @@ const KEEP_RECENT_FRACTION = 0.35;
  * third of the speed; that is a real trade, and PI_COMPACT_AT_TOKENS is where
  * it is made.
  */
+// Capped in ABSOLUTE tokens, not just as a fraction, because the ceiling is not
+// about the window at all — it is about how long a cache miss takes to recover.
+//
+// pi's HTTP idle timeout maxes out at 300s (the only larger choice is
+// "disabled"). Prefill runs ~120 tok/s at depth, so a miss above roughly 36,000
+// tokens cannot finish before the connection is judged idle. Ollama then logs
+// `500` and `Request terminated: context canceled`, and pi reports "Request
+// timed out" — which is what a 57,344 trigger produced.
+//
+// Misses are not rare at depth either: the server log carries
+// `failed to restore cache, freeing all caches` at offsets 5,600 / 21,723 /
+// 31,097, each one turning the next request into a full re-prefill.
+//
+// 24,000 leaves the worst case around 200s, inside the timeout with margin.
+const MAX_SAFE_DEPTH = Number(process.env.PI_MAX_SAFE_DEPTH ?? 24000);
 const WATCHDOG_FRACTION = 0.7;
 const PI_TRIGGER_FRACTION = 0.75;
 
@@ -68,7 +83,7 @@ function fromEnvOr(name: string, contextWindow: number, fraction: number): numbe
 export function compactAtTokens(contextWindow: number): number {
 	const raw = Number(process.env.PI_COMPACT_AT_TOKENS);
 	if (Number.isFinite(raw) && raw > 0) return raw;
-	return Math.round(contextWindow * WATCHDOG_FRACTION);
+	return Math.min(Math.round(contextWindow * WATCHDOG_FRACTION), MAX_SAFE_DEPTH);
 }
 
 /** pi compacts above contextWindow - this. Env: PI_RESERVE_TOKENS. */
