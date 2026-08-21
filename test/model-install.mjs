@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import mod from "/Users/rcrd/AI/phi/extensions/model-install.ts";
+import mod from "../extensions/model-install.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };
@@ -32,13 +32,13 @@ check("an unknown model name is reported, not swallowed by the picker",
 
 // The modelfile the command builds from must exist and pin a context window,
 // because the roster's contextWindow has to match it.
-const mf = "/Users/rcrd/AI/phi/modelfiles/qwen3.8-4MLX.modelfile";
+const mf = new URL("../modelfiles/qwen3.8-4MLX.modelfile", import.meta.url);
 check("the preconfigured modelfile ships with the package", fs.existsSync(mf));
 const body = fs.readFileSync(mf, "utf8");
 const ctxLen = /num_ctx\s+(\d+)/.exec(body)?.[1];
 check("it pins num_ctx", ctxLen !== undefined, `num_ctx ${ctxLen}`);
 
-const roster = fs.readFileSync("/Users/rcrd/AI/phi/lib/ollama-models.ts", "utf8");
+const roster = fs.readFileSync(new URL("../lib/ollama-models.ts", import.meta.url), "utf8");
 const rosterCtx = /contextWindow:\s*(\d+)/.exec(roster)?.[1];
 check("the roster agrees with the modelfile", rosterCtx === ctxLen,
   `roster ${rosterCtx} vs modelfile ${ctxLen} — drift here means pi sends more context than the model was loaded with`);

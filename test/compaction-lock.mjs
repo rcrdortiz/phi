@@ -4,9 +4,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import planNotes from "/Users/rcrd/AI/phi/extensions/plan-notes.ts";
-import autoHandoff from "/Users/rcrd/AI/phi/extensions/auto-handoff.ts";
-import { resetCompactionState, requestCompaction } from "/Users/rcrd/AI/phi/lib/compaction.ts";
+import planNotes from "../extensions/plan-notes.ts";
+import autoHandoff from "../extensions/auto-handoff.ts";
+import { resetCompactionState, requestCompaction } from "../lib/compaction.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "lock-"));
 const results = [];

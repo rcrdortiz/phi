@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { resetCompactionState } from "/Users/rcrd/AI/phi/lib/compaction.ts";
+import { resetCompactionState } from "../lib/compaction.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "auto-"));
 const results = [];

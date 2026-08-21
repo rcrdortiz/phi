@@ -1,4 +1,4 @@
-import mod, { RateTracker, format } from "/Users/rcrd/AI/phi/extensions/token-rate.ts";
+import mod, { RateTracker, format } from "../extensions/token-rate.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };

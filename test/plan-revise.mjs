@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import mod from "/Users/rcrd/AI/phi/extensions/plan-notes.ts";
+import mod from "../extensions/plan-notes.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "revise-"));
 const tools = {};

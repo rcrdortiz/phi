@@ -155,6 +155,19 @@ export interface OutlineEntry {
  * caller can fall back to a normal read rather than showing a misleading empty
  * outline.
  */
+/**
+ * Control structures are not declarations.
+ *
+ * The method pattern — name(args) { — also matches `for (var i = 0; i < n; i++) {`
+ * and `if (cond) {`, because a keyword is a \w+ like any other. Without this
+ * guard an outline of a loop-heavy file is mostly loops: on the file that
+ * motivated this tool it reported 79 "declarations" where about 30 were `for`
+ * lines, which is worse than useless — outline exists to be the cheap way to
+ * find a function, and padding it with control flow costs tokens AND hides the
+ * functions among them.
+ */
+const CONTROL = /^\s*(?:if|for|while|switch|catch|return|else|do|try|with)\b/;
+
 export function outline(lines: string[], filename: string): OutlineEntry[] {
 	const rule = DECL.find((d) => d.ext.test(filename));
 	if (!rule) return [];
@@ -162,6 +175,7 @@ export function outline(lines: string[], filename: string): OutlineEntry[] {
 	for (let i = 0; i < lines.length; i++) {
 		const l = lines[i];
 		if (!l.trim() || l.trim().startsWith("//") || l.trim().startsWith("*")) continue;
+		if (CONTROL.test(l)) continue;
 		if (rule.re.test(l)) out.push({ line: i + 1, text: l.trimEnd() });
 	}
 	return out;

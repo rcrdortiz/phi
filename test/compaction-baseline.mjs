@@ -2,7 +2,7 @@
 // so a plain `import` here would read the default 20s gap and block the test.
 process.env.PI_COMPACT_MIN_GAP_MS = "0";
 const { requestCompaction, resetCompactionState, trackExternalCompactions, keepRecentTokens, observeContext } =
-  await import("/Users/rcrd/AI/phi/lib/compaction.ts");
+  await import("../lib/compaction.ts");
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };

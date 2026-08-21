@@ -8,6 +8,9 @@
     "type": "git",
     "url": "https://github.com/rcrdortiz/phi.git"
   },
+  "scripts": {
+    "test": "node test/run.mjs"
+  },
   "pi": {
     "extensions": [
       "extensions/*.ts"

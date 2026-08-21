@@ -1,4 +1,4 @@
-import mod, { budgetChars, truncate, shrinkImage, looksLikeFileDump } from "/Users/rcrd/AI/phi/extensions/tool-budget.ts";
+import mod, { budgetChars, truncate, shrinkImage, looksLikeFileDump } from "../extensions/tool-budget.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
@@ -30,7 +30,7 @@ check("a budget below the marker keeps the marker", /tool-budget/.test(tiny), `$
 
 // --- images --------------------------------------------------------------
 const fs = await import("node:fs");
-const shot = "/Users/rcrd/AI/pang-clone/shot_title.png";      // 800x600
+const shot = new URL("fixtures/large.png", import.meta.url);   // 512x512
 const b64 = fs.readFileSync(shot).toString("base64");
 const shrunkBig = shrinkImage(b64, "image/png", 256);
 check("downscales an image past the cap", shrunkBig !== null && shrunkBig.length < b64.length,

@@ -1,4 +1,4 @@
-import { resolveRange, outline, ReadCache, CACHE_MIN_LINES, DEFAULT_SPAN, MAX_SPAN } from "/Users/rcrd/AI/phi/lib/read-lean.ts";
+import { resolveRange, outline, ReadCache, CACHE_MIN_LINES, DEFAULT_SPAN, MAX_SPAN } from "../lib/read-lean.ts";
 import * as fs from "node:fs";
 
 const results = [];
@@ -39,9 +39,9 @@ check("a short file with no args is fully shown", (() => { const r = resolveRang
 check("negative/garbage input is ignored, not trusted", R({ start_line: "-5", limit: "abc" }).start === 1);
 
 // --- outline --------------------------------------------------------------
-const pang = fs.readFileSync("/Users/rcrd/AI/pang-clone/pang.js", "utf8").split("\n");
-const o = outline(pang, "pang.js");
-check("outline finds declarations in pang.js", o.length > 5, `${o.length} declarations`);
+const pang = fs.readFileSync(new URL("fixtures/sample.js", import.meta.url), "utf8").split("\n");
+const o = outline(pang, "sample.js");
+check("outline finds declarations", o.length > 5, `${o.length} declarations`);
 const outlineChars = o.map((x) => `${x.line}| ${x.text}`).join("\n").length;
 const fullChars = pang.join("\n").length;
 check("outline is far cheaper than the file", outlineChars < fullChars / 8,

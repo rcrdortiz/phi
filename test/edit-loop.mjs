@@ -5,9 +5,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import mod from "/Users/rcrd/AI/phi/extensions/smart-edit.ts";
-import budget, { looksLikeSourceWrite } from "/Users/rcrd/AI/phi/extensions/tool-budget.ts";
-import { ReadCache, CACHE_MIN_LINES, alreadyInContext } from "/Users/rcrd/AI/phi/lib/read-lean.ts";
+import mod from "../extensions/smart-edit.ts";
+import budget, { looksLikeSourceWrite } from "../extensions/tool-budget.ts";
+import { ReadCache, CACHE_MIN_LINES, alreadyInContext } from "../lib/read-lean.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };
