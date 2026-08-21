@@ -25,7 +25,8 @@
  * split tells you whether to shrink the context or stop invalidating the cache.
  *
  * Windows come from message_start (turn begins), the first message_update that
- * carries text (first token out), and message_end. Tools run outside all three,
+ * carries ANY output — thinking, a tool call or text (first token out) — and
+ * message_end. Tools run outside all three,
  * so their time is correctly excluded. Token counts are the provider's own
  * `usage.output`, not an estimate from text length.
  *
@@ -114,10 +115,16 @@ function hasOutput(content: unknown): boolean {
 	if (typeof content === "string") return content.length > 0;
 	if (!Array.isArray(content)) return false;
 	return content.some((p) => {
-		const part = p as { type?: string; text?: string; name?: string };
+		const part = p as { type?: string; text?: string; name?: string; thinking?: string };
 		if (typeof part?.text === "string" && part.text.length > 0) return true;
-		// A tool call is output too, and on a tool-heavy turn it is most of it.
-		return part?.type === "toolCall" || typeof part?.name === "string";
+		if (typeof part?.thinking === "string" && part.thinking.length > 0) return true;
+		// Thinking and tool calls are output too, and with thinking on `high` the
+		// reasoning pass is most of a turn. usage.output counts those tokens (the
+		// separate `reasoning` field stays 0), so anchoring on visible text alone
+		// divides every generated token by the sliver of time after the thinking
+		// finished. That is how the footer reported an average of 155 tok/s on
+		// hardware that peaks at 47.
+		return part?.type === "thinking" || part?.type === "toolCall" || typeof part?.name === "string";
 	});
 }
 

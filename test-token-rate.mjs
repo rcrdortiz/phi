@@ -42,6 +42,20 @@ const reported = Number(String(toolTurn._s ?? "").match(/[\d.]+/)?.[0] ?? 0);
 check("a tool call starts the decode window, not the text after it", reported < 5000 && reported > 0,
   `${toolTurn._s} — measured across the whole generation, not the sliver after text appeared`);
 
+// With thinking on `high` the reasoning pass is most of a turn, and
+// usage.output counts those tokens. Anchoring on visible text alone reported
+// an average of 155 tok/s on hardware that peaks at 47.
+const thinkTurn = {};
+mod({ on: (e, h) => (thinkTurn[e] = h), registerCommand: () => {}, registerTool: () => {} });
+const thctx = { ui: { setStatus: (k, v) => (thinkTurn._s = v), notify: () => {} } };
+await thinkTurn["message_start"]({}, thctx);
+await thinkTurn["message_update"]({ message: { content: [{ type: "thinking", thinking: "considering..." }] } }, thctx);
+await new Promise((r) => setTimeout(r, 40));
+await thinkTurn["message_end"]({ message: { role: "assistant", usage: { output: 80 } } }, thctx);
+const thRate = Number(String(thinkTurn._s ?? "").match(/[\d.]+/)?.[0] ?? 0);
+check("thinking starts the decode window", thRate > 0 && thRate < 5000,
+  `${thinkTurn._s} — measured across the reasoning pass, not the sliver after it`);
+
 const late = new RateTracker();
 late.begin(0);
 late.firstToken(500); late.firstToken(800);   // only the first one counts
