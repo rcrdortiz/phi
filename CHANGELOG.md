@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.9.0 (2026-08-21)
+
 **Changed: recording is opt-in, behind `PHI_DEBUG=1`.** One switch turns on the
 logs and turns off the hiding: tool output stops collapsing, tool costs are
 recorded, message ends are written out. A debug mode that makes you name each
