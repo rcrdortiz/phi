@@ -190,7 +190,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `incremental-writes` | large files written in verified chunks |
 | `model-install` | `/model-install` pulls and builds a preconfigured model, and rebuilds one whose modelfile has changed |
 | `exit-word` | a bare `exit` closes pi instead of being answered by the model |
-| `working-timer` | how long the current turn has been running |
+| `working-timer` | what the turn is doing, and how long it has been doing it |
 | `resume-hint` | makes the resume command pi prints on exit name `phi` |
 | `boot-screen` | replaces pi's banner with one about phi, and offers to install pi and phi updates |
 

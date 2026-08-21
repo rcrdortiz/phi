@@ -16,6 +16,14 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: the working indicator says what the model is doing.**
+`Working... Reading pang.js 1m 05s`, `Working... Running ./verify.sh 5m 52s`,
+`Working... Thinking 12s`. Costs nothing: pi hands over the tool name and its
+arguments at `tool_execution_start`, so the label is a lookup on data already
+in hand. Asking the model for a subject would mean output tokens on every phase
+change and a round trip at 20 tok/s, so the gaps between tool calls read as
+plain "Thinking" with no subject.
+
 ## 0.3.0 (2026-08-21)
 
 **Added: tool results collapse to one line until `ctrl+o`.** A turn that reads
