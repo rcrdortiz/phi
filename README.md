@@ -1,5 +1,18 @@
 # phi
 
+```
+          ▄███▄
+      ▄▄▄▄█████▄▄▄▄            phi
+    ▄██▀▀▀█████▀▀▀██▄
+   ██▀    █████    ▀██         a local coding agent that leaves
+  ██▌     █████     ▐██        the laptop usable while it runs
+  ██▌     █████     ▐██
+   ██▄    █████    ▄██         Qwen3.8 27B · 64K context · 48 GB
+    ▀██▄▄▄█████▄▄▄██▀
+      ▀▀▀▀█████▀▀▀▀
+          ▀███▀
+```
+
 Run **Qwen3.8 27B locally on a 48 GB+ MacBook Pro, and keep using the laptop
 while it runs.** That second half is the whole point. A local coding agent is
 easy to set up and easy to make unusable: give it too much context and the
@@ -29,7 +42,8 @@ and is safe to re-run: it skips whatever is already in place.
 the one-liner can still fetch the previous script. If something looks wrong just
 after an update, wait a minute and run it again.
 
-Then run `phi`, and `/model-install` inside it to pull and build a model.
+Then run `phi`, and `/model-install` inside it to pull and build a model. Type
+`exit` to quit.
 
 **`phi` and `pi` are separate installs sharing one binary.** `phi` runs pi
 against its own agent directory (`~/.phi`), so it gets these extensions, the
@@ -46,6 +60,13 @@ runs them; `/update` does the same later. Both apply on the next launch, because
 node has already loaded the code a running session is using. Set
 `PHI_UPDATE_CHECK=0` to skip the network entirely.
 
+The boot box is the only place updates are reported. The `phi` command sets
+`PI_OFFLINE=1`, which turns off pi's own startup version and package banners so
+the same two facts are not announced twice, in two places, one of them handing
+you a command to copy. It also skips pi's remote model catalog refresh, which
+this setup has no use for, because the models are local. The update commands
+clear the flag for themselves.
+
 ## What you need
 
 - Apple Silicon, **48 GB minimum**. The model peaks at ~27 GB with a full
@@ -61,14 +82,14 @@ rather than a listing of everything that loaded. Models are not its job, because
 
 ## The model
 
-One model, `qwen3.8-4MLX` — Qwen3.8 27B at 4-bit MLX, **64K context**.
+One model, `qwen3.8-4MLX`: Qwen3.8 27B at 4-bit MLX, **64K context**.
 
 The size of that window is set by the goal, not by taste. Measured on a clean
 load with nothing else resident:
 
 | | |
 |---|---|
-| weights | 18.49 GB (flat — the MLX runner allocates its cache lazily) |
+| weights | 18.49 GB, flat (the MLX runner allocates its cache lazily) |
 | context cache | ~113 KB per token, measured across the full window |
 | at a full 64K | **25.8 GB** |
 | left for your desktop | **~22 GB** |
@@ -79,7 +100,7 @@ snapshots and their cost is not linear in the window.
 
 That last row is the design constraint. `memory-guard` refuses to start below
 28 GB free for the same reason: under that, finishing a long session means
-swapping, and a swapping local model does not fail — it slows to nothing while
+swapping, and a swapping local model does not fail. It slows to nothing while
 looking like it is still thinking.
 
 **Speed depends on how full the context is, not how big it can get.** Measured
@@ -99,14 +120,14 @@ of its speed for the rest of the session.
 **Compaction fires at 28,000 tokens**, and that number is a hard ceiling rather
 than a preference. pi's HTTP idle timeout maxes at 300s; prefill runs ~120 tok/s
 at depth; so a prefix-cache miss above ~36,000 tokens cannot finish before the
-request is judged idle, and comes back as `Request timed out`. Misses happen —
-the server log carries `failed to restore cache, freeing all caches` — so the
+request is judged idle, and comes back as `Request timed out`. Misses happen:
+the server log carries `failed to restore cache, freeing all caches`. So the
 working depth has to stay somewhere a miss is survivable. `PI_MAX_SAFE_DEPTH`
 caps it independently of the window.
 
 pi has its own trigger at 75%, deliberately above ours. We check at `turn_end`,
 which fires inside a long run; pi checks at `agent_end`, which does not. Ours
-acting first means pi is only ever the backstop — and matching the two produces
+acting first means pi is only ever the backstop, and matching the two produces
 two compactions, one of which returns "Already compacted".
 
 **Thinking is set to `high` by default, and that is the recommendation.** high
@@ -118,8 +139,8 @@ assumes a model working alongside you rather than racing you. `Shift+Tab` lowers
 it live when a task is mechanical; `/effort` sets it explicitly.
 
 Two other models were tried and dropped: the 8-bit build needs the machine to
-itself (~37.5 GB), and `qwen3-coder:30b` was fastest only on an empty context —
-by 15K it was behind. A short roster is also a reliability property: this repo
+itself (~37.5 GB), and `qwen3-coder:30b` was fastest only on an empty context.
+By 15K it was behind. A short roster is also a reliability property: this repo
 has direct evidence that giving a model two ways to do one job costs accuracy.
 
 ## What the extensions do
@@ -137,15 +158,16 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `token-rate` | decode speed in the footer, so a stall is visible |
 | `incremental-writes` | large files written in verified chunks |
 | `model-install` | `/model-install` pulls and builds a preconfigured model, and rebuilds one whose modelfile has changed |
+| `exit-word` | a bare `exit` closes pi instead of being answered by the model |
 | `boot-screen` | replaces pi's banner with one about phi, and offers to install pi and phi updates |
 
 The two that change how you work:
 
-**`plan-notes`** — `plan_write` lays out steps, `plan_next` finishes one and
+**`plan-notes`**. `plan_write` lays out steps, `plan_next` finishes one and
 resets the context. State lives in `.pi/PLAN.md` and `.pi/NOTES.md`, so a wiped
 context costs nothing. `/notes-gc` trims notes that have outgrown their welcome.
 
-**`smart-edit`** — `edit_symbol` edits a function or method **by name** rather
+**`smart-edit`**. `edit_symbol` edits a function or method **by name** rather
 than by line number, which is where most failed edits came from. `outline` lists
 a file's declarations for a fraction of the cost of reading it. The built-in
 `read` and `edit` tools are retired in favour of these: one tool per job.
@@ -158,7 +180,11 @@ a file's declarations for a fraction of the cost of reading it. The built-in
 | `/update` | install a newer pi or phi |
 | `/context` | how full the window is, and when it compacts |
 | `/speed` | decode rate, and prefill separately |
+| `/plan` | show the plan and where it is up to |
+| `/next` | finish the current step and reset the context |
+| `/notes` | show what is currently on the notes file |
 | `/notes-gc` | trim notes that have outgrown their welcome |
+| `/syntax` | check a file parses, without reading it back |
 | `/handoff` | summarise and compact now |
 | `/effort` | set thinking level (or `Shift+Tab`) |
 | `/budget` | show the per-tool-result size limit |
@@ -183,6 +209,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_WATCHDOG_MAX_RESUMES` | `25` | mid-step compaction resumes before pausing |
 | `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |
 | `PI_TOKEN_RATE` | `1` | show decode speed |
+| `PI_EXIT_WORD` | `1` | `0` sends a bare `exit` to the model instead of quitting |
 | `PHI_BOOT` | `1` | `0` keeps pi's own startup banner |
 | `PHI_UPDATE_CHECK` | `1` | `0` draws the box but skips the network |
 | `PHI_HOME` | `~/.phi` | where phi's own agent directory lives |
@@ -190,7 +217,7 @@ Everything has a working default. These exist for when it does not.
 ## Why things are the way they are
 
 Nearly every default here was set by measuring something, and the measurement is
-recorded next to the code it justifies — in comments, and in `git log`. If a
+recorded next to the code it justifies, in comments and in `git log`. If a
 number looks arbitrary, `git log -S` the number and the commit will say what was
 measured and why.
 
