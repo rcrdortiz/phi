@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.9.1 (2026-08-21)
+
 **Added: the boot box is yellow under `PHI_DEBUG`, and says why.** Debug mode
 changes what a session does, so it should be visible at the top of the screen
 rather than discovered from a log file that exists or from output that suddenly
