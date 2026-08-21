@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.8.0 (2026-08-21)
+
 **Added: `/usage`, and a per-call log behind it.** Reports where the tokens went:
 per tool with calls, total, share, median and worst, plus the individual calls
 that cost the most. Median sits next to total because they answer different
