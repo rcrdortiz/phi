@@ -24,6 +24,7 @@ import { EXPIRING_CATEGORY, NOTES_MAX_CHARS, NOTE_MAX_CHARS, duplicateOf, enforc
 import { Type } from "../lib/schema.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { collapsedRenderer } from "../lib/collapse.ts";
 import { statePath } from "../lib/state-dir.ts";
 
 // Kept under the project's .pi/ directory, next to Pi's own .pi/agent/sessions,
@@ -349,6 +350,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "plan_write",
+		renderResult: collapsedRenderer(),
 		label: "Write plan",
 		description:
 			`Create or replace ${PLAN_FILE} with an ordered checklist of small, independently verifiable steps. ` +
@@ -429,6 +431,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "note_add",
+		renderResult: collapsedRenderer(),
 		label: "Add note",
 		description:
 			`Append a durable finding to ${NOTES_FILE} — something a future session would need to know. ` +
@@ -529,6 +532,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "plan_status",
+		renderResult: collapsedRenderer(),
 		label: "Plan status",
 		description: `Show the current plan and which step is in progress.`,
 		promptSnippet: `Check which plan step is current`,
@@ -557,6 +561,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "plan_next",
+		renderResult: collapsedRenderer(),
 		label: "Finish step, reset context",
 		description:
 			`Mark the current step done and START A FRESH SESSION for the next one. ` +

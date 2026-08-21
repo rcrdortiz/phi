@@ -40,10 +40,17 @@ check("the hint is dimmed and the content is not",
 // --- wiring ----------------------------------------------------------------
 // The point of this is the tools that print a screenful. Attaching it is easy
 // to forget when a new one is added, so check the noisy ones by name.
-const src = fs.readFileSync(new URL("../extensions/smart-edit.ts", import.meta.url), "utf8");
-for (const tool of ["view_lines", "outline", "edit_block", "replace_lines", "edit_symbol"]) {
-  const at = src.indexOf(`name: "${tool}"`);
-  check(`${tool} collapses`, at !== -1 && src.slice(at, at + 200).includes("collapsedRenderer()"));
+// Every tool phi registers, not just the ones that were noisy on the day. A
+// tool added later without a renderer prints a screenful and nobody notices
+// until it does.
+for (const file of ["smart-edit.ts", "plan-notes.ts"]) {
+  const src = fs.readFileSync(new URL(`../extensions/${file}`, import.meta.url), "utf8");
+  const names = [...src.matchAll(/^\t\tname: "([a-z_]+)",$/gm)].map((m) => m[1]);
+  check(`${file} registers tools`, names.length > 0, names.join(", "));
+  for (const tool of names) {
+    const at = src.indexOf(`name: "${tool}"`);
+    check(`${tool} collapses`, src.slice(at, at + 200).includes("collapsedRenderer()"));
+  }
 }
 
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);

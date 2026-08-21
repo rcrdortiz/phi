@@ -16,6 +16,12 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: only five of phi's nine tools were collapsing.** The renderer went on
+the `smart-edit` tools and never on the plan ones, so `plan_status` still
+printed the whole step. All nine collapse now, and the test walks the
+registrations rather than naming the tools that happened to be noisy that day,
+so one added later cannot quietly print a screenful.
+
 ## 0.7.0 (2026-08-21)
 
 **Changed: the compaction trigger moves from 28,000 to 36,000 tokens, measured.**
