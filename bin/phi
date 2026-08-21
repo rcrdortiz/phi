@@ -37,4 +37,21 @@ if [ ! -f "$PHI_HOME/settings.json" ]; then
   exit 1
 fi
 
+# `pi -v` prints pi's version, which under this name is the wrong answer: the
+# thing you typed is phi, and its version is what decides whether you have a
+# given fix. pi's is still worth printing, since almost everything phi does is
+# constrained by it, so both are shown and labelled.
+#
+# Handled here rather than in an extension because --version never starts a
+# session: pi prints and exits before any extension loads.
+case "$1" in
+  -v|--version)
+    ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+    PHI_VERSION="$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/package.json" 2>/dev/null | head -1)"
+    echo "phi ${PHI_VERSION:-unknown}"
+    echo "pi  $(pi --version 2>/dev/null || echo unknown)"
+    exit 0
+    ;;
+esac
+
 exec pi "$@"

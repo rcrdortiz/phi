@@ -29,5 +29,13 @@ check("released entries carry a date",
   released.length > 0 && released.slice(0, -1).every(([, , rest]) => /\(\d{4}-\d{2}-\d{2}\)/.test(rest)),
   released.map(([, v, r]) => v + r).join(", "));
 
+// The wrapper prints the version too, and has to agree with package.json.
+const { execFileSync } = await import("node:child_process");
+const printed = execFileSync(new URL("../bin/phi", import.meta.url).pathname, ["-v"], { encoding: "utf8" });
+check("`phi -v` reports the shipped version",
+  printed.includes(`phi ${pkg.version}`), printed.trim().replace(/\n/g, " | "));
+check("and names pi separately", /^pi\s+\S+/m.test(printed),
+  "two versions matter here, and confusing them is the bug being fixed");
+
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
 process.exit(results.every(Boolean) ? 0 : 1);

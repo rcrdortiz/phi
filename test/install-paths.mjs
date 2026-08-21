@@ -75,6 +75,19 @@ check("the installer seeds pi's compaction numbers",
   /"compaction", \{"keepRecentTokens": 9800/.test(script),
   "pi's 20000 default is sized for a 128K window");
 
+// `pi -v` prints pi's version, which under this name is the wrong answer.
+// --version never starts a session, so pi prints and exits before any extension
+// loads: the wrapper is the only place this can be answered.
+check("the wrapper answers -v itself", /-v\|--version\)/.test(wrapper));
+check("it reports phi's version", /echo "phi /.test(wrapper));
+check("and pi's alongside it", /echo "pi /.test(wrapper),
+  "almost everything phi does is constrained by the pi underneath it");
+check("the version is read from package.json, not carried in the wrapper",
+  /package\.json/.test(wrapper) && !/phi 0\.\d+\.\d+/.test(wrapper),
+  "a second copy is a second thing to forget on release");
+check("an unreadable version says so rather than printing nothing",
+  /:-unknown/.test(wrapper));
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

@@ -56,6 +56,9 @@ in one does not appear in the other.
 
 **No checkout, at any point.** pi clones and manages the package itself.
 
+`phi -v` reports both versions, phi's and the pi underneath it, because almost
+everything phi does is constrained by the second one.
+
 **Updates install themselves.** phi checks for a newer pi and a newer phi at
 startup, in the background, and asks once if it finds either. Answer yes and it
 runs them; `/update` does the same later. Both apply on the next launch, because
