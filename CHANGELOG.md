@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.3.0 (2026-08-21)
+
 **Added: tool results collapse to one line until `ctrl+o`.** A turn that reads
 three files and lists a directory filled the screen with output nobody reads,
 and on a local model the sentence worth reading arrives slowly enough that
