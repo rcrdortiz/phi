@@ -16,6 +16,14 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: a finished plan briefed nothing, so the next task never got one.**
+The system-prompt briefing returned an empty string when no step was
+outstanding: no goal, no findings, not even the fact that a plan file existed.
+The model began the next task with no idea it was expected to plan, which is
+how `HANDOFF.md` filled with work that `PLAN.md` never mentioned. A spent plan
+now says it is spent, says new work needs `plan_write` first, and keeps
+surfacing `NOTES.md`, which used to disappear the moment the last step was
+ticked.
 **Fixed: a red `Error: Unknown error` on every compaction.** Compacting tears
 down the in-flight request, and that arrives as `stopReason: "error"` with an
 empty message, which pi's renderer prints as the words "Unknown error". The

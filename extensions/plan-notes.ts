@@ -202,7 +202,25 @@ function briefing(ctx: { cwd: string }): string {
 	const { index, step } = currentStep(steps);
 	const notes = readFileSafe(notesPath(ctx)).trim();
 
-	if (!step) return "";
+	// A finished plan used to brief nothing at all: no goal, no findings, not
+	// even the fact that a plan file exists. The model then started the next
+	// task with no idea it was expected to plan, which is why HANDOFF.md filled
+	// up with work that PLAN.md never mentioned. Say so instead.
+	if (!step) {
+		if (!steps.length) return "";
+		return [
+			`## ${PLAN_FILE} is complete`,
+			planGoal(planText) ? `The finished plan was: ${planGoal(planText)}` : "",
+			"",
+			"Anything you are asked to do now is new work. Call plan_write with its steps " +
+				"before editing, then summarise the plan for the user before starting step 1. " +
+				"Editing is refused until a plan exists, so this is not optional.",
+			"",
+			notes ? `## Findings so far (from ${NOTES_FILE})\n${notes}` : "",
+		]
+			.filter((t) => t !== "")
+			.join("\n");
+	}
 	const remaining = steps.filter((s) => !s.done).length;
 	// Only the recent past is seeded. Everything older is in the archive, which
 	// is named here so the model can open it deliberately when replanning

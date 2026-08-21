@@ -190,8 +190,10 @@ The two that change how you work:
 resets the context. State lives in `.pi/PLAN.md` and `.pi/NOTES.md`, so a wiped
 context costs nothing. `/notes-gc` trims notes that have outgrown their welcome.
 
-An edit is refused when every step in `PLAN.md` is already done, because that
-means new work started without a plan: the previous task's plan is still on
+A finished plan briefs the model that it is finished, keeps showing `NOTES.md`,
+and says the next task needs its own `plan_write`. An edit is refused when every
+step in `PLAN.md` is already done, because that means new work started without a
+plan: the previous task's plan is still on
 disk, finished, and the model is about to change the repo against it. That is
 the one case where "no plan" is unambiguous rather than a guess, so it is the
 only one that blocks. A session that never had a plan may be answering a
