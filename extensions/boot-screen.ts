@@ -33,6 +33,11 @@ const ROOT = path.resolve(HERE, "..");
 /**
  * The mark, drawn large when there is room for it.
  *
+ * Full blocks and spaces only. Half-blocks (\u2580 \u2584 \u258c \u2590) draw a smoother outline on
+ * paper and a striped mess in a terminal, because a cell taller than the glyph
+ * leaves a gap between rows that the eye reads as banding rather than as a
+ * curve. \u2588 fills its cell, so rows meet.
+ *
  * Shading is by column and row rather than a hand-maintained tone map: a light
  * source at the top left means brightness falls as x and y increase, which is
  * one rule instead of 250 hand-placed characters that would have to be edited
@@ -43,16 +48,18 @@ const ROOT = path.resolve(HERE, "..");
  * glyph and drops the drawing.
  */
 const LOGO_BIG = [
-	"          \u2584\u2588\u2588\u2588\u2584          ",
-	"      \u2584\u2584\u2584\u2584\u2588\u2588\u2588\u2588\u2588\u2584\u2584\u2584\u2584      ",
-	"    \u2584\u2588\u2588\u2580\u2580\u2580\u2588\u2588\u2588\u2588\u2588\u2580\u2580\u2580\u2588\u2588\u2584    ",
-	"   \u2588\u2588\u2580    \u2588\u2588\u2588\u2588\u2588    \u2580\u2588\u2588   ",
-	"  \u2588\u2588\u258c     \u2588\u2588\u2588\u2588\u2588     \u2590\u2588\u2588  ",
-	"  \u2588\u2588\u258c     \u2588\u2588\u2588\u2588\u2588     \u2590\u2588\u2588  ",
-	"   \u2588\u2588\u2584    \u2588\u2588\u2588\u2588\u2588    \u2584\u2588\u2588   ",
-	"    \u2580\u2588\u2588\u2584\u2584\u2584\u2588\u2588\u2588\u2588\u2588\u2584\u2584\u2584\u2588\u2588\u2580    ",
-	"      \u2580\u2580\u2580\u2580\u2588\u2588\u2588\u2588\u2588\u2580\u2580\u2580\u2580      ",
-	"          \u2580\u2588\u2588\u2588\u2580          ",
+	"          \u2588\u2588\u2588          ",
+	"        \u2588\u2588\u2588\u2588\u2588\u2588\u2588        ",
+	"    \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588    ",
+	"  \u2588\u2588\u2588\u2588\u2588   \u2588\u2588\u2588   \u2588\u2588\u2588\u2588\u2588  ",
+	" \u2588\u2588\u2588\u2588     \u2588\u2588\u2588     \u2588\u2588\u2588\u2588 ",
+	" \u2588\u2588\u2588      \u2588\u2588\u2588      \u2588\u2588\u2588 ",
+	" \u2588\u2588\u2588      \u2588\u2588\u2588      \u2588\u2588\u2588 ",
+	" \u2588\u2588\u2588\u2588     \u2588\u2588\u2588     \u2588\u2588\u2588\u2588 ",
+	"  \u2588\u2588\u2588\u2588\u2588   \u2588\u2588\u2588   \u2588\u2588\u2588\u2588\u2588  ",
+	"    \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588    ",
+	"        \u2588\u2588\u2588\u2588\u2588\u2588\u2588        ",
+	"          \u2588\u2588\u2588          ",
 ];
 const LOGO_SMALL = [" \u256d\u2500\u2500\u2500\u256e ", " \u2502 \u03a6 \u2502 ", " \u2570\u2500\u2500\u2500\u256f "];
 /** Below this many usable columns the drawing is dropped for the framed glyph. */

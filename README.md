@@ -1,16 +1,18 @@
 # phi
 
 ```
-          ▄███▄
-      ▄▄▄▄█████▄▄▄▄            phi
-    ▄██▀▀▀█████▀▀▀██▄
-   ██▀    █████    ▀██         a local coding agent that leaves
-  ██▌     █████     ▐██        the laptop usable while it runs
-  ██▌     █████     ▐██
-   ██▄    █████    ▄██         Qwen3.8 27B · 64K context · 48 GB
-    ▀██▄▄▄█████▄▄▄██▀
-      ▀▀▀▀█████▀▀▀▀
-          ▀███▀
+          ███
+        ███████
+    ███████████████            phi
+  █████   ███   █████
+ ████     ███     ████         a local coding agent that leaves
+ ███      ███      ███         the laptop usable while it runs
+ ███      ███      ███
+ ████     ███     ████         Qwen3.8 27B · 64K context · 48 GB
+  █████   ███   █████
+    ███████████████
+        ███████
+          ███
 ```
 
 Run **Qwen3.8 27B locally on a 48 GB+ MacBook Pro, and keep using the laptop
