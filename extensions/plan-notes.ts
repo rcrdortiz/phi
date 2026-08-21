@@ -49,6 +49,8 @@ const CATEGORIES = ["technical", "product", "design", "gotcha", "decision", EXPI
 // unattended before the agent stops and waits, so a model that calls plan_next
 // without doing the work cannot spin through the whole plan.
 const AUTO_CONTINUE = process.env.PI_PLAN_AUTOCONTINUE !== "0";
+/** Refuse an edit when the plan on disk is finished, so new work gets its own plan. */
+const PLAN_GATE = process.env.PI_PLAN_GATE !== "0";
 const MAX_AUTO = Number(process.env.PI_PLAN_MAX_AUTO ?? 25);
 
 type Step = { done: boolean; text: string };
@@ -86,6 +88,27 @@ function parsePlan(text: string): Step[] {
 		if (m) steps.push({ done: m[1].toLowerCase() === "x", text: m[2] });
 	}
 	return steps;
+}
+
+/** Tools that change the repo. Reading is always allowed. */
+const MUTATING = new Set(["edit_symbol", "replace_lines", "edit_block", "edit", "write", "multi_edit"]);
+
+/**
+ * A finished plan followed by an edit means new work started without one.
+ *
+ * This is the one case where "no plan" is unambiguous rather than a guess. A
+ * session that never had a plan may be answering a one-line request, and being
+ * made to plan that is friction. But a plan whose every step is done, followed
+ * by an attempt to change the repo, is a different task that skipped planning:
+ * observed live, where three fixes arrived in chat, the agent investigated, and
+ * went straight to editing with the completed plan from the previous task still
+ * sitting on disk.
+ *
+ * Blocking is the mechanism because guidance was not. The instruction to call
+ * plan_write first has been in this tool's guidelines the whole time.
+ */
+export function planIsSpent(steps: Step[]): boolean {
+	return steps.length > 0 && steps.every((s) => s.done);
 }
 
 function renderPlan(goal: string, steps: Step[]): string {
@@ -288,6 +311,21 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		return { systemPrompt: `${event.systemPrompt}\n\n${brief}` };
 	});
 
+	// New work must not start against a spent plan. See planIsSpent.
+	pi.on("tool_call", async (event, ctx) => {
+		if (!PLAN_GATE) return undefined;
+		const e = event as { toolName?: string };
+		if (!e.toolName || !MUTATING.has(e.toolName)) return undefined;
+		const c = ctx as unknown as { cwd: string };
+		if (!planIsSpent(parsePlan(readFileSafe(planPath(c))))) return undefined;
+		return {
+			block: true,
+			reason:
+				`Every step in ${PLAN_FILE} is complete, so this is new work with no plan. ` +
+				`Call plan_write with the steps for it first, then summarise the plan for the user before editing.`,
+		};
+	});
+
 	pi.registerTool({
 		name: "plan_write",
 		label: "Write plan",
@@ -297,6 +335,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		promptSnippet: `Write ${PLAN_FILE}: break the task into small ordered steps`,
 		promptGuidelines: [
 			`Use plan_write before starting multi-step work, so progress survives a context reset.`,
+			`After writing a plan, tell the user what you found and what the plan is, then let them respond before starting step 1. Investigation that only exists in your context is investigation the user cannot correct.`,
 			`Keep each step small enough to finish and verify on its own.`,
 			`If the agreed direction changes, call plan_write again with the revised steps BEFORE continuing — never keep working against a plan that no longer matches what was agreed.`,
 			`Completed steps beyond the most recent three live in ${DONE_FILE}. Read it before rewriting a plan, so finished work is not scheduled again.`,
@@ -351,7 +390,15 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 				content: [
 					{
 						type: "text",
-						text: `Wrote ${PLAN_FILE} with ${steps.length} steps. Start with step 1: ${steps[0]?.text ?? "(none)"}`,
+						// Deliberately not "start with step 1". That sentence was an
+						// instruction to begin, and the model took it: investigation
+						// went straight into edits with nothing shown to the user in
+						// between. The recap is the point at which a wrong plan is
+						// still cheap to correct.
+						text:
+							`Wrote ${PLAN_FILE} with ${steps.length} steps. First step: ${steps[0]?.text ?? "(none)"}. ` +
+							`Before starting it, summarise for the user what you found and what you intend to do, ` +
+							`and raise anything you want decided.`,
 					},
 				],
 				details: { steps: steps.length },

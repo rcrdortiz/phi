@@ -16,6 +16,17 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: new work could start with no plan, and no recap.** A task finishing
+left its completed plan on disk; the next request was investigated and edited
+against it with nothing shown to the user in between. An edit is now refused
+when every step in `PLAN.md` is done, which is the one case where "no plan" is
+unambiguous rather than a guess. `PI_PLAN_GATE=0` turns it off.
+
+**Changed: `plan_write` no longer replies "start with step 1".** That sentence
+was an instruction to begin and the model took it. It now asks for a summary of
+what was found and what is intended, before the first step, which is while a
+wrong plan is still cheap to correct.
+
 ## 0.2.0 (2026-08-21)
 
 Everything before this was unversioned. The entry is written from `git log`.

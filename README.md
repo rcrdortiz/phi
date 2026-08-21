@@ -182,6 +182,13 @@ The two that change how you work:
 resets the context. State lives in `.pi/PLAN.md` and `.pi/NOTES.md`, so a wiped
 context costs nothing. `/notes-gc` trims notes that have outgrown their welcome.
 
+An edit is refused when every step in `PLAN.md` is already done, because that
+means new work started without a plan: the previous task's plan is still on
+disk, finished, and the model is about to change the repo against it. That is
+the one case where "no plan" is unambiguous rather than a guess, so it is the
+only one that blocks. A session that never had a plan may be answering a
+one-line request and is left alone. `PI_PLAN_GATE=0` turns it off.
+
 **`smart-edit`**. `edit_symbol` edits a function or method **by name** rather
 than by line number, which is where most failed edits came from. `outline` lists
 a file's declarations for a fraction of the cost of reading it. The built-in
@@ -222,6 +229,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_PREFILL_TOKENS_PER_SECOND` | `120` | measured prefill rate, used to derive that ceiling |
 | `PI_PLAN_KEEP_DONE` | `3` | completed steps kept in the plan |
 | `PI_PLAN_AUTOCONTINUE` | `1` | run steps unattended (also gates the compaction resume) |
+| `PI_PLAN_GATE` | `1` | `0` allows edits when the plan on disk is finished |
 | `PI_PLAN_MAX_AUTO` | `25` | unattended steps before pausing |
 | `PI_WATCHDOG_MAX_RESUMES` | `25` | mid-step compaction resumes before pausing |
 | `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |
