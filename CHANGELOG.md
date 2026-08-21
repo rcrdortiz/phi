@@ -16,6 +16,13 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: the resume command printed on exit did not work.** Quitting printed
+"To resume this session: pi --session <id>", but phi's sessions live under
+`~/.phi` and plain `pi` looks in `~/.pi`, so the command found nothing. The name
+comes from pi's own package.json and the line is written after extensions are
+disposed, so there is no hook and no setting: phi rewrites that one write.
+`PHI_RESUME_HINT=0` leaves it alone.
+
 ## 0.2.1 (2026-08-21)
 
 **Fixed: a finished plan briefed nothing, so the next task never got one.**

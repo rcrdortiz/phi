@@ -182,6 +182,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `model-install` | `/model-install` pulls and builds a preconfigured model, and rebuilds one whose modelfile has changed |
 | `exit-word` | a bare `exit` closes pi instead of being answered by the model |
 | `working-timer` | how long the current turn has been running |
+| `resume-hint` | makes the resume command pi prints on exit name `phi` |
 | `boot-screen` | replaces pi's banner with one about phi, and offers to install pi and phi updates |
 
 The two that change how you work:
@@ -247,6 +248,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_COMPACT_QUIET` | `1` | `0` shows the interruption our own compaction causes |
 | `PI_EXIT_WORD` | `1` | `0` sends a bare `exit` to the model instead of quitting |
 | `PI_WORKING_TIMER` | `1` | `0` leaves pi's plain "Working..." alone |
+| `PHI_RESUME_HINT` | `1` | `0` leaves pi's exit line alone |
 | `PI_KEEP_RECENT_TOKENS` | from settings | what pi keeps past a compaction |
 | `PHI_BOOT` | `1` | `0` keeps pi's own startup banner |
 | `PHI_UPDATE_CHECK` | `1` | `0` draws the box but skips the network |
