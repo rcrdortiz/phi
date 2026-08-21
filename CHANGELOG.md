@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.12.0 (2026-08-21)
+
 **Added: a step can be in progress, `[o]`, not just waiting or done.** "Current"
 was inferred as "the first one not done", which cannot tell a step that was
 started and interrupted from one nobody has touched, and after a crash or a
