@@ -76,7 +76,9 @@ clear the flag for themselves.
 It raises the GPU wired limit to ~83% of RAM and installs a login agent for
 Ollama's keep-alive; both survive reboots. It also sets the TUI to fullscreen,
 the theme to `phi-purple`, and `quietStartup`, so launching prints the boot box
-rather than a listing of everything that loaded. Models are not its job, because a
+rather than a listing of everything that loaded. Exiting is quiet in the same
+way: `fullscreenExitOutput` is `resume-hint`, so quitting hands the terminal
+back as it was found instead of printing the whole session into the scrollback. Models are not its job, because a
 27B pull is not something an installer should start unasked. That is
 `/model-install`.
 

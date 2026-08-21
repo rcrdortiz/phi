@@ -61,6 +61,12 @@ check("update commands drop the flag again",
   /delete env\.PI_OFFLINE/.test(boot) && /env: online\(\)/.test(boot),
   "`pi update` under PI_OFFLINE succeeds and does nothing, which looks like success");
 
+// Quitting should hand the terminal back the way it was found. pi's default
+// prints the whole session into the scrollback on the way out.
+check("exiting fullscreen leaves the scrollback alone",
+  /"fullscreenExitOutput", "resume-hint"/.test(script),
+  "the default, \"transcript\", dumps the boot box and every tool call");
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

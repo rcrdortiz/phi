@@ -216,8 +216,13 @@ changed = False
 # xhigh and max, but Ollama's reasoning_effort takes none/low/medium/high, so
 # mapping them would add levels that behave identically to high while looking
 # like more. pi's own default is "medium", which is why this has to be stated.
+# fullscreenExitOutput defaults to "transcript", which prints the entire session
+# into the scrollback on the way out: the boot box, every tool call, every
+# banner. Quitting should hand the terminal back the way it was found, so this
+# is "resume-hint" instead.
 for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX"),
              ("theme", "phi-purple"), ("tuiMode", "fullscreen"), ("quietStartup", True),
+             ("fullscreenExitOutput", "resume-hint"),
              ("defaultThinkingLevel", "high")):
     if not s.get(k):
         s[k] = v; changed = True
@@ -226,7 +231,7 @@ if changed:
 print("set" if changed else "kept")
 PY
 then
-  ok "defaults in place: local roster, purple theme, fullscreen TUI, quiet startup"
+  ok "defaults in place: local roster, purple theme, fullscreen TUI, quiet start and exit"
 else
   warn "could not write $SETTINGS"
 fi
