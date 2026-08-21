@@ -25,6 +25,7 @@ import { Type } from "../lib/schema.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { collapsedRenderer } from "../lib/collapse.ts";
+import { charsPerToken } from "./tool-budget.ts";
 import { statePath } from "../lib/state-dir.ts";
 
 // Kept under the project's .pi/ directory, next to Pi's own .pi/agent/sessions,
@@ -668,7 +669,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			const summary = [
 				`${NOTES_FILE}: ${r.before.toLocaleString()} -> ${r.after.toLocaleString()} chars ` +
 					`(${Math.round((100 * saved) / r.before)}% smaller)`,
-				`~${Math.round(saved / 3.6).toLocaleString()} tokens saved on EVERY request — it is injected by the briefing.`,
+				`~${Math.round(saved / charsPerToken()).toLocaleString()} tokens saved on EVERY request — it is injected by the briefing.`,
 				`Dropping ${r.dropped.length}, trimming ${r.trimmed}.`,
 				...r.dropped.slice(0, 12).map((d) => `  - ${d}`),
 			].join("\n");

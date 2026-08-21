@@ -16,6 +16,15 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: shell output was budgeted as though it cost half what it does.**
+`tool-budget` converted characters to tokens at a flat 3.6, taken from a
+transcript of mixed code and prose. Measured against the model's own tokenizer,
+source and markdown do run about 3.4, but command output and JSON run 2.0, so a
+bash result was sized as costing 45% of its real token count. That is precisely
+what the extension exists to prevent. `bash`, `ls`, `grep` and `find` now
+convert at 2.0 and everything else at 3.4, and the budget errs dense on purpose:
+under-counting overruns the window, over-counting only truncates a little early.
+
 ## 0.7.1 (2026-08-21)
 
 **Fixed: only five of phi's nine tools were collapsing.** The renderer went on

@@ -1,4 +1,4 @@
-import mod, { budgetChars, truncate, shrinkImage, looksLikeFileDump } from "../extensions/tool-budget.ts";
+import mod, { budgetChars, charsPerToken, truncate, shrinkImage, looksLikeFileDump } from "../extensions/tool-budget.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
@@ -7,7 +7,22 @@ const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "
 check("budget scales with the window", budgetChars(32768) < budgetChars(131072),
   `32K -> ${budgetChars(32768)}, 128K -> ${budgetChars(131072)}`);
 check("budget has a floor for tiny windows", budgetChars(1000) >= 4000, String(budgetChars(1000)));
-check("32K window budgets ~11.8K chars", Math.abs(budgetChars(32768) - 11796) < 50, String(budgetChars(32768)));
+// The budget is a token share expressed in characters, so the conversion has
+// to match what the tool actually returns. Measured against the model's own
+// tokenizer: source and markdown ~3.4 chars/token, but command output and JSON
+// ~2.0. A single 3.6 sized a bash result as though it cost 45% of what it
+// really cost, which is exactly what this extension exists to prevent.
+check("a source-shaped result converts at ~3.4 chars per token",
+  Math.abs(budgetChars(32768, "view_lines") - Math.round(32768 * 0.1 * 3.4)) < 50,
+  String(budgetChars(32768, "view_lines")));
+check("shell output is budgeted denser than source",
+  budgetChars(32768, "bash") / (32768 * 0.04) < budgetChars(32768, "view_lines") / (32768 * 0.1),
+  `bash ${charsPerToken("bash")} vs source ${charsPerToken("view_lines")} chars/token`);
+check("ls, grep and find count as shell output too",
+  ["ls", "grep", "find"].every((t) => charsPerToken(t) === charsPerToken("bash")),
+  "a directory listing tokenises like a log, not like prose");
+check("an unknown tool gets the source figure, not the dense one",
+  charsPerToken("some_new_tool") === charsPerToken("view_lines"));
 
 // --- truncation ----------------------------------------------------------
 const small = "line one\nline two\n";

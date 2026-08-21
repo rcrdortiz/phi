@@ -57,9 +57,35 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-/** Measured on this transcript: 159,636 chars of mixed code and prose per
- *  ~44K tokens. Code runs denser than prose, so this errs slightly generous. */
-const CHARS_PER_TOKEN = 3.6;
+/**
+ * Characters per token, by what the tool actually returns.
+ *
+ * One number cannot do this job. Measured against the model's own tokenizer,
+ * each sample sent once and twice so the chat template's fixed overhead cancels:
+ *
+ *   English prose   5.60      TS source       3.57
+ *   Markdown        3.51      JS source       3.38
+ *   JSON            2.01      Command output  2.00
+ *
+ * The single 3.6 this replaces was taken from a transcript of mixed code and
+ * prose, which is fair for a file read and badly wrong for everything a shell
+ * prints. Command output packs nearly twice the tokens per character, so a bash
+ * result was being sized as though it cost 45% of what it really cost, and
+ * tool-budget exists precisely to stop one result eating the window.
+ *
+ * The budget errs dense on purpose: under-counting tokens overruns the window,
+ * while over-counting only truncates a little early, and those are not equally
+ * bad. Anything not named here gets the source-code figure.
+ */
+const CHARS_PER_TOKEN_BASH = Number(process.env.PI_CHARS_PER_TOKEN_BASH ?? 2.0);
+const CHARS_PER_TOKEN_TEXT = Number(process.env.PI_CHARS_PER_TOKEN ?? 3.4);
+
+/** Tools whose output is shell-shaped: listings, logs, JSON, diffs. */
+const DENSE_TOOLS = new Set(["bash", "ls", "grep", "find"]);
+
+export function charsPerToken(toolName?: string): number {
+	return toolName && DENSE_TOOLS.has(toolName) ? CHARS_PER_TOKEN_BASH : CHARS_PER_TOKEN_TEXT;
+}
 
 const FRACTION = Number(process.env.PI_TOOL_BUDGET_FRACTION ?? 0.1);
 const BASH_FRACTION = Number(process.env.PI_TOOL_BUDGET_BASH_FRACTION ?? 0.04);
@@ -90,7 +116,7 @@ const HEAD_SHARE = 0.6;
 export function budgetChars(contextWindow: number | undefined, toolName?: string): number {
 	const window = contextWindow && contextWindow > 0 ? contextWindow : 32768;
 	const fraction = toolName === "bash" ? BASH_FRACTION : FRACTION;
-	return Math.max(MIN_CHARS, Math.round(window * fraction * CHARS_PER_TOKEN));
+	return Math.max(MIN_CHARS, Math.round(window * fraction * charsPerToken(toolName)));
 }
 
 /**
@@ -135,7 +161,7 @@ export function truncate(text: string, limit: number, label: string): string {
 	const dropped = text.length - limit;
 	const marker =
 		`\n\n... [tool-budget] ${dropped.toLocaleString()} of ${text.length.toLocaleString()} characters ` +
-		`(~${Math.round(dropped / CHARS_PER_TOKEN).toLocaleString()} tokens) removed from the middle of this ` +
+		`(~${Math.round(dropped / charsPerToken(label)).toLocaleString()} tokens) removed from the middle of this ` +
 		`${label} result, which exceeded the ${limit.toLocaleString()}-character per-result budget.\n` +
 		`The head and tail below are intact. This is a display limit, not the end of the data — ` +
 		`re-run with a narrower range (or a more specific pattern) to see the middle.\n\n`;
@@ -286,7 +312,7 @@ export default function toolBudgetExtension(pi: ExtensionAPI) {
 		if (savedChars > 0) {
 			c.ui.notify(
 				`tool-budget: trimmed ${savedChars.toLocaleString()} chars ` +
-					`(~${Math.round(savedChars / CHARS_PER_TOKEN).toLocaleString()} tokens) from a ${e.toolName} result.`,
+					`(~${Math.round(savedChars / charsPerToken(e.toolName)).toLocaleString()} tokens) from a ${e.toolName} result.`,
 				"info",
 			);
 		}
@@ -300,7 +326,7 @@ export default function toolBudgetExtension(pi: ExtensionAPI) {
 			const limit = budgetChars(u?.contextWindow);
 			ctx.ui.notify(
 				[
-					`Per-result budget: ${limit.toLocaleString()} chars (~${Math.round(limit / CHARS_PER_TOKEN).toLocaleString()} tokens)`,
+					`Per-result budget: ${limit.toLocaleString()} chars (~${Math.round(limit / charsPerToken()).toLocaleString()} tokens)`,
 					`bash budget: ${budgetChars(u?.contextWindow, "bash").toLocaleString()} chars (${(BASH_FRACTION * 100).toFixed(0)}% — bash has no line cap of its own)`,
 					`= ${(FRACTION * 100).toFixed(0)}% of a ${(u?.contextWindow ?? 32768).toLocaleString()}-token window`,
 					`Images capped at ${IMAGE_PX}px on the longest edge (~${Math.round((IMAGE_PX * IMAGE_PX * 0.66) / 1015).toLocaleString()} tokens).`,

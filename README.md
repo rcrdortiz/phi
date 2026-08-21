@@ -242,6 +242,28 @@ the one case where "no plan" is unambiguous rather than a guess, so it is the
 only one that blocks. A session that never had a plan may be answering a
 one-line request and is left alone. `PI_PLAN_GATE=0` turns it off.
 
+**How a character budget becomes a token budget.** `tool-budget` works in
+characters and thinks in tokens, so the conversion has to match what a tool
+actually returns. Measured against the model's own tokenizer, each sample sent
+once and twice so the chat template's overhead cancels:
+
+| content | chars/token |
+|---|---|
+| English prose | 5.60 |
+| TypeScript source | 3.57 |
+| Markdown | 3.51 |
+| JavaScript source | 3.38 |
+| JSON | 2.01 |
+| Command output | 2.00 |
+
+One number cannot cover that spread. Shell output and JSON pack nearly twice
+the tokens per character that source does, so `bash`, `ls`, `grep` and `find`
+convert at 2.0 and everything else at 3.4. The single 3.6 this replaces came
+from a transcript of mixed code and prose: fair for a file read, and wrong
+enough for a command result that it was sized as costing 45% of what it really
+cost. The budget errs dense deliberately, because under-counting overruns the
+window while over-counting only truncates a little early.
+
 **`smart-edit`**. `edit_symbol` edits a function or method **by name** rather
 than by line number, which is where most failed edits came from. `outline` lists
 a file's declarations for a fraction of the cost of reading it. The built-in
@@ -270,6 +292,8 @@ Everything has a working default. These exist for when it does not.
 
 | variable | default | |
 |---|---|---|
+| `PI_CHARS_PER_TOKEN` | `3.4` | chars per token for source and prose |
+| `PI_CHARS_PER_TOKEN_BASH` | `2.0` | the same, for shell output and JSON |
 | `PI_TOOL_BUDGET_FRACTION` | `0.10` | window share one tool result may take |
 | `PI_TOOL_BUDGET_BASH_FRACTION` | `0.04` | the same, for bash |
 | `PI_BASH_TIMEOUT_SECONDS` | `300` | ceiling on a bash call that omits its own |
