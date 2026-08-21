@@ -16,6 +16,17 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: recording is opt-in, behind `PHI_DEBUG=1`.** One switch turns on the
+logs and turns off the hiding: tool output stops collapsing, tool costs are
+recorded, message ends are written out. A debug mode that makes you name each
+thing you wanted, or that collapses the output you asked to see, is not one.
+Anything set explicitly still wins over the mode.
+
+**Added: shell commands are recorded in full and reported by total cost.** The
+program alone groups `ls` with `ls -laR /`, so the report would have hidden
+exactly what it is for. Commands group on their text, which makes a cheap
+command run forty times show up as one expensive row.
+
 ## 0.8.0 (2026-08-21)
 
 **Added: `/usage`, and a per-call log behind it.** Reports where the tokens went:

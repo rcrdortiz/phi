@@ -15,9 +15,15 @@
  * so nothing is hidden, only deferred.
  *
  * Env: PI_COLLAPSE_TOOLS=0  render tool results in full
+ *      PHI_DEBUG=1          the same, along with the rest of debug mode
  */
 
-const ENABLED = process.env.PI_COLLAPSE_TOOLS !== "0";
+// Debug mode exists to show you what happened. Collapsing output while being
+// asked to explain it is the opposite of that, so PHI_DEBUG turns it off. An
+// explicit PI_COLLAPSE_TOOLS still wins: that was a decision, not a default.
+import { DEBUG, flag } from "./debug.ts";
+
+const ENABLED = flag("PI_COLLAPSE_TOOLS", !DEBUG);
 
 /** How many lines survive the collapse. The first line is the summary. */
 const KEEP = Number(process.env.PI_COLLAPSE_KEEP ?? 1);

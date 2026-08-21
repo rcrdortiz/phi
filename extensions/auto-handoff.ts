@@ -28,6 +28,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { compactAtTokens, compactionBusy, observeContext, recentlyCompacted, requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
+import { DEBUG, flag } from "../lib/debug.ts";
 import { STATE_DIR, migrateStateDir, statePath } from "../lib/state-dir.ts";
 
 const HANDOFF_FILE = process.env.PI_HANDOFF_FILE || statePath("HANDOFF.md");
@@ -46,7 +47,7 @@ const COMPACT_QUIET = process.env.PI_COMPACT_QUIET !== "0";
  * less than one line of what actually arrived. Off by default: it writes on
  * every turn.
  */
-const DEBUG = process.env.PHI_DEBUG_MESSAGE_END === "1";
+const RECORD_MESSAGE_END = flag("PHI_DEBUG_MESSAGE_END", DEBUG);
 
 /** The first unfinished step in the plan, if there is one. */
 function pendingStep(cwd: string): string | undefined {
@@ -151,7 +152,7 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 	 * Env: PI_COMPACT_QUIET=0  show them, when you suspect one is real
 	 */
 	pi.on("message_end", async (event, ctx) => {
-		if (DEBUG) recordMessageEnd(ctx as unknown as { cwd: string }, event);
+		if (RECORD_MESSAGE_END) recordMessageEnd(ctx as unknown as { cwd: string }, event);
 		const m = (event as {
 			message?: { role?: string; errorMessage?: string; stopReason?: string };
 		}).message;

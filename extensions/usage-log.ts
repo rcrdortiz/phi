@@ -17,7 +17,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { resultText } from "../lib/collapse.ts";
 import { charsPerToken } from "../lib/token-estimate.ts";
-import { ENABLED, formatSummary, readUsage, record, usagePath } from "../lib/usage.ts";
+import { COMMAND_MAX, ENABLED, formatSummary, readUsage, record, usagePath } from "../lib/usage.ts";
 
 /**
  * What identifies this call in a report.
@@ -34,17 +34,37 @@ export function detailOf(toolName: string, args: unknown): string {
 	return "";
 }
 
+/**
+ * The whole command, for bash calls.
+ *
+ * The program alone groups `ls` with `ls -laR /`, which cost wildly different
+ * amounts, so the report would hide exactly the thing it is for. Newlines
+ * collapse to spaces to keep one record on one line, and it is capped so a
+ * heredoc does not end up in the log.
+ */
+export function commandOf(args: unknown): string | undefined {
+	const cmd = (args as { command?: unknown } | undefined)?.command;
+	if (typeof cmd !== "string" || !cmd.trim()) return undefined;
+	const flat = cmd.trim().replace(/\s+/g, " ");
+	return flat.length > COMMAND_MAX ? `${flat.slice(0, COMMAND_MAX - 1)}\u2026` : flat;
+}
+
 export default function usageLog(pi: ExtensionAPI): void {
 	if (!ENABLED) return;
 
 	// Keyed by call id: tool calls interleave, so a single "current call" would
 	// attribute one tool's output to another's timer.
-	const open = new Map<string, { tool: string; detail: string; at: number }>();
+	const open = new Map<string, { tool: string; detail: string; command?: string; at: number }>();
 
 	pi.on("tool_execution_start", async (event) => {
 		const e = event as { toolCallId?: string; toolName?: string; args?: unknown };
 		if (!e.toolCallId || !e.toolName) return undefined;
-		open.set(e.toolCallId, { tool: e.toolName, detail: detailOf(e.toolName, e.args), at: Date.now() });
+		open.set(e.toolCallId, {
+			tool: e.toolName,
+			detail: detailOf(e.toolName, e.args),
+			command: commandOf(e.args),
+			at: Date.now(),
+		});
 		return undefined;
 	});
 
@@ -63,6 +83,7 @@ export default function usageLog(pi: ExtensionAPI): void {
 			// The same estimate the budget uses, so the two reports agree.
 			tokens: Math.round(text.length / charsPerToken(tool)),
 			ms: started ? Date.now() - started.at : 0,
+			...(started?.command ? { command: started.command } : {}),
 			...(e.isError ? { error: true } : {}),
 		});
 		return undefined;

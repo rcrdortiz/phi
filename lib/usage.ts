@@ -12,16 +12,23 @@
  * mid-write, is trivially greppable, and never needs the whole file in memory
  * to add to it.
  *
- * Env: PHI_USAGE_LOG=0        stop recording
+ * Env: PHI_DEBUG=1            record, along with the rest of debug mode
+ *      PHI_USAGE_LOG=1        record this and nothing else
  *      PHI_USAGE_MAX_BYTES    file size before the oldest half is dropped
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { DEBUG, flag } from "./debug.ts";
 import { STATE_DIR } from "./state-dir.ts";
 import { charsPerToken } from "./token-estimate.ts";
 
-export const ENABLED = process.env.PHI_USAGE_LOG !== "0";
+/**
+ * Off unless asked for. It appends on every tool call, and a project should not
+ * accumulate a log nobody requested. PHI_DEBUG=1 turns it on with everything
+ * else; PHI_USAGE_LOG=1 turns on just this.
+ */
+export const ENABLED = flag("PHI_USAGE_LOG", DEBUG);
 
 /** Trim the file at this size. A heavy day is well under it. */
 const MAX_BYTES = Number(process.env.PHI_USAGE_MAX_BYTES ?? 2_000_000);
@@ -39,7 +46,19 @@ export interface UsageRecord {
 	/** Wall time the call took. */
 	ms: number;
 	error?: boolean;
+	/**
+	 * The whole command, for bash only.
+	 *
+	 * `detail` holds the program so calls group sensibly, but the program is not
+	 * what makes one expensive: `bash ls` and `bash ls -laR /` group together and
+	 * cost wildly different amounts. Capped, because a command can contain a
+	 * heredoc and this file is meant to stay readable.
+	 */
+	command?: string;
 }
+
+/** Longest command kept. Enough to tell two apart without storing a script. */
+export const COMMAND_MAX = 160;
 
 export function usagePath(cwd: string): string {
 	return path.join(cwd, STATE_DIR, "usage.jsonl");
@@ -147,6 +166,34 @@ export function worstCalls(records: UsageRecord[], n = 5): UsageRecord[] {
 	return [...records].sort((a, b) => b.tokens - a.tokens).slice(0, n);
 }
 
+export interface CommandSummary {
+	command: string;
+	calls: number;
+	tokens: number;
+}
+
+/**
+ * Shell commands by what they cost in total, not by how often they run.
+ *
+ * Grouped on the command text so a loop that runs the same thing forty times
+ * shows up as one expensive row rather than forty cheap ones. That is the shape
+ * of the problem worth finding: a command nobody thinks about, run constantly.
+ */
+export function summariseCommands(records: UsageRecord[]): CommandSummary[] {
+	const by = new Map<string, CommandSummary>();
+	for (const r of records) {
+		if (!r.command) continue;
+		const at = by.get(r.command);
+		if (at) {
+			at.calls++;
+			at.tokens += r.tokens;
+		} else {
+			by.set(r.command, { command: r.command, calls: 1, tokens: r.tokens });
+		}
+	}
+	return [...by.values()].sort((a, b) => b.tokens - a.tokens);
+}
+
 const pad = (s: string | number, n: number) => String(s).padEnd(n);
 const num = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 
@@ -172,7 +219,14 @@ export function formatSummary(records: UsageRecord[]): string {
 	}
 	out.push("", "Biggest single calls:");
 	for (const c of worstCalls(records)) {
-		out.push(`  ${num(c.tokens).padEnd(6)} ${c.tool} ${c.detail}`.trimEnd());
+		out.push(`  ${num(c.tokens).padEnd(6)} ${c.tool} ${c.command ?? c.detail}`.trimEnd());
+	}
+	const cmds = summariseCommands(records);
+	if (cmds.length) {
+		out.push("", "Shell commands by total cost:");
+		for (const c of cmds.slice(0, 8)) {
+			out.push(`  ${num(c.tokens).padEnd(6)} ${String(c.calls).padEnd(4)} ${c.command}`);
+		}
 	}
 	return out.join("\n");
 }

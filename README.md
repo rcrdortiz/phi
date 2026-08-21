@@ -286,9 +286,18 @@ than by line number, which is where most failed edits came from. `outline` lists
 a file's declarations for a fraction of the cost of reading it. The built-in
 `read` and `edit` tools are retired in favour of these: one tool per job.
 
-**Finding the next thing to optimise.** `/usage` reports where the tokens went:
-per tool, with calls, total, share, median and worst, plus the individual calls
-that cost the most. Median next to total on purpose, because they answer
+**Finding the next thing to optimise.** Run with `PHI_DEBUG=1`, work normally,
+then `/usage`. Debug mode turns on the logs and turns off the hiding: tool
+output stops collapsing, tool costs are recorded, message ends are written out.
+One switch, because a debug mode that makes you name each thing you wanted, or
+that collapses the output you asked to see, is not one. Anything set explicitly
+still wins, since that was a decision rather than a default.
+
+`/usage` reports where the tokens went: per tool, with calls, total, share,
+median and worst, plus the individual calls that cost the most, plus shell
+commands grouped by total cost. Commands are grouped on their full text, not
+their program: `ls` and `ls -laR /` cost wildly different amounts, and a cheap
+command run forty times is the shape worth finding. Median next to total on purpose, because they answer
 different questions. A tool with a high total and a low median is called often
 and is working as intended; a high median means it is expensive every time, and
 that is the one worth changing. Raw records are in `.phi/usage.jsonl`, one line
@@ -346,8 +355,9 @@ Everything has a working default. These exist for when it does not.
 | `PI_COLLAPSE_TOOLS` | `1` | `0` renders tool results in full |
 | `PI_COLLAPSE_KEEP` | `1` | lines kept before the expand hint |
 | `PI_COMPACT_SAMPLES` | `5` | past compactions the progress estimate averages |
+| `PHI_DEBUG` | off | `1` records the logs and stops collapsing tool output |
 | `PHI_DEBUG_MESSAGE_END` | off | `1` logs every assistant message end to `.phi/message-end.log` |
-| `PHI_USAGE_LOG` | `1` | `0` stops recording tool costs |
+| `PHI_USAGE_LOG` | off | `1` records tool costs without the rest of debug mode |
 | `PHI_USAGE_MAX_BYTES` | `2000000` | log size before the oldest half is dropped |
 | `PI_EXIT_WORD` | `1` | `0` sends a bare `exit` to the model instead of quitting |
 | `PI_WORKING_TIMER` | `1` | `0` leaves pi's plain "Working..." alone |

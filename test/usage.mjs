@@ -1,11 +1,18 @@
 // Where the tokens go. Every improvement in this repo so far started from a
 // measurement taken after something had already gone wrong; this collects the
 // same evidence continuously.
+// Recording is opt-in: it appends on every tool call and a project should not
+// accumulate a log nobody asked for. Set before the import, since ESM hoists.
+// Awaited imports, not static ones: ESM hoists a static import above this
+// assignment, so the module would read the flag before it was set. The same
+// trap is documented in compaction-baseline.mjs.
+process.env.PHI_USAGE_LOG = "1";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import usageLog, { detailOf } from "../extensions/usage-log.ts";
-import { formatSummary, readUsage, record, summarise, usagePath, worstCalls } from "../lib/usage.ts";
+const { default: usageLog, commandOf, detailOf } = await import("../extensions/usage-log.ts");
+const { COMMAND_MAX, formatSummary, readUsage, record, summarise, summariseCommands, usagePath, worstCalls } =
+  await import("../lib/usage.ts");
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };
@@ -82,6 +89,32 @@ check("a failed call is marked", written.find((r) => r.tool === "bash").error ==
 check("detail names the program, not the pipeline", detailOf("bash", { command: "./verify.sh | tail" }) === "./verify.sh");
 check("detail names the file, not its directory", detailOf("view_lines", { file: "/a/b/c.js" }) === "c.js");
 check("no args is not an error", detailOf("outline", undefined) === "");
+
+// --- shell commands ---------------------------------------------------------
+// The program alone groups `ls` with `ls -laR /`, which cost wildly different
+// amounts, so grouping on it would hide exactly what the report is for.
+check("the whole command is kept, not just the program",
+  commandOf({ command: "./verify.sh 2>&1 | tail -5" }) === "./verify.sh 2>&1 | tail -5");
+check("newlines collapse so one record stays one line",
+  commandOf({ command: "cd /x\n  make all" }) === "cd /x make all");
+check("a heredoc does not end up in the log",
+  (commandOf({ command: "x".repeat(500) }) ?? "").length === COMMAND_MAX);
+check("a non-bash call has no command", commandOf({ file: "a.js" }) === undefined && commandOf(undefined) === undefined);
+
+const cmdRecs = [
+  rec("bash", 9000, "verify.sh", { command: "./verify.sh" }),
+  ...Array.from({ length: 3 }, () => rec("bash", 800, "ls", { command: "ls -la ." })),
+  rec("view_lines", 2400, "a.js"),
+];
+const cmdRows = summariseCommands(cmdRecs);
+check("commands are grouped by their text", cmdRows.length === 2, cmdRows.map((c) => c.command).join(" | "));
+check("a cheap command run often is one expensive row",
+  cmdRows.find((c) => c.command === "ls -la .").tokens === 2400,
+  "forty cheap calls of the same thing is the shape worth finding");
+check("commands are ordered by total cost", cmdRows[0].command === "./verify.sh");
+check("non-shell calls are not counted as commands",
+  !cmdRows.some((c) => c.command.includes("a.js")));
+check("the report lists them", /Shell commands by total cost/.test(formatSummary(cmdRecs)));
 
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
