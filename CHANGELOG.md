@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.7.1 (2026-08-21)
+
 **Fixed: only five of phi's nine tools were collapsing.** The renderer went on
 the `smart-edit` tools and never on the plan ones, so `plan_status` still
 printed the whole step. All nine collapse now, and the test walks the
