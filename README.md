@@ -242,6 +242,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_WATCHDOG_MAX_RESUMES` | `25` | mid-step compaction resumes before pausing |
 | `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |
 | `PI_TOKEN_RATE` | `1` | show decode speed |
+| `PI_COMPACT_QUIET` | `1` | `0` shows the interruption our own compaction causes |
 | `PI_EXIT_WORD` | `1` | `0` sends a bare `exit` to the model instead of quitting |
 | `PI_WORKING_TIMER` | `1` | `0` leaves pi's plain "Working..." alone |
 | `PI_KEEP_RECENT_TOKENS` | from settings | what pi keeps past a compaction |

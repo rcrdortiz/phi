@@ -16,6 +16,16 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: a red `Error: Unknown error` on every compaction.** Compacting tears
+down the in-flight request, and that arrives as `stopReason: "error"` with an
+empty message, which pi's renderer prints as the words "Unknown error". The
+existing suppressor skipped it, because it only looked at messages that had
+text. A red line on every compaction teaches you to stop reading red lines,
+which is the more expensive habit. Narrow: assistant messages only, only while
+one of our own compactions is in flight or seconds old, and only when the error
+carries no text, since a real provider failure names itself. `PI_COMPACT_QUIET=0`
+shows them again.
+
 **Added: updates are checked every ten minutes, not only at startup.** A
 session left open all day was reporting the state of the world at the moment it
 started. The repeating check updates the box and never opens a dialog, since a

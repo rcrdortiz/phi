@@ -131,6 +131,34 @@ check("and the message itself survives", ours?.message?.role === "assistant" && 
 const realError = await fire("message_end", { message: { role: "assistant", errorMessage: "connection refused" } });
 check("a genuine error is never swallowed", realError === undefined, "only aborts are suppressed");
 
+// The second shape: a torn-down provider stream arrives as stopReason "error"
+// with NO text, and pi's renderer substitutes the words "Unknown error". Seen
+// twice, both times immediately before a compaction. Blanking errorMessage
+// cannot help, because it is already blank.
+const blank = { role: "assistant", stopReason: "error", usage: { output: 3 } };
+const quiet = await fire("message_end", { message: { ...blank } });
+check("a textless error during our compaction stops being an error",
+  quiet?.message?.stopReason === "stop",
+  "the turn ended because we ended it");
+check("the message itself is not discarded",
+  quiet?.message?.role === "assistant" && quiet?.message?.usage?.output === 3);
+
+check("a textless error is still shown when nothing of ours is running",
+  (resetCompactionState(),
+   await fire("message_end", { message: { ...blank } })) === undefined,
+  "outside the window it is somebody else's problem");
+
+// The narrowness is the safety. A failure that names itself is never touched,
+// even in the middle of a compaction.
+await fire("session_compact", { compactionEntry: { summary: "s", tokensBefore: 1 } });
+check("an error that names itself survives the window",
+  (await fire("message_end", { message: { role: "assistant", stopReason: "error", errorMessage: "connection refused" } })) === undefined,
+  "a real provider failure carries text");
+check("an ordinary finished turn is not rewritten",
+  (await fire("message_end", { message: { role: "assistant", stopReason: "stop" } })) === undefined);
+check("a user message is never touched",
+  (await fire("message_end", { message: { role: "user", stopReason: "error" } })) === undefined);
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

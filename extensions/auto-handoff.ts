@@ -35,6 +35,8 @@ const PLAN_FILE = process.env.PI_PLAN_FILE || ".pi/PLAN.md";
 const AUTO_CONTINUE = process.env.PI_PLAN_AUTOCONTINUE !== "0";
 // A resume that produces no progress must not resume forever.
 const MAX_RESUMES = Number(process.env.PI_WATCHDOG_MAX_RESUMES ?? 25);
+/** Hide the interruption our own compaction causes. See the message_end handler. */
+const COMPACT_QUIET = process.env.PI_COMPACT_QUIET !== "0";
 
 /** The first unfinished step in the plan, if there is one. */
 function pendingStep(cwd: string): string | undefined {
@@ -74,23 +76,48 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 	/**
 	 * Swallow the abort that our own compaction causes.
 	 *
-	 * Compacting interrupts the in-flight turn, and that interruption surfaces as
-	 * a red "Error: This operation was aborted" against an assistant message. It
-	 * is not a failure — it is the mechanism working — and pi already blanks the
-	 * equivalent message for its own compaction (`errorMessage: aborted ?
-	 * undefined : ...`). Ours had no such treatment, so every compaction printed
-	 * an error for something that went exactly to plan.
+	 * Compacting interrupts the in-flight turn, and that interruption surfaces
+	 * against an assistant message in one of two shapes.
 	 *
-	 * Narrow on purpose: only an abort, and only while one of our compactions is
-	 * in flight or has just finished. An abort the user caused by pressing escape
-	 * still shows, because that one they need to see.
+	 * The first is an explicit abort, which pi already blanks for its own
+	 * compaction (`errorMessage: aborted ? undefined : ...`) and ours did not.
+	 *
+	 * The second is a torn-down provider stream, which arrives as stopReason
+	 * "error" with an EMPTY errorMessage. pi's renderer substitutes the literal
+	 * text "Unknown error" for the empty one, so it prints a red line that names
+	 * nothing. Blanking errorMessage does not help, because it is already blank:
+	 * the stop reason itself has to change, and "stop" is what actually happened
+	 * from the session's point of view. The turn ended because we ended it.
+	 *
+	 * That rewrite is the part worth being careful about, because stopReason
+	 * feeds pi's retry and context accounting and not only the display. Three
+	 * things keep it narrow: the message must be an assistant message, one of
+	 * OUR compactions must be in flight or seconds old, and the errorMessage
+	 * must be empty. A genuine provider failure carries text. The cost of
+	 * getting it wrong is a hidden error; the cost of leaving it is a red line
+	 * on every single compaction, which teaches you to stop reading red lines,
+	 * and that is the more expensive habit.
+	 *
+	 * An abort the user caused by pressing escape still shows, because that one
+	 * they need to see.
+	 *
+	 * Env: PI_COMPACT_QUIET=0  show them, when you suspect one is real
 	 */
 	pi.on("message_end", async (event) => {
-		const m = (event as { message?: { role?: string; errorMessage?: string } }).message;
-		if (m?.role !== "assistant" || !m.errorMessage) return undefined;
-		if (!/abort/i.test(m.errorMessage)) return undefined;
+		if (!COMPACT_QUIET) return undefined;
+		const m = (event as {
+			message?: { role?: string; errorMessage?: string; stopReason?: string };
+		}).message;
+		if (m?.role !== "assistant") return undefined;
 		if (!compactionBusy() && !recentlyCompacted(10_000)) return undefined;
-		return { message: { ...m, errorMessage: undefined } } as never;
+		if (m.errorMessage) {
+			if (!/abort/i.test(m.errorMessage)) return undefined;
+			return { message: { ...m, errorMessage: undefined } } as never;
+		}
+		// No text at all. Only "error" is rewritten: "aborted" already renders as
+		// a plain "Operation aborted" rather than as a failure.
+		if (m.stopReason !== "error") return undefined;
+		return { message: { ...m, stopReason: "stop", errorMessage: undefined } } as never;
 	});
 
 	let resumes = 0;
