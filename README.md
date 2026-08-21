@@ -173,6 +173,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `incremental-writes` | large files written in verified chunks |
 | `model-install` | `/model-install` pulls and builds a preconfigured model, and rebuilds one whose modelfile has changed |
 | `exit-word` | a bare `exit` closes pi instead of being answered by the model |
+| `working-timer` | how long the current turn has been running |
 | `boot-screen` | replaces pi's banner with one about phi, and offers to install pi and phi updates |
 
 The two that change how you work:
@@ -226,6 +227,8 @@ Everything has a working default. These exist for when it does not.
 | `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |
 | `PI_TOKEN_RATE` | `1` | show decode speed |
 | `PI_EXIT_WORD` | `1` | `0` sends a bare `exit` to the model instead of quitting |
+| `PI_WORKING_TIMER` | `1` | `0` leaves pi's plain "Working..." alone |
+| `PI_KEEP_RECENT_TOKENS` | from settings | what pi keeps past a compaction |
 | `PHI_BOOT` | `1` | `0` keeps pi's own startup banner |
 | `PHI_UPDATE_CHECK` | `1` | `0` draws the box but skips the network |
 | `PHI_HOME` | `~/.phi` | where phi's own agent directory lives |
@@ -240,6 +243,25 @@ measured and why.
 Deliberately not duplicated here: this file used to carry all of it, and a
 README that repeats what the code already explains goes stale in exactly the way
 the code does not.
+
+## Releases
+
+`CHANGELOG.md` and semver, read against the behaviour of a session rather than
+against an API, because phi does not have one. **major** needs something from
+you (a setting, a reinstall, a model rebuild). **minor** changes how sessions
+run and is worth reading before you accept it. **patch** fixes things.
+
+```sh
+npm run release -- patch|minor|major [--dry]
+```
+
+It bumps `package.json`, dates the `## Unreleased` entry, commits and tags. It
+refuses a dirty tree and an empty entry, and it stops at the tag: pushing is
+separate, since a tag pushed by accident is awkward to withdraw.
+
+This matters more than it would for a library, because phi replaces itself on
+the machine it runs on. "3 commits behind" does not tell you whether the update
+is a typo fix or a changed default that will alter how your sessions compact.
 
 ## Tests
 
