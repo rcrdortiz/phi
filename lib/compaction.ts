@@ -164,6 +164,12 @@ export function compactionBusy(): boolean {
 	return inFlight;
 }
 
+/** Whether a compaction finished within `ms`. The abort it caused surfaces a
+ *  moment later, so "busy" alone does not cover the whole window. */
+export function recentlyCompacted(ms: number): boolean {
+	return lastAt > 0 && Date.now() - lastAt < ms;
+}
+
 /**
  * Track pi's OWN compactions as well as ours.
  *

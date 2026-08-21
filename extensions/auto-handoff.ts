@@ -27,7 +27,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { compactAtTokens, compactionBusy, observeContext, requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
+import { compactAtTokens, compactionBusy, observeContext, recentlyCompacted, requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
 
 const HANDOFF_FILE = process.env.PI_HANDOFF_FILE || ".pi/HANDOFF.md";
 const PLAN_FILE = process.env.PI_PLAN_FILE || ".pi/PLAN.md";
@@ -71,6 +71,28 @@ function writeHandoff(cwd: string, summary: string, tokensBefore: number | undef
 }
 
 export default function autoHandoffExtension(pi: ExtensionAPI) {
+	/**
+	 * Swallow the abort that our own compaction causes.
+	 *
+	 * Compacting interrupts the in-flight turn, and that interruption surfaces as
+	 * a red "Error: This operation was aborted" against an assistant message. It
+	 * is not a failure — it is the mechanism working — and pi already blanks the
+	 * equivalent message for its own compaction (`errorMessage: aborted ?
+	 * undefined : ...`). Ours had no such treatment, so every compaction printed
+	 * an error for something that went exactly to plan.
+	 *
+	 * Narrow on purpose: only an abort, and only while one of our compactions is
+	 * in flight or has just finished. An abort the user caused by pressing escape
+	 * still shows, because that one they need to see.
+	 */
+	pi.on("message_end", async (event) => {
+		const m = (event as { message?: { role?: string; errorMessage?: string } }).message;
+		if (m?.role !== "assistant" || !m.errorMessage) return undefined;
+		if (!/abort/i.test(m.errorMessage)) return undefined;
+		if (!compactionBusy() && !recentlyCompacted(10_000)) return undefined;
+		return { message: { ...m, errorMessage: undefined } } as never;
+	});
+
 	let resumes = 0;
 	// Anything the user types is a fresh mandate.
 	pi.on("input", async () => {
