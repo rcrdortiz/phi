@@ -1,4 +1,4 @@
-# pi-local
+# phi
 
 Run **Qwen3.8 27B locally on a 48 GB+ MacBook Pro, and keep using the laptop
 while it runs.** That second half is the whole point. A local coding agent is
@@ -10,14 +10,13 @@ extensions that keep a 27B model inside its budget — memory, context and
 attention — without you having to think about it.
 
 ```sh
-git clone https://github.com/rcrdortiz/pi-local.git
-cd pi-local && ./install.sh
-pi
+pi install https://github.com/rcrdortiz/phi
+./bootstrap.sh          # once, for the parts that need sudo and brew
 ```
 
-**Clone it, do not download a zip.** The extensions keep themselves current by
-fast-forwarding this repo at startup, which needs a real checkout with an
-`origin`. Updates are offered, never taken.
+**No checkout required.** pi clones and manages the package itself, and
+`pi update` refreshes it — pi prints its own "restart to take effect" notice
+when it does. Nothing here reimplements that.
 
 ## What you need
 

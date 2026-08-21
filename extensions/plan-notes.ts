@@ -21,7 +21,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { requestCompaction } from "../lib/compaction.ts";
 import { EXPIRING_CATEGORY, NOTES_MAX_CHARS, NOTE_MAX_CHARS, duplicateOf, enforceBudget, gcNotes, narrationReason, pruneExpiring, trimNote } from "../lib/notes.ts";
-import { Type } from "typebox";
+import { Type } from "../lib/schema.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -501,7 +501,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		],
 		parameters: Type.Object({
 			summary: Type.Optional(
-				Type.String({ description: "One line on what was done, appended to the plan step (trimmed past {SUMMARY_MAX} chars)" }),
+				Type.String({ description: `one line, trimmed past ${SUMMARY_MAX} chars` }),
 			),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx: ExtensionContext) {

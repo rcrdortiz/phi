@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import mod from "/Users/rcrd/AI/pi-local/extensions/smart-edit.ts";
-import { findSymbol, stripNonCode, supportsSymbols } from "/Users/rcrd/AI/pi-local/lib/symbols.ts";
+import mod from "/Users/rcrd/AI/phi/extensions/smart-edit.ts";
+import { findSymbol, stripNonCode, supportsSymbols } from "/Users/rcrd/AI/phi/lib/symbols.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };

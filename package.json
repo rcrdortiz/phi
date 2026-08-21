@@ -1,0 +1,16 @@
+{
+  "name": "phi",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Run Qwen3.8 27B locally on a 48GB+ MacBook Pro and keep using the laptop while it runs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rcrdortiz/phi.git"
+  },
+  "pi": {
+    "extensions": [
+      "extensions/*.ts"
+    ]
+  }
+}

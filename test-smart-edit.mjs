@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import mod from "/Users/rcrd/AI/pi-local/extensions/smart-edit.ts";
+import mod from "/Users/rcrd/AI/phi/extensions/smart-edit.ts";
 
 const DIR = "/private/tmp/claude-501/-Users-rcrd-AI/e8ea8186-91cd-40f5-bdea-c71eea252575/scratchpad/edit-test";
 const FILE = `${DIR}/game.js`;

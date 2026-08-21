@@ -1,5 +1,5 @@
-import mod from "/Users/rcrd/AI/pi-local/extensions/thinking-level.ts";
-import { MODELS, toPiModel } from "/Users/rcrd/AI/pi-local/lib/ollama-models.ts";
+import mod from "/Users/rcrd/AI/phi/extensions/thinking-level.ts";
+import { MODELS, toPiModel } from "/Users/rcrd/AI/phi/lib/ollama-models.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d.split("\n").join(" / ") : ""}`); };

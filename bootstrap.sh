@@ -1,21 +1,22 @@
 #!/bin/bash
-# install.sh — set up local-model coding on an Apple Silicon Mac.
+# bootstrap.sh — the parts of setup that a slash command cannot do.
 #
-# Installs Ollama, pulls the base models, builds the tuned variants, installs
-# pi and these extensions, and raises the GPU memory limit. Idempotent: safe to
-# re-run, skips anything already in place.
+# Everything here needs either root or a package manager: installing Ollama,
+# raising the GPU wired limit, and the login agent that exports Ollama's env
+# before the app starts. Models are NOT here — run /model-install inside pi,
+# which needs no checkout and knows which variants are preconfigured.
 #
-#   ./install.sh                 everything
-#   ./install.sh --skip-models   config only (no ~67GB of downloads)
-#   ./install.sh --skip-sysctl   don't touch the GPU memory limit (no sudo)
-#   ./install.sh --yes           don't ask before large downloads
+# Idempotent: safe to re-run, skips anything already in place.
+#
+#   ./bootstrap.sh                 everything
+#   ./bootstrap.sh --skip-sysctl   don't touch the GPU memory limit (no sudo)
+#   ./bootstrap.sh --yes           don't ask
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKIP_MODELS=0; SKIP_SYSCTL=0; ASSUME_YES=0
+SKIP_SYSCTL=0; ASSUME_YES=0
 for a in "$@"; do
   case "$a" in
-    --skip-models) SKIP_MODELS=1 ;;
     --skip-sysctl) SKIP_SYSCTL=1 ;;
     --yes|-y) ASSUME_YES=1 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
@@ -41,10 +42,6 @@ WIRED_LIMIT_MB=$(( TOTAL_MB * 83 / 100 ))
 (( WIRED_LIMIT_MB > TOTAL_MB - 8192 )) && WIRED_LIMIT_MB=$(( TOTAL_MB - 8192 ))
 GPU_PLIST=/Library/LaunchDaemons/local.iogpu-wired-limit.plist
 ENV_PLIST="$HOME/Library/LaunchAgents/local.ollama-env.plist"
-
-BASE_MODELS=(
-  "qwen3.8:27b-mlx"     # 18GB 4-bit MLX — the only base; qwen3.8-4MLX builds on it
-)
 
 # ---------------------------------------------------------------- preflight
 
@@ -158,43 +155,6 @@ PLIST
   fi
 fi
 
-# ---------------------------------------------------------------- models
-
-step "Models"
-if [[ $SKIP_MODELS -eq 1 ]]; then
-  warn "skipped (--skip-models)"
-else
-  MISSING=()
-  for m in "${BASE_MODELS[@]}"; do
-    ollama list 2>/dev/null | awk '{print $1}' | grep -qx "$m" && ok "$m present" || MISSING+=("$m")
-  done
-  if (( ${#MISSING[@]} )); then
-    echo "  To download: ${MISSING[*]}"
-    echo "  ${d}That is roughly 18 GB and will take a while.${r}"
-    if ask "Download now?"; then
-      for m in "${MISSING[@]}"; do
-        echo "  pulling $m"
-        ollama pull "$m" || die "failed to pull $m"
-      done
-    else
-      warn "skipped — the variants below will fail until the base models exist"
-    fi
-  fi
-
-  # Variants: same weights, different context and sampling. Cheap to build —
-  # they share the base model's blobs, so no extra disk.
-  for mf in "$HERE"/modelfiles/*.modelfile; do
-    name=$(basename "$mf" .modelfile)
-    if ollama create "$name" -f "$mf" >/dev/null 2>&1; then
-      ok "built $name"
-    else
-      warn "could not build $name (base model missing?)"
-    fi
-  done
-fi
-
-# ---------------------------------------------------------------- pi
-
 step "pi"
 if command -v pi >/dev/null; then
   ok "already installed (v$(pi --version 2>/dev/null | head -1))"
@@ -232,15 +192,6 @@ else
   warn "could not write $SETTINGS — start pi with --provider ollama-local --model qwen3.8-4MLX once"
 fi
 
-step "Extensions"
-for ext in "$HERE"/extensions/*.ts; do
-  if pi install "$ext" >/dev/null 2>&1; then
-    ok "$(basename "$ext")"
-  else
-    warn "failed to register $(basename "$ext")"
-  fi
-done
-
 # ---------------------------------------------------------------- verify
 
 step "Verifying"
@@ -250,14 +201,13 @@ else
   warn "Ollama not responding — start Ollama.app or run: brew services start ollama"
 fi
 
-if pi --list-models 2>/dev/null | grep -q ollama-local; then
-  ok "models registered with pi:"
-  pi --list-models 2>/dev/null | grep ollama-local | sed 's/^/    /'
+if pi list 2>/dev/null | grep -qi phi; then
+  ok "phi is installed as a pi package"
 else
-  warn "no ollama-local models in pi — check the extension registered"
+  warn "phi is not installed yet — run: pi install https://github.com/rcrdortiz/phi"
 fi
 
 echo
-echo "${b}Done.${r} Start with:  ${b}pi${r}"
+echo "${b}Done.${r} Now, inside pi:  ${b}/model-install${r}  then  ${b}pi${r}"
 echo "${d}The provider and model defaults are set, and pi remembers whatever you pick with /model.${r}"
 echo "${d}Low on memory? The guard offers models that fit. Quitting Chrome frees the most.${r}"

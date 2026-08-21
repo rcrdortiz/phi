@@ -1,4 +1,4 @@
-import { resolveRange, outline, ReadCache, CACHE_MIN_LINES, DEFAULT_SPAN, MAX_SPAN } from "/Users/rcrd/AI/pi-local/lib/read-lean.ts";
+import { resolveRange, outline, ReadCache, CACHE_MIN_LINES, DEFAULT_SPAN, MAX_SPAN } from "/Users/rcrd/AI/phi/lib/read-lean.ts";
 import * as fs from "node:fs";
 
 const results = [];

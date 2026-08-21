@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import mod from "/Users/rcrd/AI/pi-local/extensions/auto-handoff.ts";
-import { resetCompactionState, compactAtTokens, keepRecentTokens } from "/Users/rcrd/AI/pi-local/lib/compaction.ts";
+import mod from "/Users/rcrd/AI/phi/extensions/auto-handoff.ts";
+import { resetCompactionState, compactAtTokens, keepRecentTokens } from "/Users/rcrd/AI/phi/lib/compaction.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-"));
 const results = [];

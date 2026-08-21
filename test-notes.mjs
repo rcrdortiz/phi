@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import mod from "/Users/rcrd/AI/pi-local/extensions/plan-notes.ts";
-import { narrationReason, trimNote, pruneExpiring, gcNotes, duplicateOf, enforceBudget, NOTE_MAX_CHARS, NOTES_MAX_CHARS } from "/Users/rcrd/AI/pi-local/lib/notes.ts";
+import mod from "/Users/rcrd/AI/phi/extensions/plan-notes.ts";
+import { narrationReason, trimNote, pruneExpiring, gcNotes, duplicateOf, enforceBudget, NOTE_MAX_CHARS, NOTES_MAX_CHARS } from "/Users/rcrd/AI/phi/lib/notes.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };

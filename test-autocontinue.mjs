@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { resetCompactionState } from "/Users/rcrd/AI/pi-local/lib/compaction.ts";
+import { resetCompactionState } from "/Users/rcrd/AI/phi/lib/compaction.ts";
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "auto-"));
 const results = [];
@@ -10,7 +10,7 @@ const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "
 async function load(env = {}) {
   for (const [k, v] of Object.entries(env)) process.env[k] = v;
   // Fresh module instance so env changes take effect.
-  const mod = (await import(`/Users/rcrd/AI/pi-local/extensions/plan-notes.ts?${Math.random()}`)).default;
+  const mod = (await import(`/Users/rcrd/AI/phi/extensions/plan-notes.ts?${Math.random()}`)).default;
   const tools = {}, handlers = {}, sent = [], notes = [];
   mod({
     registerTool: (t) => (tools[t.name] = t),

@@ -1,4 +1,4 @@
-import mod, { budgetChars, truncate, shrinkImage, looksLikeFileDump } from "/Users/rcrd/AI/pi-local/extensions/tool-budget.ts";
+import mod, { budgetChars, truncate, shrinkImage, looksLikeFileDump } from "/Users/rcrd/AI/phi/extensions/tool-budget.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
