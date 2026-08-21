@@ -155,6 +155,21 @@ reads 66K because that is what the model can hold; compaction fires at 28,000,
 so a footer showing 45% is already at the point of compacting. The `ctx` chip
 next to it shows the number that actually decides, and `/context` reports both.
 
+**Compaction shows elapsed seconds and a progress bar.** It is a model call on
+a large prompt, so it takes as long as a turn does, and a slow one and a wedged
+one look identical behind a spinner. The estimate averages the last five
+compactions in this project, kept in `.pi/compaction-times.json`, so a fresh
+session already has one. The first compaction in a new project shows a clock
+and no bar, because there is nothing to compare against.
+
+**What the summary keeps.** State, not narrative: what is done with its concrete
+outcome, what is in progress, decisions and constraints, and dead ends so they
+are not retried. It is also told to record what was decided rather than the
+deliberation that reached it. That matters more than it sounds: at thinking
+level high a single decision can run to several hundred tokens of reconsidering,
+and a faithful summary preserves all of it. The test the model is given is
+whether a sentence would change what the next session does.
+
 pi has its own trigger at 75%, deliberately above ours. We check at `turn_end`,
 which fires inside a long run; pi checks at `agent_end`, which does not. Ours
 acting first means pi is only ever the backstop, and matching the two produces
@@ -257,6 +272,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_COMPACT_QUIET` | `1` | `0` shows the interruption our own compaction causes |
 | `PI_COLLAPSE_TOOLS` | `1` | `0` renders tool results in full |
 | `PI_COLLAPSE_KEEP` | `1` | lines kept before the expand hint |
+| `PI_COMPACT_SAMPLES` | `5` | past compactions the progress estimate averages |
 | `PHI_DEBUG_MESSAGE_END` | off | `1` logs every assistant message end to `.pi/message-end.log` |
 | `PI_EXIT_WORD` | `1` | `0` sends a bare `exit` to the model instead of quitting |
 | `PI_WORKING_TIMER` | `1` | `0` leaves pi's plain "Working..." alone |

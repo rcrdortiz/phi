@@ -67,6 +67,14 @@ const INSTRUCTIONS = [
 	"## Constraints & decisions — choices made and why, plus anything that must not be broken",
 	"## Dead ends — what was tried and did not work, so it is not retried",
 	"Name files, functions, commands and error messages. Omit conversational back-and-forth and tool output that led nowhere.",
+	// The expensive thing to carry forward is not the conversation, it is the
+	// model arguing with itself. At thinking level high a single decision can
+	// run to several hundred tokens of \"actually, wait, reconsider\", and a
+	// faithful summary preserves all of it. The conclusion is worth keeping;
+	// the route to it almost never is, because the next session cannot act on
+	// an argument, only on what it settled.
+	"Record what was decided, not the deliberation that reached it. An option considered and rejected belongs under Dead ends as one line with the reason; do not replay the weighing up.",
+	"Never carry over self-questioning, second-guessing, or restatements of the task. If a sentence would not change what the next session does, leave it out.",
 ].join("\n");
 
 function writeHandoff(cwd: string, summary: string, tokensBefore: number | undefined, reason: string) {
@@ -196,10 +204,11 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
 		requestCompaction(c, `Context at ${pct}% mid-run`, {
 			force: true,
-			instructions:
-				"Summarise for a session continuing the SAME task mid-flight. Keep the current goal, " +
-				"the state of the code, decisions and constraints, and what was just attempted. " +
-				"Drop tool output and the narrative of how earlier steps went.",
+			// Same rules as /handoff, plus the one thing that differs: this fires
+			// mid-flight, so what was just attempted has to survive. Kept as one
+			// definition, because three copies of the summarisation rules drifted
+			// apart and only one of them was ever updated.
+			instructions: `${INSTRUCTIONS}\nThis fires mid-task: keep the current goal and exactly what was just attempted, since the run continues immediately after.`,
 			onSummary: (summary, tokensBefore) => writeHandoff(c.cwd, summary, tokensBefore, "mid-run watchdog"),
 			// Compaction aborts whatever the agent was doing — the abort is what
 			// "This operation was aborted" reports. plan-notes resumes after a

@@ -299,8 +299,10 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			// finished step carries its whole context into the next one.
 			force: true,
 			instructions:
-				`The next step is: ${reset.text}. Keep only what that step needs — ` +
-				`decisions, constraints and the state of the code. Drop the narrative of how the previous step went.`,
+				`The next step is: ${reset.text}. Keep only what that step needs: ` +
+				`decisions, constraints and the state of the code. Drop the narrative of how the previous step went, ` +
+				`and drop the deliberation that reached each decision. Record what was settled, not the argument. ` +
+				`If a sentence would not change what the next step does, leave it out.`,
 			// Continue once the compaction settles, whether or not it produced a
 			// summary. A refused compaction ("nothing to compact") is a normal
 			// outcome on a small step, and it must not stop the plan: hanging

@@ -16,6 +16,25 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: compaction shows elapsed seconds and a progress bar.** It is a model
+call on a large prompt, so it takes as long as a turn, and behind a bare spinner
+a slow one and a wedged one look identical. The estimate averages the last five
+compactions in the project, kept in `.pi/compaction-times.json` so a fresh
+session already has one. Past the estimate the bar pins at full and says "over
+Ns" rather than continuing to predict. Only plausible, successful compactions
+are recorded.
+
+**Changed: the summariser is told to drop deliberation, not just conversation.**
+At thinking level high a single decision can run to several hundred tokens of
+reconsidering, and a faithful summary preserved all of it. It now records what
+was decided rather than the argument that reached it, with a rejected option
+kept as one line under Dead ends. The test it is given is whether a sentence
+would change what the next session does.
+
+**Changed: one set of summarisation rules instead of three.** The mid-run
+watchdog, the step boundary and `/handoff` each had their own copy. They had
+drifted, and only one was ever being updated.
+
 ## 0.4.0 (2026-08-21)
 
 **Added: the working indicator says what the model is doing.**

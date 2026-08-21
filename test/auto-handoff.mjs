@@ -214,6 +214,27 @@ check("a user message is never touched",
   fsx.rmSync(dir, { recursive: true, force: true });
 }
 
+// --- what the summariser is told ------------------------------------------
+// The expensive thing to carry forward is not the conversation, it is the model
+// arguing with itself: at thinking level high a single decision can run to
+// several hundred tokens of reconsidering, and a faithful summary keeps all of
+// it. The conclusion is actionable, the route to it is not.
+{
+  const src = fs.readFileSync(new URL("../extensions/auto-handoff.ts", import.meta.url), "utf8");
+  check("the summariser is told to drop deliberation", /not the deliberation/.test(src));
+  check("and given a test for what to cut",
+    /would not change what the next session does/.test(src),
+    "a rule the model can apply per sentence beats an adjective");
+  check("a rejected option survives as one line, not as the argument",
+    /Dead ends as one line/.test(src));
+
+  // Three copies of these rules drifted apart, and only one was ever updated.
+  const uses = src.match(/instructions:/g) ?? [];
+  check("every compaction shares one instruction set",
+    !/Summarise for a session continuing the SAME task mid-flight/.test(src) && uses.length >= 2,
+    `${uses.length} call sites, one definition`);
+}
+
 // --- the diagnostic --------------------------------------------------------
 // The suppressor above is correct in isolation and was still not working live,
 // so the next occurrence has to leave evidence rather than another theory.

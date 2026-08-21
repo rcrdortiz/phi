@@ -153,7 +153,13 @@ export interface CompactableContext {
 		onComplete?: (result: { summary: string; tokensBefore: number }) => void;
 		onError?: (error: Error) => void;
 	}) => void;
-	ui: { notify: (message: string, level?: "info" | "warning" | "error") => void };
+	ui: {
+		notify: (message: string, level?: "info" | "warning" | "error") => void;
+		/** Footer chip, used for compaction progress. Absent outside the TUI. */
+		setStatus?: (key: string, text: string | undefined) => void;
+	};
+	/** Where to remember how long compactions take. Absent in some contexts. */
+	cwd?: string;
 }
 
 let inFlight = false;
@@ -342,6 +348,85 @@ export function resetCompactionState(): void {
 	cachedSettings = undefined;
 }
 
+// ---------------------------------------------------------------- progress
+
+/** Footer chip key for compaction progress. */
+const PROGRESS_KEY = "phi-compacting";
+
+/** How many past compactions the estimate averages over. */
+const SAMPLES = 5;
+
+/**
+ * Durations of recent compactions, in milliseconds.
+ *
+ * Kept on disk beside the plan and notes, so the first compaction of a session
+ * already has an estimate. Without that, the progress bar would be useless
+ * exactly when a session is new and the wait is most surprising.
+ */
+function timesPath(cwd: string): string {
+	return path.join(cwd, ".pi", "compaction-times.json");
+}
+
+function readTimes(cwd: string | undefined): number[] {
+	if (!cwd) return [];
+	try {
+		const raw = JSON.parse(fs.readFileSync(timesPath(cwd), "utf8")) as unknown;
+		if (!Array.isArray(raw)) return [];
+		return raw.filter((n): n is number => typeof n === "number" && Number.isFinite(n) && n > 0).slice(-SAMPLES);
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Shortest duration worth remembering.
+ *
+ * A compaction is a model call on a large prompt; it cannot finish in
+ * milliseconds. Anything that fast is a stub, a test, or a failure that
+ * reported success, and recording it would make the next progress bar promise
+ * an instant compaction.
+ */
+const MIN_SAMPLE_MS = 500;
+
+export function recordCompactionMs(cwd: string | undefined, ms: number): void {
+	if (!cwd || !Number.isFinite(ms) || ms < MIN_SAMPLE_MS) return;
+	try {
+		const next = [...readTimes(cwd), ms].slice(-SAMPLES);
+		fs.mkdirSync(path.dirname(timesPath(cwd)), { recursive: true });
+		fs.writeFileSync(timesPath(cwd), JSON.stringify(next));
+	} catch {
+		/* an estimate is a nicety; never fail a compaction over it */
+	}
+}
+
+/** Mean of the recent samples, or undefined when there is nothing to go on. */
+export function estimateMs(cwd: string | undefined): number | undefined {
+	const times = readTimes(cwd);
+	if (!times.length) return undefined;
+	return Math.round(times.reduce((a, b) => a + b, 0) / times.length);
+}
+
+/**
+ * The compaction progress label.
+ *
+ * Elapsed seconds always, because that is the number that answers "is this
+ * stuck". The bar only appears once there is a previous compaction to compare
+ * against, and it stops claiming to predict anything once the estimate is
+ * passed: a bar pinned at full with the seconds still climbing is honest,
+ * while one that keeps growing past the end is not.
+ */
+export function progressLabel(elapsedMs: number, estimate: number | undefined, width = 10): string {
+	const secs = Math.max(0, Math.round(elapsedMs / 1000));
+	if (!estimate) return `compacting ${secs}s`;
+	const done = Math.min(1, elapsedMs / estimate);
+	const filled = Math.round(done * width);
+	const bar = "\u2588".repeat(filled) + "\u2591".repeat(width - filled);
+	const target = Math.round(estimate / 1000);
+	return elapsedMs >= estimate
+		? `compacting ${bar} ${secs}s (over ${target}s)`
+		: `compacting ${bar} ${secs}s / ~${target}s`;
+}
+
 /**
  * Request a compaction. Returns false if one is already running, one finished
  * moments ago, or the context cannot compact at all.
@@ -433,12 +518,36 @@ export function requestCompaction(
 	inFlight = true;
 	if (options.announce !== false) ctx.ui.notify(`${reason} — compacting.`, "info");
 
+	// Compaction is a model call on a large prompt, so it takes as long as a
+	// turn does. A spinner that says nothing about elapsed time is the same
+	// problem the working indicator had: a slow compaction and a wedged one look
+	// identical. The estimate comes from previous compactions in this project.
+	const startedAt = Date.now();
+	const estimate = estimateMs(ctx.cwd);
+	const setStatus = ctx.ui.setStatus;
+	let ticker: ReturnType<typeof setInterval> | undefined;
+	if (setStatus) {
+		setStatus(PROGRESS_KEY, progressLabel(0, estimate));
+		ticker = setInterval(() => setStatus(PROGRESS_KEY, progressLabel(Date.now() - startedAt, estimate)), 1000);
+		// A pending interval would keep node alive past the last turn.
+		ticker.unref?.();
+	}
+	const settle = () => {
+		if (ticker) clearInterval(ticker);
+		ticker = undefined;
+		setStatus?.(PROGRESS_KEY, undefined);
+	};
+
 	try {
 		ctx.compact({
 			customInstructions: options.instructions,
 			onComplete: (result) => {
 				inFlight = false;
 				lastAt = Date.now();
+				settle();
+				// Only successful compactions inform the estimate. One that failed
+				// after two seconds would make the next bar promise two seconds.
+				recordCompactionMs(ctx.cwd, lastAt - startedAt);
 				try {
 					options.onSummary?.(result.summary, result.tokensBefore);
 				} catch {
@@ -449,12 +558,14 @@ export function requestCompaction(
 			onError: (err) => {
 				inFlight = false;
 				lastAt = Date.now();
+				settle();
 				if (!isBenign(err.message)) ctx.ui.notify(`Compaction failed: ${err.message}`, "warning");
 				options.onDone?.();
 			},
 		});
 	} catch (e) {
 		inFlight = false;
+		settle();
 		if (!isBenign(String(e))) ctx.ui.notify(`Compaction failed: ${String(e)}`, "warning");
 		options.onDone?.();
 		return false;
