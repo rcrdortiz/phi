@@ -23,10 +23,14 @@ exitWord({
 check("hooks input", (handlers.input ?? []).length === 1);
 
 let shutdowns = 0;
-const ctx = { actions: { shutdown: () => { shutdowns++; } } };
-const fire = async (text, images) => {
+// pi hands the input event the plain extension context, where shutdown() sits
+// at the top level. Command contexts keep it under .actions. Reaching for the
+// wrong one throws inside pi's handler loop and the word is neither quit nor
+// sent on: it prints a stack trace instead.
+const ctx = { shutdown: () => { shutdowns++; } };
+const fire = async (text, images, c = ctx) => {
   let r;
-  for (const h of handlers.input ?? []) r = await h({ type: "input", text, images, source: "user" }, ctx);
+  for (const h of handlers.input ?? []) r = await h({ type: "input", text, images, source: "user" }, c);
   return r;
 };
 
@@ -37,6 +41,15 @@ const before = shutdowns;
 check("a sentence is passed through untouched",
   (await fire("exit the loop early")).action === "continue" && shutdowns === before,
   "the model still gets real questions about exiting");
+
+let nested = 0;
+check("shutdown under .actions also works",
+  (await fire("exit", undefined, { actions: { shutdown: () => { nested++; } } })).action === "handled" && nested === 1,
+  "command contexts keep it there");
+
+check("a context with neither passes the word on rather than throwing",
+  (await fire("exit", undefined, {})).action === "continue",
+  "a stack trace is worse than sending one stray word to the model");
 
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
 process.exit(results.every(Boolean) ? 0 : 1);

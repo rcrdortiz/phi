@@ -34,10 +34,22 @@ export default function exitWord(pi: ExtensionAPI): void {
 		if (!isExitWord(event.text, (event.images?.length ?? 0) > 0)) {
 			return { action: "continue" as const };
 		}
-		const c = ctx as unknown as ExtensionContext;
 		// shutdown() is graceful: it lets pi flush the session to disk rather
 		// than dropping the transcript, which process.exit() would.
-		c.actions.shutdown();
+		//
+		// It sits directly on the input context, not under .actions, which is
+		// where command contexts keep it. Reaching for the wrong one throws
+		// inside pi's handler loop, and the word is then neither quit nor sent
+		// to the model: it just prints a stack trace. Both shapes are tried, and
+		// missing both is a reason not to claim the input was handled.
+		const c = ctx as unknown as Partial<ExtensionContext> & { actions?: Partial<ExtensionContext> };
+		const shutdown = typeof c.shutdown === "function"
+			? c.shutdown.bind(c)
+			: typeof c.actions?.shutdown === "function"
+				? c.actions.shutdown.bind(c.actions)
+				: undefined;
+		if (!shutdown) return { action: "continue" as const };
+		shutdown();
 		return { action: "handled" as const };
 	});
 }
