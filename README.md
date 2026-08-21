@@ -11,7 +11,8 @@ attention — without you having to think about it.
 
 ```sh
 pi install https://github.com/rcrdortiz/phi
-./bootstrap.sh          # once, for the parts that need sudo and brew
+./bootstrap.sh          # once: Ollama, the GPU wired limit, the login agent
+pi                      # then, inside pi:  /model-install
 ```
 
 **No checkout required.** pi clones and manages the package itself, and
@@ -22,11 +23,12 @@ when it does. Nothing here reimplements that.
 
 - Apple Silicon, **48 GB minimum**. The model peaks at ~27 GB with a full
   context; below 48 GB there is nothing left for a desktop.
-- Homebrew, node, and Ollama. `install.sh` handles the rest and is safe to
-  re-run.
+- Homebrew and node. `bootstrap.sh` installs Ollama and is safe to re-run.
 
-It raises the GPU wired limit to ~83% of RAM and installs a login agent for
-Ollama's keep-alive. Both survive reboots.
+`bootstrap.sh` covers only what needs root or a package manager: installing
+Ollama, raising the GPU wired limit to ~83% of RAM, and a login agent for
+Ollama's keep-alive. Both survive reboots. Models are not its job — that is
+`/model-install`, which needs no checkout to run from.
 
 ## The model
 
@@ -102,7 +104,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `auto-handoff` | compacts mid-run, and records every compaction to disk |
 | `token-rate` | decode speed in the footer, so a stall is visible |
 | `incremental-writes` | large files written in verified chunks |
-| `self-update` | offers new commits at startup |
+| `model-install` | `/model-install` pulls and builds a preconfigured model, and rebuilds one whose modelfile has changed |
 
 The two that change how you work:
 
@@ -150,8 +152,10 @@ the code does not.
 ## Tests
 
 ```sh
-for t in test-*.mjs; do node "$t"; done
+npm test
 ```
 
-No framework. Each file builds the extension against a stub pi, asserts, and
-prints a count.
+No framework and no dependencies. Each file under `test/` builds an extension
+against a stub pi, asserts, and prints a count; `test/run.mjs` runs them all and
+exits non-zero if any assertion fails. Fixtures are generated and committed, so
+the suite passes on a machine that has never seen this project.
