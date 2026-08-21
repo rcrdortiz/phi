@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.2.0 (2026-08-21)
+
 Everything before this was unversioned. The entry is written from `git log`.
 
 **Fixed: compaction reclaimed almost nothing, then the next turn timed out.**
