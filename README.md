@@ -246,6 +246,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |
 | `PI_TOKEN_RATE` | `1` | show decode speed |
 | `PI_COMPACT_QUIET` | `1` | `0` shows the interruption our own compaction causes |
+| `PHI_DEBUG_MESSAGE_END` | off | `1` logs every assistant message end to `.pi/message-end.log` |
 | `PI_EXIT_WORD` | `1` | `0` sends a bare `exit` to the model instead of quitting |
 | `PI_WORKING_TIMER` | `1` | `0` leaves pi's plain "Working..." alone |
 | `PHI_RESUME_HINT` | `1` | `0` leaves pi's exit line alone |

@@ -159,6 +159,35 @@ check("an ordinary finished turn is not rewritten",
 check("a user message is never touched",
   (await fire("message_end", { message: { role: "user", stopReason: "error" } })) === undefined);
 
+// --- the diagnostic --------------------------------------------------------
+// The suppressor above is correct in isolation and was still not working live,
+// so the next occurrence has to leave evidence rather than another theory.
+check("recording is off unless asked for",
+  process.env.PHI_DEBUG_MESSAGE_END !== "1",
+  "it writes a line on every single turn");
+
+{
+  const fsx = await import("node:fs");
+  const osx = await import("node:os");
+  const px = await import("node:path");
+  const dir = fsx.mkdtempSync(px.join(osx.tmpdir(), "phi-msgend-"));
+  process.env.PHI_DEBUG_MESSAGE_END = "1";
+  const h2 = {};
+  const mod2 = (await import("../extensions/auto-handoff.ts?debug")).default;
+  mod2({ on: (e, fn) => ((h2[e] ||= []).push(fn)), registerCommand: () => {}, registerTool: () => {}, sendUserMessage: () => {} });
+  for (const fn of h2.message_end ?? []) {
+    await fn({ message: { role: "assistant", stopReason: "error", content: [{ type: "text" }] } }, { cwd: dir, ui: { notify: () => {} } });
+  }
+  const log = px.join(dir, ".pi", "message-end.log");
+  const wrote = fsx.existsSync(log) ? JSON.parse(fsx.readFileSync(log, "utf8").trim().split("\n")[0]) : undefined;
+  check("a recorded line carries what the decision was made on",
+    wrote?.stopReason === "error" && wrote?.role === "assistant" &&
+      "busy" in (wrote ?? {}) && "recent" in (wrote ?? {}) && Array.isArray(wrote?.parts),
+    JSON.stringify(wrote));
+  delete process.env.PHI_DEBUG_MESSAGE_END;
+  fsx.rmSync(dir, { recursive: true, force: true });
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

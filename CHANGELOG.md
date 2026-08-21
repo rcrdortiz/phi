@@ -16,6 +16,13 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: `PHI_DEBUG_MESSAGE_END=1` records every assistant message end.** The
+compaction-error suppressor added in 0.2.1 behaves correctly in isolation and
+was still not suppressing in a live session. Rather than reason about it a
+second time, set this and the next occurrence writes what actually arrived to
+`.pi/message-end.log`: stop reason, error text, content parts, and whether one
+of our compactions was in flight. Off by default, since it writes on every turn.
+
 ## 0.2.2 (2026-08-21)
 
 **Fixed: the resume command printed on exit did not work.** Quitting printed

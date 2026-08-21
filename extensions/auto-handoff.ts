@@ -37,6 +37,15 @@ const AUTO_CONTINUE = process.env.PI_PLAN_AUTOCONTINUE !== "0";
 const MAX_RESUMES = Number(process.env.PI_WATCHDOG_MAX_RESUMES ?? 25);
 /** Hide the interruption our own compaction causes. See the message_end handler. */
 const COMPACT_QUIET = process.env.PI_COMPACT_QUIET !== "0";
+/**
+ * Record every assistant message_end to `.pi/message-end.log`.
+ *
+ * Here because the suppressor below is correct in isolation and was still not
+ * working in a live session, and a second round of reasoning about why is worth
+ * less than one line of what actually arrived. Off by default: it writes on
+ * every turn.
+ */
+const DEBUG = process.env.PHI_DEBUG_MESSAGE_END === "1";
 
 /** The first unfinished step in the plan, if there is one. */
 function pendingStep(cwd: string): string | undefined {
@@ -72,6 +81,28 @@ function writeHandoff(cwd: string, summary: string, tokensBefore: number | undef
 	}
 }
 
+/** See DEBUG. Best effort: a diagnostic must never break the turn it observes. */
+function recordMessageEnd(ctx: { cwd: string }, event: unknown): void {
+	try {
+		const m = (event as { message?: Record<string, unknown> }).message ?? {};
+		const content = Array.isArray(m.content) ? (m.content as { type?: string }[]) : [];
+		const line = JSON.stringify({
+			at: new Date().toISOString(),
+			role: m.role,
+			stopReason: m.stopReason,
+			errorMessage: m.errorMessage ?? null,
+			parts: content.map((c) => c?.type),
+			busy: compactionBusy(),
+			recent: recentlyCompacted(10_000),
+		});
+		const p = path.join(ctx.cwd, ".pi", "message-end.log");
+		fs.mkdirSync(path.dirname(p), { recursive: true });
+		fs.appendFileSync(p, line + "\n");
+	} catch {
+		/* never break a turn to record it */
+	}
+}
+
 export default function autoHandoffExtension(pi: ExtensionAPI) {
 	/**
 	 * Swallow the abort that our own compaction causes.
@@ -103,7 +134,8 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 	 *
 	 * Env: PI_COMPACT_QUIET=0  show them, when you suspect one is real
 	 */
-	pi.on("message_end", async (event) => {
+	pi.on("message_end", async (event, ctx) => {
+		if (DEBUG) recordMessageEnd(ctx as unknown as { cwd: string }, event);
 		if (!COMPACT_QUIET) return undefined;
 		const m = (event as {
 			message?: { role?: string; errorMessage?: string; stopReason?: string };
