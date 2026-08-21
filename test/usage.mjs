@@ -88,6 +88,12 @@ check("a failed call is marked", written.find((r) => r.tool === "bash").error ==
 
 check("detail names the program, not the pipeline", detailOf("bash", { command: "./verify.sh | tail" }) === "./verify.sh");
 check("detail names the file, not its directory", detailOf("view_lines", { file: "/a/b/c.js" }) === "c.js");
+// Six reads of one file are six wasted reads if they cover the same lines and
+// ordinary exploration if they do not. Without the range the log cannot tell
+// the difference, and live it could not: the question was unanswerable.
+check("a read records its range", detailOf("view_lines", { file: "/a/run.html", start_line: 120, end_line: 340 }) === "run.html:120-340");
+check("an open-ended read says so", detailOf("view_lines", { file: "/a/x.js", start_line: 40 }) === "x.js:40+");
+check("a read with no range is still named", detailOf("view_lines", { file: "/a/x.js" }) === "x.js");
 check("no args is not an error", detailOf("outline", undefined) === "");
 
 // --- shell commands ---------------------------------------------------------

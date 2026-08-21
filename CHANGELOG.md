@@ -16,6 +16,11 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: the usage log records a read's line range, not just its file.** Six
+reads of one file are six wasted reads if they cover the same lines and ordinary
+exploration if they do not. The log could not tell the difference, so the first
+real question asked of it came back unanswerable.
+
 ## 0.9.2 (2026-08-21)
 
 **Fixed: `cat file 2>/dev/null` walked past the steering that exists to stop

@@ -29,7 +29,17 @@ export function detailOf(toolName: string, args: unknown): string {
 	const a = (args ?? {}) as Record<string, unknown>;
 	if (typeof a.command === "string") return a.command.trim().split("\n")[0].split(/\s+/)[0] ?? "";
 	const p = a.file ?? a.path ?? a.file_path ?? a.filePath;
-	if (typeof p === "string" && p) return p.split("/").filter(Boolean).pop() ?? "";
+	if (typeof p === "string" && p) {
+		const name = p.split("/").filter(Boolean).pop() ?? "";
+		// The range matters as much as the file. Six reads of run.html are six
+		// wasted reads if they cover the same lines and ordinary exploration if
+		// they do not, and without the range the log cannot tell the difference.
+		// Recorded live: exactly that question could not be answered.
+		const from = Number(a.start_line ?? a.start ?? a.offset);
+		const to = Number(a.end_line ?? a.end);
+		if (Number.isFinite(from)) return `${name}:${from}${Number.isFinite(to) ? `-${to}` : "+"}`;
+		return name;
+	}
 	if (typeof a.symbol === "string") return a.symbol;
 	return "";
 }
