@@ -205,8 +205,11 @@ try:
 except Exception:
     s = {}
 changed = False
+# quietStartup suppresses pi's [Skills]/[Extensions]/[Themes] listing. What is
+# loaded is not news every single launch, and the boot box already says the
+# things that change: which model, and whether anything is out of date.
 for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX"),
-             ("theme", "phi-purple"), ("tuiMode", "fullscreen")):
+             ("theme", "phi-purple"), ("tuiMode", "fullscreen"), ("quietStartup", True)):
     if not s.get(k):
         s[k] = v; changed = True
 if changed:
@@ -214,7 +217,7 @@ if changed:
 print("set" if changed else "kept")
 PY
 then
-  ok "defaults in place: local roster, purple theme, fullscreen TUI"
+  ok "defaults in place: local roster, purple theme, fullscreen TUI, quiet startup"
 else
   warn "could not write $SETTINGS"
 fi

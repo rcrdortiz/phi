@@ -649,11 +649,12 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 		if (!present.length) return;
 		pi.setActiveTools(all.map((t) => t.name).filter((n) => !drop.has(n)));
 		retired = true;
-		const replacement: Record<string, string> = { edit: "edit_block", read: "view_lines/outline" };
-		notify?.(
-			present.map((n) => `Using ${replacement[n]} instead of the built-in ${n} tool.`).join(" "),
-			"info",
-		);
+		// Deliberately silent. Which tools are retired is a property of the
+		// install, not news, and announcing it on every launch is the same noise
+		// as pi's resource listing: true, unchanging, and read once ever. The
+		// README says what is retired, and the model is told through the tool
+		// list it is given.
+		void notify;
 	};
 
 	pi.on("session_start", async (_event, ctx) => retireBuiltins(ctx.ui.notify));

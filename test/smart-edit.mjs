@@ -107,6 +107,20 @@ check("replace_lines applies with a correct guard", !r.isError && fs.readFileSyn
 r = await call("view_lines", { file: "game.js", start_line: 1, end_line: 3 });
 check("view_lines shows numbered lines", /1\| const CONFIG/.test(r.content[0].text));
 
+// The retirement of the built-in read and edit tools is silent now. That makes
+// it exactly the kind of behaviour that regresses unnoticed, so assert it.
+{
+	const active = [];
+	mod({
+		registerTool: () => {}, registerCommand: () => {},
+		on: (e, h) => { if (e === "before_agent_start") h(); },
+		getAllTools: () => [{ name: "bash" }, { name: "read" }, { name: "edit" }, { name: "write" }],
+		setActiveTools: (l) => active.push(...l),
+	});
+	check("read and edit are still retired", !active.includes("read") && !active.includes("edit"), active.join(", "));
+	check("other built-ins are left alone", active.includes("bash") && active.includes("write"));
+}
+
 fs.writeFileSync(FILE, ORIGINAL);
 const failed = results.filter((x) => !x.pass).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

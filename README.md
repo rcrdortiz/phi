@@ -45,8 +45,9 @@ it does. Nothing here reimplements that.
 - Homebrew and node. `get-phi.sh` installs the rest and is safe to re-run.
 
 It raises the GPU wired limit to ~83% of RAM and installs a login agent for
-Ollama's keep-alive; both survive reboots. It also sets the TUI to fullscreen
-and the theme to `phi-purple`, which ships with this package. Models are not its job, because a
+Ollama's keep-alive; both survive reboots. It also sets the TUI to fullscreen,
+the theme to `phi-purple`, and `quietStartup`, so launching prints the boot box
+rather than a listing of everything that loaded. Models are not its job, because a
 27B pull is not something an installer should start unasked. That is
 `/model-install`.
 
