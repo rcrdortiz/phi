@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.12.1 (2026-08-21)
+
 **Fixed: the "already in your context" steering had been dead since 0.6.0.** It
 tested for `.pi/PLAN.md` with a regex of its own, and state moved to `.phi/` six
 versions ago, so a `cat .phi/PLAN-DONE.md` went through at 974 tokens with no
