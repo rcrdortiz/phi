@@ -1,0 +1,31 @@
+#!/bin/sh
+# phi: pi, pointed at phi's own configuration.
+#
+# pi keeps everything about an install under one agent directory: settings,
+# installed packages, sessions. PI_CODING_AGENT_DIR chooses which, so running
+# pi against a different one gives a completely separate install sharing a
+# single binary.
+#
+# That is the whole trick. `phi` gets the extensions, the purple theme, the
+# fullscreen TUI and the local model roster; `pi` gets none of it and behaves
+# exactly as it does everywhere else. Neither can disturb the other, because
+# they do not share a settings file, and sessions started in one do not appear
+# in the other.
+#
+# Override the location with PHI_HOME if ~/.phi is not where you want it.
+set -e
+
+if ! command -v pi >/dev/null 2>&1; then
+  echo "phi: pi is not installed. npm i -g @earendil-works/pi-coding-agent" >&2
+  exit 127
+fi
+
+PHI_HOME="${PHI_HOME:-$HOME/.phi}"
+export PI_CODING_AGENT_DIR="$PHI_HOME"
+
+if [ ! -f "$PHI_HOME/agent/settings.json" ]; then
+  echo "phi: no configuration at $PHI_HOME. Re-run get-phi.sh." >&2
+  exit 1
+fi
+
+exec pi "$@"

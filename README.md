@@ -25,7 +25,14 @@ That installs Ollama, pi, and phi, raises the GPU wired limit, and sets up the
 login agent for Ollama's keep-alive. It asks before anything that needs `sudo`,
 and is safe to re-run: it skips whatever is already in place.
 
-Then start `pi` and run `/model-install` to pull and build a model.
+Then run `phi`, and `/model-install` inside it to pull and build a model.
+
+**`phi` and `pi` are separate installs sharing one binary.** `phi` runs pi
+against its own agent directory (`~/.phi`), so it gets these extensions, the
+purple theme, the fullscreen TUI and the local model roster. Plain `pi` keeps
+its own directory and behaves exactly as it does on any other machine. Neither
+can disturb the other: they do not share a settings file, and a session started
+in one does not appear in the other.
 
 **No checkout, at any point.** pi clones and manages the package itself, and
 `pi update` refreshes it, printing its own "restart to take effect" notice when
@@ -118,7 +125,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `token-rate` | decode speed in the footer, so a stall is visible |
 | `incremental-writes` | large files written in verified chunks |
 | `model-install` | `/model-install` pulls and builds a preconfigured model, and rebuilds one whose modelfile has changed |
-| `boot-screen` | replaces pi's banner with one about phi, and checks for pi and phi updates in the background |
+| `boot-screen` | replaces pi's banner with one about phi, and offers to install pi and phi updates |
 
 The two that change how you work:
 
@@ -153,6 +160,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_TOKEN_RATE` | `1` | show decode speed |
 | `PHI_BOOT` | `1` | `0` keeps pi's own startup banner |
 | `PHI_UPDATE_CHECK` | `1` | `0` draws the box but skips the network |
+| `PHI_HOME` | `~/.phi` | where phi's own agent directory lives |
 
 ## Why things are the way they are
 

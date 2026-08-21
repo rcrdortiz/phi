@@ -1,10 +1,10 @@
 import * as fs from "node:fs";
-import mod, { renderBox, checkPi, checkPhi } from "../extensions/boot-screen.ts";
+import mod, { renderBox, checkPi, checkPhi, applyUpdates } from "../extensions/boot-screen.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };
 const plain = (_role, s) => s;
-const base = { version: "0.1.0", cwd: "/home/x/proj", updates: { checked: true }, paint: plain };
+const base = { version: "0.1.0", cwd: "/home/x/proj", updates: { checked: true, phase: "idle" }, paint: plain };
 const ANSI = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
 
 // --- layout ---------------------------------------------------------------
@@ -42,14 +42,44 @@ const noModel = renderBox(78, { ...base }).join("\n");
 check("a machine with no model is told what to run", /no model yet/.test(noModel) && /\/model-install/.test(noModel),
   "the first thing a new install needs");
 
-// --- updates --------------------------------------------------------------
-const upd = renderBox(78, { ...base, model: "m", updates: { checked: true, pi: { current: "1.0.0", latest: "1.1.0" }, phi: { behind: 3 } } }).join("\n");
-check("reports a pi update with the command to run", /pi 1\.0\.0 to 1\.1\.0/.test(upd) && /npm i -g/.test(upd));
-check("reports how far phi is behind", /phi is 3 commit\(s\) behind/.test(upd));
+// --- updates: the box reports a phase, it does not print a command ------
+const avail = { checked: true, phase: "available", pi: { current: "1.0.0", latest: "1.1.0" }, phi: { behind: 3 } };
+const shown = renderBox(78, { ...base, model: "m", updates: avail }).join("\n");
+check("names what is out of date", /pi 1\.0\.0 to 1\.1\.0/.test(shown) && /phi 3 commit\(s\) behind/.test(shown));
+check("offers /update rather than a command to copy",
+  /\/update to install/.test(shown) && !/npm i -g/.test(shown),
+  "copying a command is the friction this replaces");
 
-const clean = renderBox(78, { ...base, model: "m", updates: { checked: true } }).join("\n");
+const phases = {
+  installing: /installing/,
+  installed: /update installed.*restart pi to apply/s,
+  failed: /update failed/,
+  declined: /\/update to install/,
+};
+for (const [phase, re] of Object.entries(phases)) {
+  const out = renderBox(78, { ...base, model: "m", updates: { ...avail, phase }, error: "EACCES" }).join("\n");
+  check(`the box reports the ${phase} phase`, re.test(out), out.split("\n").slice(-3, -1).join(" | ").trim());
+}
+
+const clean = renderBox(78, { ...base, model: "m", updates: { checked: true, phase: "idle" } }).join("\n");
 check("says nothing when everything is current", !/update/.test(clean),
   "an up-to-date machine should get no nag");
+
+// --- applying ------------------------------------------------------------
+const calls = [];
+const okExec = async (cmd, args) => { calls.push(`${cmd} ${args.join(" ")}`); };
+let r = await applyUpdates({ checked: true, phase: "available", pi: { current: "1", latest: "2" }, phi: { behind: 1 } }, okExec);
+check("installs pi and phi", r.ok && calls.length === 2, calls.join(" | "));
+check("uses npm for pi and pi update for phi",
+  /npm i -g @earendil-works\/pi-coding-agent/.test(calls[0]) && /^pi update/.test(calls[1]), calls.join(" | "));
+
+calls.length = 0;
+r = await applyUpdates({ checked: true, phase: "available", phi: { behind: 1 } }, okExec);
+check("only updates what is actually behind", r.ok && calls.length === 1 && /^pi update/.test(calls[0]), calls.join(" | "));
+
+r = await applyUpdates({ checked: true, phase: "available", pi: { current: "1", latest: "2" } },
+  async () => { throw new Error("EACCES: permission denied, access '/usr/local/lib'"); });
+check("a failed install is reported, not thrown", r.ok === false && /EACCES/.test(r.error ?? ""), r.error);
 
 // --- the checks fail silently ---------------------------------------------
 check("an unknown current version skips the pi check", (await checkPi("")) === undefined);
@@ -57,9 +87,10 @@ check("a directory that is not a repo yields no phi update", (await checkPhi("/n
   "offline and broken must be indistinguishable from up-to-date");
 
 // --- wiring ---------------------------------------------------------------
-const handlers = {};
-mod({ on: (e, h) => ((handlers[e] ||= []).push(h)), registerCommand: () => {}, registerTool: () => {} });
+const handlers = {}, cmds = [];
+mod({ on: (e, h) => ((handlers[e] ||= []).push(h)), registerCommand: (n) => cmds.push(n), registerTool: () => {} });
 check("hooks session_start", (handlers["session_start"] ?? []).length > 0);
+check("registers /update", cmds.includes("update"));
 
 let headerSet = false;
 await handlers["session_start"][0]({}, {

@@ -92,10 +92,14 @@ function shorten(p: string): string {
 	return p.startsWith(home) ? "~" + p.slice(home.length) : p;
 }
 
+export type UpdatePhase = "checking" | "idle" | "available" | "installing" | "installed" | "failed" | "declined";
+
 export interface UpdateState {
 	pi?: { current: string; latest: string };
 	phi?: { behind: number };
 	checked: boolean;
+	phase: UpdatePhase;
+	error?: string;
 }
 
 /**
@@ -127,6 +131,32 @@ export async function checkPhi(repoDir: string): Promise<UpdateState["phi"]> {
 	}
 }
 
+/**
+ * Install whatever is out of date.
+ *
+ * Both are done in place and neither takes effect until pi restarts: node has
+ * already loaded pi's code and this package's extensions, so a running session
+ * keeps the versions it started with no matter what changes on disk. Saying
+ * "restart to apply" is therefore the honest report, not a hedge.
+ *
+ * Failures are returned rather than thrown. A machine that cannot write to the
+ * global npm prefix is a normal machine, and the session it is running should
+ * carry on unaffected.
+ */
+export async function applyUpdates(
+	u: UpdateState,
+	exec: (cmd: string, args: string[]) => Promise<unknown> = (cmd, args) => run(cmd, args, { timeout: 300000 }),
+): Promise<{ ok: boolean; error?: string }> {
+	try {
+		if (u.pi) await exec("npm", ["i", "-g", "@earendil-works/pi-coding-agent"]);
+		if (u.phi) await exec("pi", ["update", "https://github.com/rcrdortiz/phi"]);
+		return { ok: true };
+	} catch (e) {
+		const msg = String((e as Error)?.message ?? e).split("\n")[0].slice(0, 120);
+		return { ok: false, error: msg };
+	}
+}
+
 export interface BoxOptions {
 	version: string;
 	model?: string;
@@ -134,6 +164,7 @@ export interface BoxOptions {
 	thinking?: string;
 	cwd: string;
 	updates: UpdateState;
+	error?: string;
 	paint: (role: string, s: string) => string;
 }
 
@@ -168,19 +199,42 @@ export function renderBox(width: number, o: BoxOptions): string[] {
 	line(o.paint("accent", "/speed") + "           decode rate, so a stall is visible");
 	line(o.paint("accent", "/notes-gc") + "        trim notes that have outgrown their welcome");
 
-	if (o.updates.pi || o.updates.phi) {
-		line();
-		if (o.updates.pi) {
-			line(o.paint("warning", "update") + "  pi " + o.updates.pi.current + " to " + o.updates.pi.latest +
-				o.paint("dim", "   npm i -g @earendil-works/pi-coding-agent"));
-		}
-		if (o.updates.phi) {
-			line(o.paint("warning", "update") + "  phi is " + o.updates.phi.behind + " commit(s) behind" +
-				o.paint("dim", "   pi update"));
-		}
-	} else if (!o.updates.checked && CHECK_UPDATES) {
-		line();
-		line(o.paint("dim", "checking for updates"));
+	const what = [
+		o.updates.pi ? "pi " + o.updates.pi.current + " to " + o.updates.pi.latest : "",
+		o.updates.phi ? "phi " + o.updates.phi.behind + " commit(s) behind" : "",
+	].filter(Boolean).join("  \u00b7  ");
+
+	switch (o.updates.phase) {
+		case "checking":
+			line();
+			line(o.paint("dim", "checking for updates"));
+			break;
+		case "available":
+			line();
+			line(o.paint("warning", "update available") + "  " + what);
+			line(o.paint("dim", "run /update to install"));
+			break;
+		case "installing":
+			line();
+			line(o.paint("accent", "installing") + "  " + what);
+			break;
+		case "installed":
+			line();
+			line(o.paint("success", "update installed") + o.paint("dim", "  \u00b7  restart pi to apply"));
+			break;
+		case "failed":
+			line();
+			line(o.paint("error", "update failed") + o.paint("dim", "  " + (o.error ?? "")));
+			break;
+		case "declined":
+			// Two lines, like "available". One long line gets clipped on a narrow
+			// terminal and the clip lands on the part that says what to do.
+			line();
+			line(o.paint("dim", "update available") + o.paint("dim", "  " + what));
+			line(o.paint("dim", "run /update to install"));
+			break;
+		default:
+			break;
 	}
 
 	return [o.paint("accent", top), ...rows, o.paint("accent", bottom)];
@@ -197,13 +251,41 @@ async function piVersion(): Promise<string> {
 
 export default function bootScreenExtension(pi: ExtensionAPI) {
 	if (!ENABLED) return;
-	const updates: UpdateState = { checked: false };
+	const updates: UpdateState = { checked: false, phase: CHECK_UPDATES ? "checking" : "idle" };
+	let invalidate: (() => void) | undefined;
+
+	/** Install, keeping the box honest about which stage it is at. */
+	async function install(ctx: ExtensionContext): Promise<void> {
+		if (!updates.pi && !updates.phi) {
+			ctx.ui.notify("Everything is up to date.", "info");
+			return;
+		}
+		updates.phase = "installing";
+		invalidate?.();
+		const r = await applyUpdates(updates);
+		if (r.ok) {
+			updates.phase = "installed";
+			// Cleared so a second /update does not offer what was just installed.
+			updates.pi = undefined;
+			updates.phi = undefined;
+			ctx.ui.notify("Update installed. Restart pi to apply it.", "info");
+		} else {
+			updates.phase = "failed";
+			updates.error = r.error;
+			ctx.ui.notify("Update failed: " + (r.error ?? "unknown"), "error");
+		}
+		invalidate?.();
+	}
+
+	pi.registerCommand("update", {
+		description: "Install available pi and phi updates",
+		handler: async (_args, ctx) => install(ctx as unknown as ExtensionContext),
+	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		const c = ctx as unknown as ExtensionContext;
 		if (c.mode !== "tui" || typeof c.ui.setHeader !== "function") return undefined;
 
-		let invalidate: (() => void) | undefined;
 		c.ui.setHeader((tui, theme) => {
 			invalidate = () => tui.invalidate();
 			return {
@@ -215,6 +297,7 @@ export default function bootScreenExtension(pi: ExtensionAPI) {
 						thinking: (c as { thinkingLevel?: string }).thinkingLevel,
 						cwd: c.cwd,
 						updates,
+						error: updates.error,
 						paint: (role, s) => theme.fg(role as never, s),
 					});
 				},
@@ -229,7 +312,24 @@ export default function bootScreenExtension(pi: ExtensionAPI) {
 				updates.pi = a;
 				updates.phi = b;
 				updates.checked = true;
+				updates.phase = a || b ? "available" : "idle";
 				invalidate?.();
+				if (!(a || b) || typeof c.ui.confirm !== "function") return;
+
+				// Ask rather than update silently. Replacing the binary someone is
+				// running is not a decision to make on their behalf, and the answer
+				// may reasonably be "not in the middle of this".
+				const what = [
+					a ? "pi " + a.current + " to " + a.latest : "",
+					b ? "phi is " + b.behind + " commit(s) behind" : "",
+				].filter(Boolean).join("\n");
+				const yes = await c.ui.confirm("Update available", what + "\n\nInstall now? It applies when pi restarts.");
+				if (!yes) {
+					updates.phase = "declined";
+					invalidate?.();
+					return;
+				}
+				await install(c);
 			})();
 		}
 		return undefined;

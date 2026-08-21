@@ -16,6 +16,12 @@
 set -euo pipefail
 
 PHI_REPO="${PHI_REPO:-https://github.com/rcrdortiz/phi}"
+# phi gets its own agent directory, so `pi` stays exactly as it was. pi keeps
+# settings, installed packages and sessions all under one directory, and
+# PI_CODING_AGENT_DIR picks which: two directories are two installs sharing one
+# binary. Everything below that configures phi therefore targets this, never
+# ~/.pi.
+PHI_HOME="${PHI_HOME:-$HOME/.phi}"
 SKIP_SYSCTL=0; ASSUME_YES=0
 for a in "$@"; do
   case "$a" in
@@ -179,15 +185,17 @@ fi
 # on whatever provider it can find rather than the local roster.
 # Only fills in what is missing: an existing choice is the user's, not ours.
 step "phi"
+export PI_CODING_AGENT_DIR="$PHI_HOME"
+mkdir -p "$PHI_HOME/agent"
 if pi list 2>/dev/null | grep -q "$PHI_REPO"; then
-  ok "already installed; updating"
+  ok "already installed in $PHI_HOME; updating"
   pi update "$PHI_REPO" >/dev/null 2>&1 && ok "up to date" || warn "could not update (offline?)"
 else
-  pi install "$PHI_REPO" >/dev/null 2>&1 && ok "installed as a pi package" || die "pi install $PHI_REPO failed"
+  pi install "$PHI_REPO" >/dev/null 2>&1 && ok "installed into $PHI_HOME" || die "pi install $PHI_REPO failed"
 fi
 
 step "Defaults"
-SETTINGS="$HOME/.pi/agent/settings.json"
+SETTINGS="$PHI_HOME/agent/settings.json"
 if python3 - "$SETTINGS" <<'PY'
 import json, os, sys
 p = sys.argv[1]
@@ -208,7 +216,28 @@ PY
 then
   ok "defaults in place: local roster, purple theme, fullscreen TUI"
 else
-  warn "could not write $SETTINGS — start pi with --provider ollama-local --model qwen3.8-4MLX once"
+  warn "could not write $SETTINGS"
+fi
+
+step "The phi command"
+WRAPPER="$PHI_HOME/agent/git/github.com/rcrdortiz/phi/bin/phi"
+if [ ! -f "$WRAPPER" ]; then
+  warn "launcher not found at $WRAPPER; run phi with: PI_CODING_AGENT_DIR=$PHI_HOME pi"
+else
+  BINDIR=""
+  for d in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin"; do
+    if [ -d "$d" ] && [ -w "$d" ]; then BINDIR="$d"; break; fi
+  done
+  if [ -z "$BINDIR" ]; then
+    BINDIR="$HOME/.local/bin"
+    mkdir -p "$BINDIR"
+    case ":$PATH:" in
+      *":$BINDIR:"*) ;;
+      *) warn "$BINDIR is not on your PATH; add it to use the phi command" ;;
+    esac
+  fi
+  ln -sf "$WRAPPER" "$BINDIR/phi"
+  ok "phi -> $BINDIR/phi  (pi is untouched and stays vanilla)"
 fi
 
 # ---------------------------------------------------------------- verify
@@ -223,10 +252,16 @@ fi
 if pi list 2>/dev/null | grep -q "$PHI_REPO"; then
   ok "phi is installed as a pi package"
 else
-  warn "phi is not installed — re-run this script"
+  warn "phi is not installed, re-run this script"
+fi
+if command -v phi >/dev/null 2>&1; then
+  ok "the phi command is on your PATH"
+else
+  warn "the phi command is not on your PATH yet; open a new shell"
 fi
 
 echo
-echo "${b}Done.${r} Start pi, then run  ${b}/model-install${r}  to pull and build a model."
+echo "${b}Done.${r} Run  ${b}phi${r}  then  ${b}/model-install${r}  to pull and build a model."
+echo "${d}phi is this setup; pi keeps working exactly as it did.${r}"
 echo "${d}The provider and model defaults are set, and pi remembers whatever you pick with /model.${r}"
 echo "${d}Low on memory? The guard offers models that fit. Quitting Chrome frees the most.${r}"
