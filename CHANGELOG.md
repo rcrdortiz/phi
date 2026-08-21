@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.7.3 (2026-08-21)
+
 **Changed: `view_lines` drops the alignment padding from its line numbers.**
 The gutter is 23% of a file read. Measured on 160 lines of source, the
 right-alignment padding costs about a token per line and buys nothing, since
