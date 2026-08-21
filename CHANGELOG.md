@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.2.5 (2026-08-21)
+
 **Fixed: the `Error: Unknown error` on every compaction was phi's own doing.**
 Compacting aborts the in-flight turn, which arrives as `stopReason: "error"`
 carrying the text "This operation was aborted". The suppressor matched it,
