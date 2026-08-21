@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.10.0 (2026-08-21)
+
 **Added: `outline` covers HTML, and section banners in every language.** Found
 in a usage log: `run.html`, 529 lines, was read nine times in one session for a
 third of its entire tool output. `outline` returned nothing for `.html`, so
