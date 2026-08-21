@@ -438,10 +438,16 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			}
 			readCache.record(file, stamp, s, e);
 
-			const width = String(e).length;
+			// No right-alignment padding, and no space after the bar. Measured
+			// against the model's own tokenizer on 160 lines of source: the
+			// padding costs about one token per line and buys nothing, since
+			// nothing here is read as a column. The bar earns its own token by
+			// keeping the number unambiguous against a line of code that itself
+			// starts with a digit. The digits are the remaining ~2.4 tokens a
+			// line and are the whole point of a gutter.
 			const body = lines
 				.slice(s - 1, e)
-				.map((l, i) => `${String(s + i).padStart(width)}| ${l}`)
+				.map((l, i) => `${s + i}|${l}`)
 				.join("\n");
 			// The note matters as much as the text: it is how the model learns
 			// it got a different range than it asked for, instead of concluding

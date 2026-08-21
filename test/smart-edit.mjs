@@ -105,7 +105,16 @@ check("replace_lines applies with a correct guard", !r.isError && fs.readFileSyn
 
 // 8. view_lines numbers correctly.
 r = await call("view_lines", { file: "game.js", start_line: 1, end_line: 3 });
-check("view_lines shows numbered lines", /1\| const CONFIG/.test(r.content[0].text));
+check("view_lines shows numbered lines", /^1\|const CONFIG/m.test(r.content[0].text),
+  r.content[0].text.split("\n")[1]);
+// The gutter is 23% of a file read, so its shape is worth pinning. Measured on
+// 160 lines of source: right-alignment padding costs ~1 token per line and buys
+// nothing, since nothing here is read as a column.
+check("the gutter carries no alignment padding",
+  !/^\s+\d+\|/m.test(r.content[0].text),
+  "a leading space per line is a token per line");
+check("the bar is kept", /^\d+\|/m.test(r.content[0].text),
+  "it disambiguates the number from a line of code that starts with a digit");
 
 // The retirement of the built-in read and edit tools is silent now. That makes
 // it exactly the kind of behaviour that regresses unnoticed, so assert it.

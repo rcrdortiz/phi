@@ -16,6 +16,12 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: `view_lines` drops the alignment padding from its line numbers.**
+The gutter is 23% of a file read. Measured on 160 lines of source, the
+right-alignment padding costs about a token per line and buys nothing, since
+nothing in the output is read as a column. `12|code` instead of `  12| code`,
+for about 5% off every read with no capability lost.
+
 ## 0.7.2 (2026-08-21)
 
 **Fixed: shell output was budgeted as though it cost half what it does.**

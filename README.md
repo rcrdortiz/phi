@@ -256,6 +256,22 @@ once and twice so the chat template's overhead cancels:
 | JSON | 2.01 |
 | Command output | 2.00 |
 
+Formatting costs tokens too, and some of it buys nothing. Measured the same
+way, holding the information constant and changing only the shape:
+
+| change | saving |
+|---|---|
+| `ls -1` instead of `ls -la` | 86.5% |
+| compact JSON instead of `indent=2` | 45.3% |
+| dropping `view_lines`' line numbers | 22.8% |
+| tabs instead of spaces | 0.6% |
+| removing blank lines | 0.0% |
+
+The last two are noise, and neither was ours to change. The gutter is: line
+numbers cost about 4.4 tokens a line, of which the right-alignment padding is
+one and buys nothing, so `view_lines` writes `12|code` rather than `  12| code`.
+The remaining 3.4 pays for `replace_lines` being able to address an edit at all.
+
 One number cannot cover that spread. Shell output and JSON pack nearly twice
 the tokens per character that source does, so `bash`, `ls`, `grep` and `find`
 convert at 2.0 and everything else at 3.4. The single 3.6 this replaces came
