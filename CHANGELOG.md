@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.11.0 (2026-08-21)
+
 **Added: quitting writes a "where this stopped" note.** Ctrl+C now leaves the
 plan step in progress, anything cut off mid-call, the files changed and the last
 few actions at the top of `.phi/HANDOFF.md`. Assembled from what is already
