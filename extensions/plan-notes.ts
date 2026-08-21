@@ -56,7 +56,15 @@ const AUTO_CONTINUE = process.env.PI_PLAN_AUTOCONTINUE !== "0";
 const PLAN_GATE = process.env.PI_PLAN_GATE !== "0";
 const MAX_AUTO = Number(process.env.PI_PLAN_MAX_AUTO ?? 25);
 
-type Step = { done: boolean; text: string };
+/**
+ * A step, and whether anyone has started it.
+ *
+ * `[ ]` waiting, `[o]` in progress, `[x]` done. The middle one exists because
+ * "current" used to be inferred as "the first one not done", which cannot tell
+ * a step that was started and interrupted from one nobody has touched. After a
+ * crash, a ctrl+c, or a compaction, that distinction is the whole question.
+ */
+type Step = { done: boolean; active?: boolean; text: string };
 
 // ---------------------------------------------------------------- files
 
@@ -87,8 +95,10 @@ function writeFileSafe(p: string, contents: string): void {
 function parsePlan(text: string): Step[] {
 	const steps: Step[] = [];
 	for (const line of text.split("\n")) {
-		const m = /^\s*[-*]\s*\[([ xX])\]\s*(.+?)\s*$/.exec(line);
-		if (m) steps.push({ done: m[1].toLowerCase() === "x", text: m[2] });
+		const m = /^\s*[-*]\s*\[([ xXoO])\]\s*(.+?)\s*$/.exec(line);
+		if (!m) continue;
+		const mark = m[1].toLowerCase();
+		steps.push({ done: mark === "x", ...(mark === "o" ? { active: true } : {}), text: m[2] });
 	}
 	return steps;
 }
@@ -115,7 +125,7 @@ export function planIsSpent(steps: Step[]): boolean {
 }
 
 function renderPlan(goal: string, steps: Step[]): string {
-	const body = steps.map((s) => `- [${s.done ? "x" : " "}] ${s.text}`).join("\n");
+	const body = steps.map((s) => `- [${s.done ? "x" : s.active ? "o" : " "}] ${s.text}`).join("\n");
 	return `# Plan\n\n${goal ? `**Goal:** ${goal}\n\n` : ""}${body}\n`;
 }
 
@@ -173,9 +183,31 @@ function planGoal(text: string): string {
 	return m ? m[1].trim() : "";
 }
 
+/**
+ * The step being worked on: the one marked in progress, else the first waiting.
+ *
+ * Preferring the mark matters when work happened out of order, or when a step
+ * was started and something else was touched afterwards. The fallback keeps a
+ * plan written by hand, with no marks in it, working exactly as before.
+ */
 function currentStep(steps: Step[]): { index: number; step?: Step } {
-	const i = steps.findIndex((s) => !s.done);
+	const active = steps.findIndex((s) => s.active && !s.done);
+	const i = active !== -1 ? active : steps.findIndex((s) => !s.done);
 	return { index: i, step: i === -1 ? undefined : steps[i] };
+}
+
+/**
+ * Mark the current step as started, if it is not already.
+ *
+ * Deterministic and free: the model is told to do one step, so the moment it
+ * changes anything, that step is under way. Asking it to declare a start would
+ * cost a tool call and a round trip on every step, and would be forgotten
+ * exactly when a session is about to be interrupted.
+ */
+export function markActive(steps: Step[]): Step[] | undefined {
+	const { index, step } = currentStep(steps);
+	if (!step || step.active) return undefined;
+	return steps.map((t, i) => (i === index ? { ...t, active: true } : t));
 }
 
 /** Compare a proposed plan against the current one. Matching is on trimmed,
@@ -238,7 +270,7 @@ function briefing(ctx: { cwd: string }): string {
 		`## Current work (from ${PLAN_FILE})`,
 		planGoal(planText) ? `Goal: ${planGoal(planText)}` : "",
 		"",
-		`**Step ${index + 1} of ${steps.length} — do only this one:**`,
+		`**Step ${index + 1} of ${steps.length}${step.active ? " (in progress)" : ""} — do only this one:**`,
 		step.text,
 		"",
 		doneList ? `Recently done:\n${doneList}` : "",
@@ -334,13 +366,27 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		return { systemPrompt: `${event.systemPrompt}\n\n${brief}` };
 	});
 
-	// New work must not start against a spent plan. See planIsSpent.
+	// New work must not start against a spent plan. See planIsSpent. The same
+	// hook marks the current step as started, since an edit is the clearest
+	// evidence there is that work on it has begun.
 	pi.on("tool_call", async (event, ctx) => {
-		if (!PLAN_GATE) return undefined;
 		const e = event as { toolName?: string };
 		if (!e.toolName || !MUTATING.has(e.toolName)) return undefined;
 		const c = ctx as unknown as { cwd: string };
-		if (!planIsSpent(parsePlan(readFileSafe(planPath(c))))) return undefined;
+		const steps = parsePlan(readFileSafe(planPath(c)));
+		if (!planIsSpent(steps)) {
+			const marked = markActive(steps);
+			if (marked) {
+				try {
+					const text = readFileSafe(planPath(c));
+					writeFileSafe(planPath(c), renderPlan(planGoal(text), marked));
+				} catch {
+					/* a mark is a convenience; never block an edit over it */
+				}
+			}
+			return undefined;
+		}
+		if (!PLAN_GATE) return undefined;
 		return {
 			block: true,
 			reason:
@@ -402,11 +448,16 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			// not make finished work look outstanding again.
 			const norm = (t: string) => t.split(" \u2014 ")[0].trim().toLowerCase().replace(/\s+/g, " ");
 			const doneText = new Map(existing.filter((s) => s.done).map((s) => [norm(s.text), s.text]));
+			// A step that was under way stays under way through a revision. Losing
+			// the mark here would be silent until the next edit re-set it, and an
+			// interruption inside that window is exactly the case it exists for.
+			const activeText = new Set(existing.filter((s) => s.active && !s.done).map((s) => norm(s.text)));
 			const steps: Step[] = params.steps.map((t: string) => {
 				const prior = doneText.get(norm(t));
 				// Keep the completed step's original wording, which carries its
 				// summary — the revision should not erase what was recorded.
-				return prior ? { done: true, text: prior } : { done: false, text: t };
+				if (prior) return { done: true, text: prior };
+				return { done: false, ...(activeText.has(norm(t)) ? { active: true } : {}), text: t };
 			});
 			const kept = archiveCompleted(ctx, steps);
 			writeFileSafe(planPath(ctx), renderPlan(params.goal, kept));

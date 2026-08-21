@@ -51,12 +51,23 @@ const EXIT_HANDOFF = process.env.PI_EXIT_HANDOFF !== "0";
 const RECORD_MESSAGE_END = flag("PHI_DEBUG_MESSAGE_END", DEBUG);
 
 /** The first unfinished step in the plan, if there is one. */
+/**
+ * The step to resume into: the one marked in progress, else the first waiting.
+ *
+ * `[o]` has to be matched here as well as in plan-notes. Matching only `[ ]`
+ * would skip the step actually under way and name the one after it, which is
+ * precisely the wrong answer at precisely the moment it matters: resuming.
+ */
 function pendingStep(cwd: string): string | undefined {
 	try {
+		let firstWaiting: string | undefined;
 		for (const line of fs.readFileSync(path.join(cwd, PLAN_FILE), "utf8").split("\n")) {
-			const m = /^\s*[-*]\s*\[ \]\s*(.+?)\s*$/.exec(line);
-			if (m) return m[1];
+			const m = /^\s*[-*]\s*\[([ oO])\]\s*(.+?)\s*$/.exec(line);
+			if (!m) continue;
+			if (m[1].toLowerCase() === "o") return m[2];
+			firstWaiting ??= m[2];
 		}
+		return firstWaiting;
 	} catch {
 		/* no plan is a perfectly normal state */
 	}

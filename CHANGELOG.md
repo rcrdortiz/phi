@@ -16,6 +16,14 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: a step can be in progress, `[o]`, not just waiting or done.** "Current"
+was inferred as "the first one not done", which cannot tell a step that was
+started and interrupted from one nobody has touched, and after a crash or a
+ctrl+c that is the whole question. The mark is set automatically on the first
+edit rather than by a tool call: the model is told to do one step, so the moment
+it changes anything, that step is under way. The briefing, the compaction resume
+and the exit note all prefer it over the first waiting step.
+
 ## 0.11.0 (2026-08-21)
 
 **Added: quitting writes a "where this stopped" note.** Ctrl+C now leaves the
