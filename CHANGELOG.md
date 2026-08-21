@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.5.0 (2026-08-21)
+
 **Added: compaction shows elapsed seconds and a progress bar.** It is a model
 call on a large prompt, so it takes as long as a turn, and behind a bare spinner
 a slow one and a wedged one look identical. The estimate averages the last five
