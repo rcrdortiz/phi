@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.6.0 (2026-08-21)
+
 **Changed: per-project state moved from `.pi` to `.phi`.** `PLAN.md`,
 `NOTES.md`, `PLAN-DONE.md`, `HANDOFF.md` and the compaction timings now live in
 `.phi`. `.pi` is pi's own project directory and holds its `settings.json`;
