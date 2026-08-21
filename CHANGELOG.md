@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.9.3 (2026-08-21)
+
 **Changed: the usage log records a read's line range, not just its file.** Six
 reads of one file are six wasted reads if they cover the same lines and ordinary
 exploration if they do not. The log could not tell the difference, so the first
