@@ -16,6 +16,15 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: `bench/`, comparing harnesses on one task with a suite they do not
+control.** `node bench/run.mjs --harness phi,pi --runs 3` runs the task through
+`pi --print` in a fresh directory per run and grades the artifact against a
+fixed acceptance suite the agent never sees. Reports median and range, never a
+single number; alternates harnesses so a warm prefix cache does not land on one
+side; and records timeouts rather than dropping them, since not finishing is the
+most important thing a harness can do wrong. `test/bench.mjs` grades the
+benchmark itself, including that a reference implementation passes every check.
+
 ## 0.12.1 (2026-08-21)
 
 **Fixed: the "already in your context" steering had been dead since 0.6.0.** It
