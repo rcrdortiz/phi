@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import mod, { renderBox, checkPi, checkPhi, applyUpdates, parseInterval } from "../extensions/boot-screen.ts";
+import mod, { renderBox, checkPi, checkPhi, applyUpdates, parseInterval, debugPaint } from "../extensions/boot-screen.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };
@@ -145,6 +145,32 @@ check("a check landing during an install is dropped",
 check("a declined update stays declined",
   /declined \? "declined" : "available"/.test(src),
   "re-announcing it every ten minutes is nagging");
+
+// --- debug mode is visible before anything happens -------------------------
+// Debug mode changes what a session does: nothing collapses and every tool call
+// is written to disk. Finding that out from a log file that exists is worse
+// than being told at the top of the screen.
+const dbg = renderBox(92, { ...base, model: "m", debug: true, paint: debugPaint }).join("\n");
+check("the debug box says it is in debug mode", /debug/.test(dbg));
+check("and says what that changed", /logging to|collapsed/.test(dbg),
+  "a colour with no explanation is a mystery, not a signal");
+
+const ESC2 = String.fromCharCode(27);
+const tones = (t) => new Set((t.match(new RegExp(ESC2 + "\\[38;5;(\\d+)m", "g")) ?? []));
+check("debug repaints the whole box, not just one line",
+  tones(dbg).size >= 3, `${tones(dbg).size} tones`);
+check("the mark keeps its shading in debug colours",
+  tones(renderBox(92, { ...base, model: "m", debug: true, paint: debugPaint }).slice(1, 6).join("\n")).size >= 2,
+  "one yellow would flatten the light source the mark is drawn with");
+
+// The ordinary box must not pick up any of this.
+const plainBox = renderBox(92, { ...base, model: "m" }).join("\n");
+check("an ordinary session says nothing about debug", !/debug/.test(plainBox));
+check("rows still align in debug", (() => {
+  const rows = renderBox(78, { ...base, model: "m", debug: true, paint: debugPaint })
+    .map((l) => l.replace(new RegExp(ESC2 + "\\[[0-9;]*m", "g"), "").length);
+  return new Set(rows).size === 1;
+})(), "colour must not change the geometry");
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

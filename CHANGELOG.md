@@ -16,6 +16,11 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: the boot box is yellow under `PHI_DEBUG`, and says why.** Debug mode
+changes what a session does, so it should be visible at the top of the screen
+rather than discovered from a log file that exists or from output that suddenly
+will not fold. Purple is ordinary, yellow means someone is watching.
+
 ## 0.9.0 (2026-08-21)
 
 **Changed: recording is opt-in, behind `PHI_DEBUG=1`.** One switch turns on the

@@ -289,6 +289,9 @@ a file's declarations for a fraction of the cost of reading it. The built-in
 **Finding the next thing to optimise.** Run with `PHI_DEBUG=1`, work normally,
 then `/usage`. Debug mode turns on the logs and turns off the hiding: tool
 output stops collapsing, tool costs are recorded, message ends are written out.
+The boot box turns yellow and says so, because a mode that changes what a
+session does should be visible before anything has happened, rather than
+discovered from a log file that exists.
 One switch, because a debug mode that makes you name each thing you wanted, or
 that collapses the output you asked to see, is not one. Anything set explicitly
 still wins, since that was a decision rather than a default.

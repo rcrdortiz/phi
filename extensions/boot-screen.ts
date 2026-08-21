@@ -22,6 +22,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { DEBUG } from "../lib/debug.ts";
+import { STATE_DIR } from "../lib/state-dir.ts";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -125,6 +128,35 @@ function paintArtRow(row: string, y: number, rows: number, paint: (role: string,
 }
 
 const ESC = String.fromCharCode(27);
+
+/**
+ * The box turns yellow under PHI_DEBUG, so the mode is visible before anything
+ * has happened.
+ *
+ * Debug mode changes what a session does: nothing collapses, and every tool
+ * call is written to disk. Finding that out from a log file that exists, or
+ * from output that suddenly will not fold, is worse than being told at the top
+ * of the screen. Purple means ordinary, yellow means someone is watching.
+ *
+ * Painted as raw ANSI rather than through a theme role, because the mark is
+ * shaded across four tones and the theme has exactly one yellow. A ramp needs
+ * four.
+ */
+const DEBUG_TONES: Record<string, string> = {
+	accent: "229",
+	border: "221",
+	muted: "178",
+	dim: "136",
+	warning: "214",
+	success: "229",
+	error: "203",
+	toolOutput: "221",
+};
+
+export function debugPaint(role: string, text: string): string {
+	return `${ESC}[38;5;${DEBUG_TONES[role] ?? "221"}m${text}${ESC}[0m`;
+}
+
 const ANSI = new RegExp(ESC + "\\[[0-9;]*m", "g");
 /** Length ignoring colour, so padding survives it. */
 function visible(s: string): number {
@@ -265,6 +297,8 @@ export interface BoxOptions {
 	updates: UpdateState;
 	error?: string;
 	paint: (role: string, s: string) => string;
+	/** Painted yellow, with a line saying why. */
+	debug?: boolean;
 }
 
 /** Build the box. Exported so the layout can be asserted without a terminal. */
@@ -290,6 +324,8 @@ export function renderBox(width: number, o: BoxOptions): string[] {
 		facts.push(o.paint("warning", "no model yet") + "  \u00b7  run /model-install");
 	}
 	facts.push(o.paint("dim", shorten(o.cwd)));
+	// The colour says something changed; this says what.
+	if (o.debug) facts.push(o.paint("warning", "debug") + o.paint("dim", "  \u00b7  logging to " + STATE_DIR + ", nothing collapsed"));
 
 	const big = inner - 2 >= BIG_LOGO_MIN_WIDTH;
 	const art = big ? LOGO_BIG : LOGO_SMALL;
@@ -404,9 +440,10 @@ export default function bootScreenExtension(pi: ExtensionAPI) {
 						contextWindow: c.model?.contextWindow,
 						thinking: (c as { thinkingLevel?: string }).thinkingLevel,
 						cwd: c.cwd,
+						debug: DEBUG,
 						updates,
 						error: updates.error,
-						paint: (role, s) => theme.fg(role as never, s),
+						paint: DEBUG ? debugPaint : (role, s) => theme.fg(role as never, s),
 					});
 				},
 			};
