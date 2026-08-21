@@ -225,6 +225,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `exit-word` | a bare `exit` closes pi instead of being answered by the model |
 | `working-timer` | what the turn is doing, and how long it has been doing it |
 | `resume-hint` | makes the resume command pi prints on exit name `phi` |
+| `usage-log` | records what each tool call costs, for `/usage` |
 | `boot-screen` | replaces pi's banner with one about phi, and offers to install pi and phi updates |
 
 The two that change how you work:
@@ -285,6 +286,18 @@ than by line number, which is where most failed edits came from. `outline` lists
 a file's declarations for a fraction of the cost of reading it. The built-in
 `read` and `edit` tools are retired in favour of these: one tool per job.
 
+**Finding the next thing to optimise.** `/usage` reports where the tokens went:
+per tool, with calls, total, share, median and worst, plus the individual calls
+that cost the most. Median next to total on purpose, because they answer
+different questions. A tool with a high total and a low median is called often
+and is working as intended; a high median means it is expensive every time, and
+that is the one worth changing. Raw records are in `.phi/usage.jsonl`, one line
+per call.
+
+Every measured improvement in this repo was found after something had already
+gone wrong: a stalled session, a timeout, a budget wrong by a factor of two.
+This is the same evidence collected before the fact.
+
 ## Commands
 
 | | |
@@ -297,6 +310,7 @@ a file's declarations for a fraction of the cost of reading it. The built-in
 | `/next` | finish the current step and reset the context |
 | `/notes` | show what is currently on the notes file |
 | `/notes-gc` | trim notes that have outgrown their welcome |
+| `/usage` | which tools are spending the context |
 | `/syntax` | check a file parses, without reading it back |
 | `/handoff` | summarise and compact now |
 | `/effort` | set thinking level (or `Shift+Tab`) |
@@ -333,6 +347,8 @@ Everything has a working default. These exist for when it does not.
 | `PI_COLLAPSE_KEEP` | `1` | lines kept before the expand hint |
 | `PI_COMPACT_SAMPLES` | `5` | past compactions the progress estimate averages |
 | `PHI_DEBUG_MESSAGE_END` | off | `1` logs every assistant message end to `.phi/message-end.log` |
+| `PHI_USAGE_LOG` | `1` | `0` stops recording tool costs |
+| `PHI_USAGE_MAX_BYTES` | `2000000` | log size before the oldest half is dropped |
 | `PI_EXIT_WORD` | `1` | `0` sends a bare `exit` to the model instead of quitting |
 | `PI_WORKING_TIMER` | `1` | `0` leaves pi's plain "Working..." alone |
 | `PHI_RESUME_HINT` | `1` | `0` leaves pi's exit line alone |

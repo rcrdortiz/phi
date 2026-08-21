@@ -25,7 +25,7 @@ import { Type } from "../lib/schema.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { collapsedRenderer } from "../lib/collapse.ts";
-import { charsPerToken } from "./tool-budget.ts";
+import { charsPerToken } from "../lib/token-estimate.ts";
 import { statePath } from "../lib/state-dir.ts";
 
 // Kept under the project's .pi/ directory, next to Pi's own .pi/agent/sessions,

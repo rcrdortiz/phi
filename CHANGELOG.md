@@ -16,6 +16,18 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: `/usage`, and a per-call log behind it.** Reports where the tokens went:
+per tool with calls, total, share, median and worst, plus the individual calls
+that cost the most. Median sits next to total because they answer different
+questions: a high total with a low median is a tool called often and working as
+intended, while a high median is expensive every time and is the one worth
+changing. Raw records land in `.phi/usage.jsonl`, one line per call, capped and
+halved when it grows past 2MB. `PHI_USAGE_LOG=0` stops it.
+
+**Changed: the chars-per-token estimate moved to `lib/token-estimate.ts`.**
+Three extensions need it now, and a shared estimate is the only way the numbers
+they each print can agree.
+
 ## 0.7.3 (2026-08-21)
 
 **Changed: `view_lines` drops the alignment padding from its line numbers.**
