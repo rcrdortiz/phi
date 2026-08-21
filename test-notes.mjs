@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import mod from "/Users/rcrd/AI/pi-local/extensions/plan-notes.ts";
-import { narrationReason, trimNote, pruneExpiring, gcNotes, NOTE_MAX_CHARS } from "/Users/rcrd/AI/pi-local/lib/notes.ts";
+import { narrationReason, trimNote, pruneExpiring, gcNotes, duplicateOf, enforceBudget, NOTE_MAX_CHARS, NOTES_MAX_CHARS } from "/Users/rcrd/AI/pi-local/lib/notes.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + String(d).replace(/\n/g, "\n        ") : ""}`); };
@@ -95,6 +95,30 @@ check("GC keeps the durable notes", /inconsistent indentation/.test(g.text) && /
 check("GC actually shrinks the file", g.after < g.before, `${g.before} -> ${g.after}`);
 check("GC removes headings left empty", !/## technical\n\n## /.test(g.text), g.text);
 check("GC is idempotent", gcNotes(g.text).after === g.after);
+
+// --- the file must not grow without bound -------------------------------
+// Every other rule bounds a NOTE. None bounds the FILE, and gotcha/decision are
+// permanent by design, so the briefing grew monotonically at ~2 notes a session.
+const big = ["# Notes", "", "## gotcha", "- a durable constraint about startDrop() and this.roundActive", "",
+  "## technical", ...Array.from({ length: 6 }, (_, i) => `- code detail ${i} ` + "x".repeat(900)), ""].join("\n");
+const b = enforceBudget(big, 2000);
+check("the file is capped", b.text.length <= 2000, `${big.length} -> ${b.text.length}`);
+check("durable notes are never evicted", /durable constraint/.test(b.text));
+check("technical notes are evicted oldest-first", b.evicted[0].startsWith("code detail 0"), b.evicted[0].slice(0, 20));
+
+// A ceiling that discards constraints to hit a number would be worse than none.
+const allDurable = ["# Notes", "", "## gotcha", ...Array.from({ length: 6 }, (_, i) => `- constraint ${i} ` + "y".repeat(900))].join("\n");
+const d = enforceBudget(allDurable, 2000);
+check("a file of pure constraints is left over budget", d.evicted.length === 0 && d.text === allDurable,
+  "stopping is correct: nothing here is safe to drop");
+
+// --- restatements are refused -------------------------------------------
+const existing = "# Notes\n\n## gotcha\n- Clear-reseed MUST be gated on a flag (e.g. this.roundActive) set ONLY by startDrop().\n";
+check("a rephrased restatement is caught",
+  duplicateOf(existing, "Clear-detection in play() is gated on this.roundActive (set only by startDrop()). Isolated tests set bombs[] directly.") !== undefined,
+  "the real 9-vs-18 pair from the observed file");
+check("a different fact about the same names is not",
+  duplicateOf(existing, "startDrop() seeds currentWaveSize() mother bombs, one on round 1.") === undefined);
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

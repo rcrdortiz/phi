@@ -146,3 +146,120 @@ export function gcNotes(text: string, max = NOTE_MAX_CHARS): GcResult {
 	const result = `${kept.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
 	return { text: result, dropped, trimmed, before, after: result.length };
 }
+
+/**
+ * A ceiling, because nothing else provides one.
+ *
+ * The rules so far all bound a note: narration is refused, length is capped,
+ * `state` expires. None of them bounds the FILE. Across 15 sessions note_add was
+ * called 35 times, 8 in the busiest one, and every gotcha/technical/decision is
+ * permanent by design — so the briefing grows monotonically, and it is charged
+ * on every request forever.
+ *
+ * Eviction is by category, not by age alone, because the two are not
+ * interchangeable:
+ *
+ *   gotcha, decision   constraints and the reasons behind choices. These stay
+ *   product, design    true regardless of what the code does next. Never evicted.
+ *
+ *   technical, state   descriptions of the code AS IT IS NOW. This is the class
+ *                      that rots — in the observed file, "run.html is still the
+ *                      Space-Invaders suite", "6 tests still FAIL", "shot.html
+ *                      still calls startWave()" were all `technical` or `gotcha`
+ *                      written as fact and false within days. It is also the
+ *                      class that is cheapest to lose, because the code itself
+ *                      still says what the code does.
+ *
+ * When only durable notes remain the file stops shrinking rather than evicting
+ * an invariant. A ceiling that discards constraints to meet a number would be
+ * worse than no ceiling.
+ */
+export const NOTES_MAX_CHARS = Number(process.env.PI_NOTES_MAX_CHARS ?? 4000);
+const DECAYING = new Set(["technical", EXPIRING_CATEGORY]);
+
+interface Entry { category: string; line: string; index: number; }
+
+function parseEntries(text: string): Entry[] {
+	const out: Entry[] = [];
+	let cat = "";
+	text.split("\n").forEach((line, i) => {
+		const h = /^##\s+(\S+)/.exec(line);
+		if (h) { cat = h[1].toLowerCase(); return; }
+		if (/^\s*-\s+\S/.test(line)) out.push({ category: cat, line, index: i });
+	});
+	return out;
+}
+
+export function enforceBudget(text: string, max = NOTES_MAX_CHARS): { text: string; evicted: string[] } {
+	if (text.length <= max) return { text, evicted: [] };
+	const lines = text.split("\n");
+	const drop = new Set<number>();
+	const evicted: string[] = [];
+	// Oldest first, and only from the categories that describe passing state.
+	for (const e of parseEntries(text)) {
+		const size = lines.filter((_, i) => !drop.has(i)).join("\n").length;
+		if (size <= max) break;
+		if (!DECAYING.has(e.category)) continue;
+		drop.add(e.index);
+		evicted.push(e.line.replace(/^\s*-\s+/, ""));
+	}
+	if (!drop.size) return { text, evicted: [] };
+	const kept = lines.filter((_, i) => !drop.has(i));
+	return { text: `${kept.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`, evicted };
+}
+
+/**
+ * Whether `note` restates something already recorded.
+ *
+ * Jaccard is the obvious choice and the wrong one. The real duplicate pair in
+ * the observed file — "Clear-reseed MUST be gated on a flag (this.roundActive)
+ * set ONLY by startDrop()" against "Clear-detection in play() is gated on
+ * this.roundActive (set only by startDrop()). Isolated tests set bombs[]
+ * directly" — scores 0.375, because the second note says everything the first
+ * does AND more. Union in the denominator punishes a restatement for being
+ * longer.
+ *
+ * Overlap coefficient (shared / smaller) measures containment instead, which is
+ * what a restatement actually is. On its own it over-fires on notes that merely
+ * share vocabulary, so it is paired with a requirement for two shared
+ * IDENTIFIERS — this.roundActive, startDrop(), pang.js. Two notes about the same
+ * named things, one containing the other, is a duplicate; two notes about the
+ * same file are not.
+ */
+function tokens(t: string): Set<string> {
+	const out = new Set<string>();
+	for (const raw of t.toLowerCase().replace(/[^a-z0-9_().\s]/g, " ").split(/\s+/)) {
+		// Trim punctuation clinging to the edges, while keeping the "()" that
+		// makes a call look like a call. Without this, `this.roundActive)` and
+		// `this.roundActive` are different tokens and an obvious restatement
+		// scores as unrelated.
+		let w = raw.replace(/^[^a-z0-9_]+/, "").replace(/[.,;:]+$/, "");
+		// A call inside brackets — "(set only by startDrop())" — ends with two
+		// closing parens, one of which belongs to the prose. Collapse the run so
+		// startDrop()) and startDrop() are the same identifier.
+		w = w.includes("(") ? w.replace(/\)+$/, ")") : w.replace(/\)+$/, "");
+		if (w.length > 2) out.add(w);
+	}
+	return out;
+}
+function identifiers(t: string): Set<string> {
+	return new Set([...tokens(t)].filter((w) => w.includes(".") || w.includes("(") || w.includes("_")));
+}
+
+export function duplicateOf(text: string, note: string): string | undefined {
+	const inWords = tokens(note);
+	const inIds = identifiers(note);
+	if (inWords.size < 4) return undefined;
+	for (const e of parseEntries(text)) {
+		const exWords = tokens(e.line);
+		let shared = 0;
+		for (const w of inWords) if (exWords.has(w)) shared++;
+		const overlap = shared / Math.max(1, Math.min(inWords.size, exWords.size));
+		if (overlap < 0.55) continue;
+		const exIds = identifiers(e.line);
+		let sharedIds = 0;
+		for (const w of inIds) if (exIds.has(w)) sharedIds++;
+		if (sharedIds >= 2) return e.line.replace(/^\s*-\s+/, "");
+	}
+	return undefined;
+}

@@ -127,6 +127,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_BASH_TIMEOUT_SECONDS` | `300` | ceiling on a bash call that omits its own |
 | `PI_VIEW_MAX_LINES` | `400` | cap on one `view_lines` call |
 | `PI_NOTE_MAX_CHARS` | `350` | cap on one note |
+| `PI_NOTES_MAX_CHARS` | `4000` | cap on the whole notes file |
 | `PI_COMPACT_AT_TOKENS` | 70% of window | depth at which context is compacted |
 | `PI_PLAN_KEEP_DONE` | `3` | completed steps kept in the plan |
 | `PI_PLAN_AUTOCONTINUE` | `1` | run steps unattended (also gates the compaction resume) |

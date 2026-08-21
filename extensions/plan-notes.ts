@@ -20,7 +20,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { requestCompaction } from "../lib/compaction.ts";
-import { EXPIRING_CATEGORY, NOTE_MAX_CHARS, gcNotes, narrationReason, pruneExpiring, trimNote } from "../lib/notes.ts";
+import { EXPIRING_CATEGORY, NOTES_MAX_CHARS, NOTE_MAX_CHARS, duplicateOf, enforceBudget, gcNotes, narrationReason, pruneExpiring, trimNote } from "../lib/notes.ts";
 import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -399,6 +399,20 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			}
 
 			const { text: noteText, trimmed } = trimNote(params.note);
+
+			// A restatement is not free: it is charged on every request for as long
+			// as it lives, and two notes saying one thing is how the observed file
+			// ended up explaining the roundActive gate twice.
+			const dupe = duplicateOf(readFileSafe(p), noteText);
+			if (dupe) {
+				return {
+					content: [{
+						type: "text",
+						text: `Already recorded, as: "${dupe}". Add a note only if it says something that one does not.`,
+					}],
+					isError: true,
+				};
+			}
 			const cat = (CATEGORIES as readonly string[]).includes(params.category.toLowerCase())
 				? params.category.toLowerCase()
 				: "technical";
@@ -420,14 +434,25 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			} else {
 				text = `${text.trimEnd()}\n\n${heading}\n${entry}\n`;
 			}
-			writeFileSafe(p, text.endsWith("\n") ? text : `${text}\n`);
+			const budgeted = enforceBudget(text.endsWith("\n") ? text : `${text}\n`);
+			writeFileSafe(p, budgeted.text);
+			if (budgeted.evicted.length) {
+				// Kept on disk rather than deleted: evicted for being re-derivable
+				// from the code is not the same as being wrong.
+				const arch = path.join(ctx.cwd, `${NOTES_FILE}.archive`);
+				const prior = readFileSafe(arch);
+				writeFileSafe(arch, `${prior}${budgeted.evicted.map((e) => `- ${e}`).join("\n")}\n`);
+			}
 			return {
 				content: [{
 					type: "text",
 					text:
 						`Noted under ${cat}.` +
 						(trimmed ? ` Trimmed to ${NOTE_MAX_CHARS} characters — keep notes to one or two sentences.` : "") +
-						(cat === EXPIRING_CATEGORY ? " This one is dropped at the next step boundary." : ""),
+						(cat === EXPIRING_CATEGORY ? " This one is dropped at the next step boundary." : "") +
+						(budgeted.evicted.length
+							? ` ${NOTES_FILE} was over ${NOTES_MAX_CHARS} chars, so ${budgeted.evicted.length} older technical note(s) moved to ${NOTES_FILE}.archive.`
+							: ""),
 				}],
 				details: { category: cat, trimmed },
 			};
