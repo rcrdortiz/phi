@@ -87,6 +87,24 @@ check("the bash cap still clears normal bash output", budgetChars(51200, "bash")
   `${budgetChars(51200, "bash")} chars; only 26 of 371 logged calls exceeded 2,000`);
 
 // --- file dumps through the shell ----------------------------------------
+// Recorded live: `cat .phi/PLAN-DONE.md 2>/dev/null || echo "NO PLAN-DONE"`
+// cost 898 tokens on a file the briefing already injects every turn, and walked
+// past this guard because `2>/dev/null` and `||` contain the characters it was
+// using to detect a pipeline.
+check("stderr redirection is not filtering",
+  looksLikeFileDump("cat verify.sh 2>/dev/null") === "verify.sh",
+  "the whole of stdout still reaches the context");
+check("a fallback branch is not a pipe",
+  looksLikeFileDump('cat .phi/PLAN-DONE.md 2>/dev/null || echo "none"') === ".phi/PLAN-DONE.md");
+check("2>&1 is caught too", looksLikeFileDump("cat pang.js 2>&1") === "pang.js");
+check("a dump inside an exploration bundle is found",
+  looksLikeFileDump('echo "== v =="; cat verify.sh; echo; ls -la test/') === "verify.sh",
+  "bundling several reads into one bash call is how the guard gets bypassed");
+
+// The cases it must still let through, or steering makes things worse.
+check("a real pipeline is left alone", looksLikeFileDump("cat a.js | grep x") === undefined);
+check("output redirected to a file is left alone", looksLikeFileDump("cat a.js > out.txt") === undefined);
+
 check("catches cat of a path", looksLikeFileDump("cat .pi/NOTES.md") === ".pi/NOTES.md");
 check("catches the awk line-numbering trick", looksLikeFileDump(`awk '{printf "%3d| %s\n", NR, $0}' pang.js`) === "pang.js",
   "its awk program contains a pipe, which naive detection treats as a pipeline");

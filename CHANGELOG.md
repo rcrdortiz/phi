@@ -16,6 +16,15 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: `cat file 2>/dev/null` walked past the steering that exists to stop
+it.** The guard treated any `|` or `>` as a pipeline that filters output before
+it reaches the context, which is true of `cat x | grep y` and false of
+`2>/dev/null` and `|| echo`. Found in a real usage log:
+`cat .phi/PLAN-DONE.md 2>/dev/null || echo "NO PLAN-DONE"` cost 898 tokens on a
+file the briefing already injects every turn. Stderr redirection is now ignored
+and `||`/`&&` are treated as separators, so each branch is judged on its own.
+Real pipelines and stdout redirects are still left alone.
+
 ## 0.9.1 (2026-08-21)
 
 **Added: the boot box is yellow under `PHI_DEBUG`, and says why.** Debug mode

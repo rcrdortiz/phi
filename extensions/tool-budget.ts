@@ -109,13 +109,34 @@ export function looksLikeFileDump(command: string): string | undefined {
 	const Q = "\u0000";
 	const masked = command.trim().replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, Q);
 
-	// A real pipeline or redirect filters before anything reaches the context.
-	// Steering the model away from `cat x | grep y` would make things worse.
-	if (/[|><]/.test(masked)) return undefined;
+	// Stderr redirection is not filtering: `cat x 2>/dev/null` still puts the
+	// whole of x into the context. Recorded live, `cat .phi/PLAN-DONE.md
+	// 2>/dev/null || echo "NO PLAN-DONE"` cost 898 tokens on a file the briefing
+	// already injects every turn, and sailed past this guard because of the
+	// characters in `2>/dev/null` and `||`.
+	const noStderr = masked.replace(/\s*2>\s*(?:&1|\/dev\/null|\S+)/g, "");
 
-	const m = /(?:^|&&|;)\s*(cat|nl|head|tail|sed|awk)\s+([^&;]+)$/.exec(masked);
+	// `||` and `&&` are separators, not pipes. Judge each branch on its own, the
+	// same way `;` is already handled: a fallback after a failure does not filter
+	// the output of the thing that succeeded.
+	const branches = noStderr.split(/\|\||&&|;/);
+
+	for (const branch of branches) {
+		// A real pipeline or a redirect away from the terminal does filter before
+		// anything reaches the context. Steering the model away from
+		// `cat x | grep y` would make things worse.
+		if (/[|><]/.test(branch)) continue;
+		const found = dumpTarget(branch);
+		if (found) return found;
+	}
+	return undefined;
+}
+
+/** The file a single, unfiltered read command names, if it names one. */
+function dumpTarget(branch: string): string | undefined {
+	const Q = "\u0000";
+	const m = /^\s*(cat|nl|head|tail|sed|awk)\s+(.+)$/.exec(branch);
 	if (!m) return undefined;
-
 	const target = m[2]
 		.trim()
 		.split(/\s+/)
