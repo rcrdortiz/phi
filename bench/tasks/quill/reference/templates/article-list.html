@@ -1,0 +1,15 @@
+<section class="listing">
+  <h1 class="listing-title">{{heading}}</h1>
+  <form class="listing-filters" method="get">
+    <input class="search-input" type="search" name="q" value="{{query}}" placeholder="Search articles">
+    <select class="status-filter" name="status">
+      <option value="all">All</option>
+      <option value="published">Published</option>
+      <option value="draft">Draft</option>
+      <option value="archived">Archived</option>
+    </select>
+    <button class="filter-submit" type="submit">Filter</button>
+  </form>
+  <div class="article-list-slot">{{articles}}</div>
+  <div class="pagination-slot">{{pagination}}</div>
+</section>

@@ -1,0 +1,14 @@
+.editor { display: flex; flex-direction: column; gap: var(--step); }
+.field { display: flex; flex-direction: column; gap: 0.3rem; }
+.field-label { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.field-input, .field-textarea { padding: 0.5rem; border: 1px solid var(--rule); font: inherit; }
+.field-textarea { resize: vertical; min-height: 18rem; }
+
+.tag-picker { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.tag-option { border: 1px solid var(--rule); background: #fff; border-radius: 999px; padding: 0.15rem 0.7rem; cursor: pointer; }
+.tag-option.is-selected { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.editor-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+.button { padding: 0.45rem 1rem; border: 1px solid var(--accent); cursor: pointer; }
+.button-primary { background: var(--accent); color: #fff; }
+.button-secondary { background: #fff; color: var(--accent); }

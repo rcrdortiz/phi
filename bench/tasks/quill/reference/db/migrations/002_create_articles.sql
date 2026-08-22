@@ -1,0 +1,2 @@
+-- migration 002: create articles
+-- Applied in order by Support\Migrator. Idempotent by convention.

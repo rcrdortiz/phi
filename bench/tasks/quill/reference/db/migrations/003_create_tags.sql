@@ -1,0 +1,2 @@
+-- migration 003: create tags
+-- Applied in order by Support\Migrator. Idempotent by convention.

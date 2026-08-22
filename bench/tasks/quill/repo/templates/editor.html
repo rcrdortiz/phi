@@ -1,0 +1,22 @@
+<form class="editor" method="post" action="/articles">
+  <label class="field">
+    <span class="field-label">Title</span>
+    <input class="field-input" name="title" maxlength="120" value="{{title}}" required>
+  </label>
+  <label class="field">
+    <span class="field-label">Slug</span>
+    <input class="field-input" name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" value="{{slug}}" required>
+  </label>
+  <label class="field">
+    <span class="field-label">Body</span>
+    <textarea class="field-textarea" name="body" rows="20" required>{{body}}</textarea>
+  </label>
+  <div class="field">
+    <span class="field-label">Tags</span>
+    <div class="tag-picker-slot">{{tags}}</div>
+  </div>
+  <div class="editor-actions">
+    <button class="button button-secondary" name="action" value="save">Save draft</button>
+    <button class="button button-primary" name="action" value="publish">Publish</button>
+  </div>
+</form>

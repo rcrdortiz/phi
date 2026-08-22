@@ -19,6 +19,7 @@
 // What it cannot control, and so reports instead: what else the machine was
 // doing. Run it on an idle laptop or the timings mean little.
 import { execFileSync, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -150,11 +151,32 @@ function runOnce(harness, index, effort, compactThinking) {
   // of building it. The second prompt is never present during the first: a task
   // that reveals what is coming measures whether the model can follow a hint,
   // not whether it leaves seams by default.
-  const twoPhase = fs.existsSync(path.join(TASK_DIR, "PHASE1.md"));
-  const prompt = fs.readFileSync(path.join(TASK_DIR, twoPhase ? "PHASE1.md" : "PROMPT.md"), "utf8");
+  // Phases, in order. A task with PHASE1..N runs them as sequential prompts.
+  const phases = [];
+  for (let n = 1; n <= 9; n++) {
+    const f = path.join(TASK_DIR, `PHASE${n}.md`);
+    if (fs.existsSync(f)) phases.push(f);
+  }
+  const multi = phases.length > 0;
+  const prompt = fs.readFileSync(multi ? phases[0] : path.join(TASK_DIR, "PROMPT.md"), "utf8");
+
+  /**
+   * Whether later phases share the first phase's session.
+   *
+   * `sameSession` is the point of a multi-phase task: context accumulates across
+   * the phases, which is the only way a benchmark run ever gets deep enough to
+   * compact. A task that wants each phase to start clean, to measure whether the
+   * design survives being handed to someone with no memory of building it, opts
+   * out with SAME_SESSION=false in its meta.
+   */
+  let meta = {};
+  try { meta = JSON.parse(fs.readFileSync(path.join(TASK_DIR, "task.json"), "utf8")); } catch { /* defaults */ }
+  const sameSession = meta.sameSession !== false;
+  const sessionId = sameSession ? randomUUID() : undefined;
   const startedAt = Date.now();
 
   const argv = ["--print", prompt, "--approve"];
+  if (sessionId) argv.push("--session-id", sessionId);
   // Only passed when sweeping. Without it each harness runs at its own
   // configured default, which is part of what "phi versus pi" means.
   if (effort) argv.push("--thinking", effort);
@@ -181,16 +203,21 @@ function runOnce(harness, index, effort, compactThinking) {
       return { passed: 0, total: 0, results: [], error: (e && e.message) || String(e) };
     }
   };
-  let verdict = grade(twoPhase ? "verify1.mjs" : "verify.mjs");
+  let verdict = grade(multi ? "verify1.mjs" : "verify.mjs");
   const usage = readSession(spec.agentDir, cwd, startedAt);
 
-  let phase2;
-  if (twoPhase) {
+  // Later phases, each graded by its own suite, each re-running the earlier ones
+  // as a regression check. They share the first phase's session, which is the
+  // point: context accumulates across the phases, and that is the only way a
+  // benchmark run gets deep enough to compact.
+  const laterPhases = [];
+  for (let i = 1; i < phases.length; i++) {
     const snapshot = snapshotOf(cwd);
-    const startedAt2 = Date.now();
-    const argv2 = ["--print", fs.readFileSync(path.join(TASK_DIR, "PHASE2.md"), "utf8"), "--approve"];
-    if (effort) argv2.push("--thinking", effort);
-    const r2 = spawnSync("pi", argv2, {
+    const startedPhase = Date.now();
+    const argvN = ["--print", fs.readFileSync(phases[i], "utf8"), "--approve"];
+    if (sessionId) argvN.push("--session", sessionId);
+    if (effort) argvN.push("--thinking", effort);
+    const rN = spawnSync("pi", argvN, {
       cwd,
       encoding: "utf8",
       timeout: TIMEOUT_MIN * 60_000,
@@ -201,21 +228,22 @@ function runOnce(harness, index, effort, compactThinking) {
         ...(compactThinking ? { PI_COMPACT_THINKING: compactThinking } : {}),
       },
     });
-    const v2 = grade("verify2.mjs");
-    const u2 = readSession(spec.agentDir, cwd, startedAt2);
-    phase2 = {
-      seconds: Math.round((Date.now() - startedAt2) / 1000),
-      timedOut: r2.error?.code === "ETIMEDOUT" || r2.signal === "SIGTERM",
-      passed: v2.passed,
-      total: v2.total,
-      // The half that matters: adding a format is easy, not breaking the one
-      // already there is what separates a design with seams from one without.
-      regressed: v2.regressed ?? 0,
+    const vN = grade(`verify${i + 1}.mjs`);
+    const uN = readSession(spec.agentDir, cwd, startedPhase);
+    laterPhases.push({
+      phase: i + 1,
+      seconds: Math.round((Date.now() - startedPhase) / 1000),
+      timedOut: rN.error?.code === "ETIMEDOUT" || rN.signal === "SIGTERM",
+      passed: vN.passed,
+      total: vN.total,
+      regressed: vN.regressed ?? 0,
       ...diffStat(cwd, snapshot),
-      output: u2.output,
-      turns: u2.turns,
-    };
+      output: uN.output,
+      turns: uN.turns,
+      compactions: uN.compactions,
+    });
   }
+
   const record = {
     at: new Date().toISOString(),
     task: TASK,
@@ -230,7 +258,7 @@ function runOnce(harness, index, effort, compactThinking) {
     total: verdict.total,
     failures: (verdict.results ?? []).filter((x) => !x.pass).map((x) => x.name),
     ...usage,
-    ...(phase2 ? { phase2 } : {}),
+    ...(laterPhases.length ? { phases: laterPhases } : {}),
     cwd,
   };
   fs.appendFileSync(OUT, `${JSON.stringify(record)}\n`);
@@ -239,11 +267,12 @@ function runOnce(harness, index, effort, compactThinking) {
     `  ${harness.padEnd(4)} ${String(record.effort).padEnd(8)} run ${index}: ${score.padEnd(7)} ${record.seconds}s  ` +
       `${record.output} out / ${record.input} in  ${record.turns} turns` +
       `${record.timedOut ? "  TIMED OUT" : ""}` +
-      (phase2
-        ? `\n       phase 2: ${phase2.passed}/${phase2.total}  ${phase2.seconds}s  ` +
-          `+${phase2.added}/-${phase2.removed} in ${phase2.filesTouched} file(s)  ` +
-          `${phase2.regressed ? `${phase2.regressed} REGRESSED` : "no regressions"}`
-        : ""),
+      laterPhases
+        .map((p) =>
+          `\n       phase ${p.phase}: ${p.passed}/${p.total}  ${p.seconds}s  ` +
+            `+${p.added}/-${p.removed} in ${p.filesTouched} file(s)  ${p.compactions} compaction(s)  ` +
+            `${p.regressed ? `${p.regressed} REGRESSED` : "no regressions"}`)
+        .join(""),
   );
   return record;
 }

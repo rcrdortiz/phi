@@ -180,5 +180,67 @@ check("editing the tests is caught", (() => {
 check("the runner copies a task's seed repo", /fs.cpSync\(seed, cwd/.test(fs.readFileSync(path.join(bench, "run.mjs"), "utf8")),
   "one run must not hand the next a half-fixed codebase");
 
+// --- quill: one session, three phases, four languages ----------------------
+// Every earlier task finished without compacting once, which made them useless
+// for comparing harnesses: compaction is most of what separates phi from pi.
+// This one runs its phases in a single session so context accumulates.
+const quill = path.join(bench, "tasks/quill");
+const gradeQuill = (n, dir) =>
+  JSON.parse(execFileSync(process.execPath, [path.join(quill, `verify${n}.mjs`), dir],
+    { encoding: "utf8", timeout: 300000, stdio: ["ignore", "pipe", "ignore"] }));
+
+check("quill has three phases", [1, 2, 3].every((n) => fs.existsSync(path.join(quill, `PHASE${n}.md`))));
+check("and a suite for each", [1, 2, 3].every((n) => fs.existsSync(path.join(quill, `verify${n}.mjs`))));
+check("its phases share one session", (() => {
+  const meta = JSON.parse(fs.readFileSync(path.join(quill, "task.json"), "utf8"));
+  return meta.sameSession === true;
+})(), "context has to accumulate, or nothing ever compacts");
+check("the exporter keeps its fresh-session design",
+  JSON.parse(fs.readFileSync(path.join(bench, "tasks/exporter/task.json"), "utf8")).sameSession === false,
+  "it measures whether a design survives being handed to a stranger");
+
+// Four languages, and a codebase big enough that reading it costs something.
+const counts = {};
+const walk = (d) => {
+  for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    if (e.name.startsWith(".")) continue;
+    const p = path.join(d, e.name);
+    if (e.isDirectory()) walk(p);
+    else counts[path.extname(e.name)] = (counts[path.extname(e.name)] ?? 0) + 1;
+  }
+};
+walk(path.join(quill, "repo"));
+check("the codebase spans php, ts, html, css and sql",
+  [".php", ".ts", ".html", ".css", ".sql"].every((e) => (counts[e] ?? 0) > 0),
+  JSON.stringify(counts));
+check("it is large enough to be worth reading",
+  Object.values(counts).reduce((a, b) => a + b, 0) >= 70,
+  `${Object.values(counts).reduce((a, b) => a + b, 0)} files`);
+
+// The visible suites pass as shipped; the hidden ones do not.
+check("both visible suites pass on the seeded repo", (() => {
+  const dir = path.join(quill, "repo");
+  try {
+    execFileSync("php", ["test/run.php"], { cwd: dir, stdio: "ignore" });
+    execFileSync(process.execPath, ["--experimental-strip-types", "test/run.ts"], { cwd: dir, stdio: "ignore" });
+    return true;
+  } catch { return false; }
+})(), "a failing test says where to look, and looking is the task");
+
+const seeded1 = gradeQuill(1, path.join(quill, "repo"));
+check("the hidden suite finds what the visible ones miss", seeded1.passed < seeded1.total, `${seeded1.passed}/${seeded1.total}`);
+check("the defects span php and typescript", (() => {
+  const failing = seeded1.results.filter((r) => !r.pass).map((r) => r.name).join(" ");
+  return /listing|page|offset/.test(failing) && /newestFirst/.test(failing);
+})());
+
+// And the reference passes all three, which is what proves them passable.
+for (const n of [1, 2, 3]) {
+  const r = gradeQuill(n, path.join(quill, "reference"));
+  check(`the reference passes phase ${n}`, r.passed === r.total,
+    r.results.filter((x) => !x.pass).map((x) => `${x.name}: ${x.detail}`).join("; ") || `${r.passed}/${r.total}`);
+  if (n > 1) check(`phase ${n} reports no regressions on the reference`, r.regressed === 0, String(r.regressed));
+}
+
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
 process.exit(results.every(Boolean) ? 0 : 1);

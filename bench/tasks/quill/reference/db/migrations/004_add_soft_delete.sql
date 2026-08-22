@@ -1,0 +1,2 @@
+-- migration 004: add soft delete
+-- Applied in order by Support\Migrator. Idempotent by convention.
