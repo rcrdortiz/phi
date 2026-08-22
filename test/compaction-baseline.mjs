@@ -8,7 +8,8 @@ process.env.PI_COMPACT_MIN_GAP_MS = "0";
 // value phi installs. Set before the import: ESM hoists it above assignments.
 process.env.PI_KEEP_RECENT_TOKENS = "9800";
 const { requestCompaction, resetCompactionState, trackExternalCompactions, keepRecentTokens,
-  recommendedKeepRecentTokens, compactAtTokens, observeContext, prefillCeiling } =
+  recommendedKeepRecentTokens, compactAtTokens, observeContext, prefillCeiling,
+  observedTurnGrowth, overshootAllowance, resetTurnGrowth } =
   await import("../lib/compaction.ts");
 
 const results = [];
@@ -263,6 +264,45 @@ check("the trigger never exceeds what a cache miss can recover from",
 check("raising the trigger does not raise what is kept",
   recommendedKeepRecentTokens(65536) === 9800 && recommendedKeepRecentTokens(32768) === 9800,
   "it used to be 35% of the trigger, which quietly made it scale");
+
+// --- the trigger learns what a turn costs ----------------------------------
+// The check only runs at turn_end, so depth keeps climbing until the turn ends.
+// Measured live: a run crossed a 36,000 trigger at 37,560 and did not reach
+// turn_end until 53,097. The trigger fires early by that much so the turn ENDS
+// near the intended depth instead of starting there.
+resetCompactionState();
+const flat = compactAtTokens(65_536);
+check("a fresh session has no overshoot allowance", observedTurnGrowth() === 0 && overshootAllowance(flat) === 0,
+  `growth=${observedTurnGrowth()}`);
+
+observeContext(10_000);
+observeContext(12_000);
+check("small turns barely move the trigger", compactAtTokens(65_536) === flat - 2_000,
+  `${compactAtTokens(65_536)} vs ${flat}`);
+
+observeContext(30_000);
+check("the worst turn is what counts, not the last one", observedTurnGrowth() === 18_000,
+  `growth=${observedTurnGrowth()}`);
+
+check("the trigger drops by the worst turn's growth", compactAtTokens(65_536) < flat,
+  `${compactAtTokens(65_536)} vs ${flat}`);
+
+// A single enormous turn must not collapse the trigger: a session that compacts
+// every turn re-prefills every turn, which is slower than running deeper.
+resetTurnGrowth();
+observeContext(1_000);
+observeContext(60_000);
+check("one huge turn cannot collapse the trigger", compactAtTokens(65_536) >= Math.round(flat * 0.6),
+  `${compactAtTokens(65_536)} floor ${Math.round(flat * 0.6)} of ${flat}`);
+
+// The drop across a compaction is not something a turn spent.
+resetTurnGrowth();
+observeContext(50_000);
+observeContext(7_000);
+check("a compaction's drop is not counted as growth", observedTurnGrowth() === 0,
+  `growth=${observedTurnGrowth()}`);
+
+resetTurnGrowth();
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

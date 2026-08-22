@@ -106,7 +106,13 @@ fs.writeFileSync(path.join(DIR, STATE_DIR, "PLAN.md"), "# Plan\n\n- [x] one\n- [
 resetCompactionState();
 sent.length = 0;
 compactCalls = 0;
-const deepCtx = { ...ctx, getContextUsage: () => ({ tokens: Math.round(compactAtTokens(65_536) * 1.1), contextWindow: 65_536 }) };
+// Sampled once, deliberately. The trigger now moves as the session learns what
+// a turn costs, and a fixture defined as "1.1 x the current trigger" would
+// answer differently on each call, including the second call requestCompaction
+// makes. The point of this test is a context that sits above the trigger, not
+// one that chases it.
+const deepTokens = Math.round(compactAtTokens(65_536) * 1.1);
+const deepCtx = { ...ctx, getContextUsage: () => ({ tokens: deepTokens, contextWindow: 65_536 }) };
 await fire("turn_end", {}, { ...deepCtx, getContextUsage: () => ({ tokens: 5_000, contextWindow: 65_536 }) });
 await fire("turn_end", {}, deepCtx);
 check("a mid-run compaction resumes the run", sent.length === 1, sent[0] ?? "(nothing sent)");

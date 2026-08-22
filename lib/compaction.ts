@@ -104,6 +104,43 @@ const KEEP_RECENT_TOKENS = Number(process.env.PI_KEEP_RECENT_RECOMMENDED ?? 9800
 const CEILING_FRACTION = Number(process.env.PI_CEILING_FRACTION ?? 0.7);
 
 const MAX_SAFE_DEPTH = Number(process.env.PI_MAX_SAFE_DEPTH ?? 36000);
+
+/**
+ * How much of the trigger a single turn's growth may claim back.
+ *
+ * The trigger is only checked at turn_end, because that is the one boundary
+ * where no tool call is half-finished. A single agentic turn can span a dozen
+ * model round-trips, so depth does not stop at the trigger: measured live, a
+ * run crossed a 36,000 trigger at 37,560 and did not reach turn_end until
+ * 53,097, seventeen thousand tokens deeper. Nothing failed, but the margin the
+ * trigger exists to protect was mostly gone.
+ *
+ * So the trigger fires early by whatever the worst turn has been shown to add.
+ * Capped, because a single enormous turn must not collapse the trigger to
+ * nothing: a session that compacts every turn re-prefills every turn, which is
+ * slower than simply running deeper.
+ */
+const MAX_OVERSHOOT_SHARE = Number(process.env.PI_MAX_OVERSHOOT_SHARE ?? 0.4);
+
+let maxTurnGrowth = 0;
+let lastObserved: number | undefined;
+
+/** The largest growth seen between two consecutive turn_end observations. */
+export function observedTurnGrowth(): number {
+	return maxTurnGrowth;
+}
+
+/** How far below the hard bound the trigger sits, given what turns have cost. */
+export function overshootAllowance(base: number): number {
+	if (maxTurnGrowth <= 0) return 0;
+	return Math.min(maxTurnGrowth, Math.round(base * MAX_OVERSHOOT_SHARE));
+}
+
+/** Test seam. A session learns this from scratch; nothing else resets it. */
+export function resetTurnGrowth(): void {
+	maxTurnGrowth = 0;
+	lastObserved = undefined;
+}
 const WATCHDOG_FRACTION = 0.7;
 const PI_TRIGGER_FRACTION = 0.75;
 
@@ -130,11 +167,15 @@ export function compactAtTokens(contextWindow: number): number {
 	// 0.7 of the ceiling rather than all of it: at 36,000 a miss measured 335s
 	// against a 500s timeout, which is 67%, and the benchmark ran on an idle
 	// machine. One that is being used for something else prefills slower.
-	return Math.min(
+	//
+	// Then early by the worst turn's growth, because the check only happens at
+	// turn_end and depth keeps climbing until it arrives. See MAX_OVERSHOOT_SHARE.
+	const base = Math.min(
 		Math.round(contextWindow * WATCHDOG_FRACTION),
 		MAX_SAFE_DEPTH,
 		Math.round(prefillCeiling() * CEILING_FRACTION),
 	);
+	return base - overshootAllowance(base);
 }
 
 /** pi compacts above contextWindow - this. Env: PI_RESERVE_TOKENS. */
@@ -328,6 +369,13 @@ let sessionFloor = Number.POSITIVE_INFINITY;
  */
 export function observeContext(tokens: number): void {
 	if (tokens <= 0) return;
+	// Growth between consecutive observations is one turn's cost. Only positive
+	// steps count: the drop across a compaction is not something a turn spent.
+	if (lastObserved !== undefined && tokens > lastObserved) {
+		const grew = tokens - lastObserved;
+		if (grew > maxTurnGrowth) maxTurnGrowth = grew;
+	}
+	lastObserved = tokens;
 	if (tokens < sessionFloor) sessionFloor = tokens;
 	if (baselineStale) {
 		baseline = tokens;
@@ -424,6 +472,7 @@ export function resetCompactionState(): void {
 	sessionFloor = Number.POSITIVE_INFINITY;
 	expectingUntil = 0;
 	cachedSettings = undefined;
+	resetTurnGrowth();
 }
 
 // ---------------------------------------------------------------- progress
