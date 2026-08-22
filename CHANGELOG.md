@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.13.1 (2026-08-22)
+
 **Added: failed calls record why, and repeats are grouped.** A session lost five
 minutes to six edits and two failed runs of one shell script, and the log could
 say only that they failed. `/usage` now lists failures with the start of the
