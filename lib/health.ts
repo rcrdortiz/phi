@@ -33,6 +33,10 @@ export interface Health {
   /** Times Ollama freed its whole prefix cache in the window examined. */
   evictions?: number;
   evictionWindowMinutes?: number;
+  /** Agent sessions other than this one talking to the same Ollama. */
+  otherSessions?: number;
+  /** Cache slots Ollama was started with. One conversation fits per slot. */
+  parallelSlots?: number;
   notes: string[];
 }
 
@@ -87,10 +91,43 @@ export function recentEvictions(minutes = 30, logPath = path.join(os.homedir(), 
   }
 }
 
+/**
+ * Other agent sessions pointed at the same Ollama.
+ *
+ * phi and pi are the same binary, so both show up as "pi"; this counts them
+ * all and drops our own pid. A session we cannot see is better than a number
+ * we invented, so a failure here is undefined rather than zero.
+ */
+export async function otherSessions(): Promise<number | undefined> {
+  try {
+    const { stdout } = await run("pgrep", ["-x", "pi"], { timeout: 3000 });
+    const pids = stdout.split("\n").map((l) => Number(l.trim())).filter((n) => Number.isFinite(n) && n > 0);
+    return pids.filter((pid) => pid !== process.pid && pid !== process.ppid).length;
+  } catch (err: unknown) {
+    // pgrep exits 1 with no output when nothing matched, which is a real zero.
+    if ((err as { code?: number })?.code === 1) return 0;
+    return undefined;
+  }
+}
+
+/** Slots Ollama was started with, as it logged them at boot. */
+export function parallelSlots(logPath = path.join(os.homedir(), ".ollama/logs/server.log")): number | undefined {
+  try {
+    const tail = fs.readFileSync(logPath, "utf8").slice(-2_000_000);
+    const hits = [...tail.matchAll(/OLLAMA_NUM_PARALLEL:(\d+)/g)];
+    if (hits.length === 0) return undefined;
+    const n = Number(hits[hits.length - 1][1]);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function inspect(baseUrl = "http://localhost:11434", minutes = 30): Promise<Health> {
   const notes: string[] = [];
-  const [limit, model] = await Promise.all([wiredLimit(), loadedModel(baseUrl)]);
+  const [limit, model, others] = await Promise.all([wiredLimit(), loadedModel(baseUrl), otherSessions()]);
   const evictions = recentEvictions(minutes);
+  const slots = parallelSlots();
 
   const headroom = limit !== undefined && model.bytes !== undefined ? limit - model.bytes : undefined;
 
@@ -106,6 +143,8 @@ export async function inspect(baseUrl = "http://localhost:11434", minutes = 30):
     headroom,
     evictions,
     evictionWindowMinutes: minutes,
+    otherSessions: others,
+    parallelSlots: slots,
     notes,
   };
 }
@@ -125,12 +164,22 @@ export function verdict(h: Health): { level: "ok" | "warn" | "bad" | "unknown"; 
   const perHour = (h.evictions / Math.max(1, h.evictionWindowMinutes ?? 30)) * 60;
   const advice: string[] = [];
 
+  const contended = h.otherSessions !== undefined && h.otherSessions > 0 && h.otherSessions + 1 > (h.parallelSlots ?? 1);
+
+  if (h.evictions > 0 && contended) {
+    advice.push(
+      `${h.otherSessions} other agent session(s) are using this Ollama, which has ${h.parallelSlots ?? 1} cache slot(s). ` +
+        "Two conversations sharing one slot evict each other every time they take turns, so both re-read their whole history. " +
+        "Closing the other session, or raising OLLAMA_NUM_PARALLEL, fixes this; the context window is not the problem.",
+    );
+  }
+
   if (h.evictions > 0) {
     advice.push(
       `Ollama discarded its prefix cache ${h.evictions} time(s) in the last ${h.evictionWindowMinutes} minutes. ` +
         "Each one makes the next turn re-read the whole conversation, which at depth is minutes, not seconds.",
     );
-    if (h.headroom !== undefined && h.contextLength) {
+    if (!contended && h.headroom !== undefined && h.contextLength) {
       advice.push(
         `The model is holding ${gb(h.modelBytes)} of a ${gb(h.wiredLimit)} limit at a ${h.contextLength.toLocaleString()} token window, ` +
           `leaving ${gb(h.headroom)}. Lowering num_ctx shrinks both the model and every cached snapshot: /model-install rebuilds it.`,
@@ -138,7 +187,10 @@ export function verdict(h: Health): { level: "ok" | "warn" | "bad" | "unknown"; 
     }
   }
 
-  if (perHour >= 4) return { level: "bad", summary: `cache thrashing: about ${Math.round(perHour)} evictions an hour`, advice };
+  if (perHour >= 4) {
+    const why = contended ? `: ${h.otherSessions} other session(s) sharing ${h.parallelSlots ?? 1} cache slot(s)` : "";
+    return { level: "bad", summary: `cache thrashing: about ${Math.round(perHour)} evictions an hour${why}`, advice };
+  }
   if (h.evictions > 0) return { level: "warn", summary: `${h.evictions} cache eviction(s) recently`, advice };
   return {
     level: "ok",
