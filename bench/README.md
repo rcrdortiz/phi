@@ -96,6 +96,42 @@ A Tetris run takes 20 to 60 minutes on a 27B local model. Two harnesses times
 three runs is most of a day. Start with `--runs 1` to check the plumbing, and
 read the result as a smoke test rather than a finding.
 
+## Measuring architecture
+
+You cannot measure SOLID. You can measure what it is for: every one of those
+principles exists to make the next change cheap and safe, and that is
+observable.
+
+The `exporter` task is two phases. Phase one builds a CSV exporter. Phase two
+runs in a fresh session with no memory of phase one and asks for a second
+format. The phase-two prompt is a separate file and is never present during
+phase one, because a task that reveals what is coming measures whether a model
+can follow a hint, not whether it leaves seams by default.
+
+What phase two reports:
+
+```
+phase 2: 24/24  310s  +16/-8 in 1 file(s)  no regressions
+```
+
+**A negative result, kept here because it was expensive to learn.** The plan was
+that a good design would show a smaller diff. It did not discriminate: the task
+is too small for change cost to bite.
+Measured against the two references in `reference/`, one factored and one
+deliberately monolithic, the diffs came out at 24 and 23 changed lines. Adding a
+branch to a thirty-line function costs about as many lines as adding a function
+beside it. Splitting additions from removals did not separate them either.
+
+So diff size is **reported and not scored**. The metric that does discriminate
+is the regression half: phase one's suite is re-run unchanged after phase two,
+and `regressed` counts what broke. Adding a format is the easy part. Not
+breaking the format already there is what separates a design with seams from one
+without, and it needs no line counting to see.
+
+If change cost is to bite, phase one has to be big enough for it: a few hundred
+lines and three or four concerns, not thirty lines and one. That is a task to
+write, not a metric to fix.
+
 ## Adding a task
 
 A directory under `tasks/` with two files:

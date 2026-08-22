@@ -16,6 +16,23 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: a two-phase task that measures what SOLID is for.** `bench/tasks/exporter`
+builds a CSV exporter, then in a fresh session with no memory of building it
+asks for a second format. The phase-two prompt is a separate file and is never
+present during phase one, because a task that reveals what is coming measures
+hint-following rather than design.
+
+The headline metric is regression: phase one's suite is re-run unchanged after
+phase two. Adding a format is the easy half; not breaking the one already there
+is what separates a design with seams from one without.
+
+Diff size is reported and **not** scored. The plan was that a good design would
+show a smaller diff, and measured against a factored reference and a
+deliberately monolithic one it did not discriminate at all: 24 changed lines
+against 23. The task is too small for change cost to bite, which is a task to
+write rather than a metric to fix. The negative result is in `bench/README.md`
+and asserted in the tests so it cannot quietly stop being stated.
+
 ## 0.14.0 (2026-08-22)
 
 **Added: the benchmark sweeps thinking levels.**

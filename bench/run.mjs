@@ -92,11 +92,48 @@ function readSession(agentDir, cwd, startedAt) {
   return { input, output, turns, compactions, sessionFile: best.p };
 }
 
+/** Lines added and removed between two states of the project. */
+function diffStat(dir, snapshot) {
+	let added = 0, removed = 0, files = 0;
+	for (const [rel, before] of snapshot) {
+		let after = "";
+		try { after = fs.readFileSync(path.join(dir, rel), "utf8"); } catch { /* deleted */ }
+		if (after === before) continue;
+		files++;
+		const b = before.split("\n"), a = after.split("\n");
+		const common = new Set(b);
+		added += a.filter((l) => l.trim() && !common.has(l)).length;
+		const now = new Set(a);
+		removed += b.filter((l) => l.trim() && !now.has(l)).length;
+	}
+	// Files that did not exist before are wholly new.
+	for (const f of fs.readdirSync(dir)) {
+		if (snapshot.has(f) || f.startsWith(".")) continue;
+		files++;
+		added += fs.readFileSync(path.join(dir, f), "utf8").split("\n").filter((l) => l.trim()).length;
+	}
+	return { added, removed, filesTouched: files };
+}
+
+const snapshotOf = (dir) => {
+	const m = new Map();
+	for (const f of fs.readdirSync(dir)) {
+		if (f.startsWith(".")) continue;
+		try { m.set(f, fs.readFileSync(path.join(dir, f), "utf8")); } catch { /* directory */ }
+	}
+	return m;
+};
+
 function runOnce(harness, index, effort) {
   const spec = HARNESS[harness];
   if (!spec) throw new Error(`unknown harness: ${harness}`);
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), `bench-${TASK}-${harness}-`));
-  const prompt = fs.readFileSync(path.join(TASK_DIR, "PROMPT.md"), "utf8");
+  // A two-phase task builds, then extends in a fresh session that has no memory
+  // of building it. The second prompt is never present during the first: a task
+  // that reveals what is coming measures whether the model can follow a hint,
+  // not whether it leaves seams by default.
+  const twoPhase = fs.existsSync(path.join(TASK_DIR, "PHASE1.md"));
+  const prompt = fs.readFileSync(path.join(TASK_DIR, twoPhase ? "PHASE1.md" : "PROMPT.md"), "utf8");
   const startedAt = Date.now();
 
   const argv = ["--print", prompt, "--approve"];
@@ -114,14 +151,43 @@ function runOnce(harness, index, effort) {
 
   // Graded from a pristine copy of the suite, run outside the project, so
   // nothing the agent wrote can influence its own score.
-  let verdict = { passed: 0, total: 0, results: [] };
-  try {
-    verdict = JSON.parse(execFileSync(process.execPath, [path.join(TASK_DIR, "verify.mjs"), cwd], { encoding: "utf8" }));
-  } catch (e) {
-    verdict.error = (e && e.message) || String(e);
-  }
-
+  const grade = (suite) => {
+    try {
+      return JSON.parse(execFileSync(process.execPath, [path.join(TASK_DIR, suite), cwd], { encoding: "utf8" }));
+    } catch (e) {
+      return { passed: 0, total: 0, results: [], error: (e && e.message) || String(e) };
+    }
+  };
+  let verdict = grade(twoPhase ? "verify1.mjs" : "verify.mjs");
   const usage = readSession(spec.agentDir, cwd, startedAt);
+
+  let phase2;
+  if (twoPhase) {
+    const snapshot = snapshotOf(cwd);
+    const startedAt2 = Date.now();
+    const argv2 = ["--print", fs.readFileSync(path.join(TASK_DIR, "PHASE2.md"), "utf8"), "--approve"];
+    if (effort) argv2.push("--thinking", effort);
+    const r2 = spawnSync("pi", argv2, {
+      cwd,
+      encoding: "utf8",
+      timeout: TIMEOUT_MIN * 60_000,
+      env: { ...process.env, ...spec.env, PI_CODING_AGENT_DIR: spec.agentDir },
+    });
+    const v2 = grade("verify2.mjs");
+    const u2 = readSession(spec.agentDir, cwd, startedAt2);
+    phase2 = {
+      seconds: Math.round((Date.now() - startedAt2) / 1000),
+      timedOut: r2.error?.code === "ETIMEDOUT" || r2.signal === "SIGTERM",
+      passed: v2.passed,
+      total: v2.total,
+      // The half that matters: adding a format is easy, not breaking the one
+      // already there is what separates a design with seams from one without.
+      regressed: v2.regressed ?? 0,
+      ...diffStat(cwd, snapshot),
+      output: u2.output,
+      turns: u2.turns,
+    };
+  }
   const record = {
     at: new Date().toISOString(),
     task: TASK,
@@ -135,6 +201,7 @@ function runOnce(harness, index, effort) {
     total: verdict.total,
     failures: (verdict.results ?? []).filter((x) => !x.pass).map((x) => x.name),
     ...usage,
+    ...(phase2 ? { phase2 } : {}),
     cwd,
   };
   fs.appendFileSync(OUT, `${JSON.stringify(record)}\n`);
@@ -142,7 +209,12 @@ function runOnce(harness, index, effort) {
   console.log(
     `  ${harness.padEnd(4)} ${String(record.effort).padEnd(8)} run ${index}: ${score.padEnd(7)} ${record.seconds}s  ` +
       `${record.output} out / ${record.input} in  ${record.turns} turns` +
-      `${record.timedOut ? "  TIMED OUT" : ""}`,
+      `${record.timedOut ? "  TIMED OUT" : ""}` +
+      (phase2
+        ? `\n       phase 2: ${phase2.passed}/${phase2.total}  ${phase2.seconds}s  ` +
+          `+${phase2.added}/-${phase2.removed} in ${phase2.filesTouched} file(s)  ` +
+          `${phase2.regressed ? `${phase2.regressed} REGRESSED` : "no regressions"}`
+        : ""),
   );
   return record;
 }

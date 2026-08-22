@@ -74,5 +74,58 @@ check("the run cost is stated before it starts", /if \(totalRuns > 6\)/.test(run
   "24 runs at 45 minutes is not something to discover halfway through");
 check("each record carries its effort level", /effort: effort \?\? "default"/.test(runner));
 
+// --- the two-phase architecture task ---------------------------------------
+// Build, then extend in a fresh session, and see what the extension cost.
+const exporter = path.join(bench, "tasks/exporter");
+const grade = (suite, dir) => JSON.parse(execFileSync(process.execPath, [path.join(exporter, suite), dir], { encoding: "utf8" }));
+const stage = (src) => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "bench-exp-"));
+  fs.copyFileSync(src, path.join(d, "exporter.js"));
+  return d;
+};
+
+check("the phase-two prompt is a separate file",
+  fs.existsSync(path.join(exporter, "PHASE1.md")) && fs.existsSync(path.join(exporter, "PHASE2.md")),
+  "a task that reveals what is coming measures hint-following, not design");
+check("phase one's prompt does not mention the second format",
+  !/jsonl|json lines/i.test(fs.readFileSync(path.join(exporter, "PHASE1.md"), "utf8")),
+  "anticipating it is exactly what must not be rewarded");
+
+// Both references must pass phase one, or the task is not the discriminator,
+// the suite is.
+for (const kind of ["seams", "tangle"]) {
+  const d = stage(path.join(exporter, "reference", kind, "v1.js"));
+  const r = grade("verify1.mjs", d);
+  check(`the ${kind} reference passes phase one`, r.passed === r.total,
+    r.results.filter((x) => !x.pass).map((x) => x.name).join("; ") || `${r.passed}/${r.total}`);
+  fs.rmSync(d, { recursive: true, force: true });
+}
+
+// And phase two must re-run phase one's suite, which is the half that matters.
+{
+  const d = stage(path.join(exporter, "reference", "seams", "v2.js"));
+  const r = grade("verify2.mjs", d);
+  check("phase two grades the new format and the old one together",
+    r.total > 20 && r.results.some((x) => x.name.startsWith("csv still:")),
+    `${r.passed}/${r.total}`);
+  check("a clean extension reports no regressions", r.regressed === 0);
+  fs.rmSync(d, { recursive: true, force: true });
+}
+{
+  // A v2 that broke CSV must be caught, since that is the whole measurement.
+  const d = stage(path.join(exporter, "reference", "seams", "v2.js"));
+  fs.writeFileSync(path.join(d, "exporter.js"),
+    fs.readFileSync(path.join(d, "exporter.js"), "utf8").replace('lines.push(options.columns.join(","))', "void 0"));
+  const r = grade("verify2.mjs", d);
+  check("breaking the old format is reported as a regression", r.regressed > 0, `regressed ${r.regressed}`);
+  fs.rmSync(d, { recursive: true, force: true });
+}
+
+// The honest caveat, kept as an assertion so it cannot quietly stop being true.
+check("the runner records the phase-two diff", /diffStat/.test(fs.readFileSync(path.join(bench, "run.mjs"), "utf8")));
+check("and the README says diff size did not discriminate at this size",
+  /did not discriminate|too small/.test(fs.readFileSync(path.join(bench, "README.md"), "utf8")),
+  "a metric that failed its own validation must not be quietly presented as one that works");
+
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
 process.exit(results.every(Boolean) ? 0 : 1);
