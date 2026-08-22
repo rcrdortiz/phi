@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.19.2 (2026-08-22)
+
 **Fixed: the benchmark's diff walker died on any nested codebase.** It listed
 the project root and called `readFileSync` on everything it found, which is fine
 for a one-file task and throws `EISDIR` on the first subdirectory. It killed the
