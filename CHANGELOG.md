@@ -16,6 +16,13 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: a timed-out run is now marked void and excluded from the statistics.**
+Phases are separate processes, so a timed-out phase does not stop the next one:
+it runs against a half-finished repo and produces numbers that look valid.
+Averaging those in reads as "the harness scored badly" when what happened is
+that it was cut off. Void runs are counted and reported separately, and an arm
+with nothing but void runs still prints rather than silently vanishing.
+
 ## 0.19.0 (2026-08-22)
 
 **Added: `bench/tasks/quill`, one session, three phases, four languages.**

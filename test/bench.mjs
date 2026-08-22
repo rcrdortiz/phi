@@ -242,5 +242,24 @@ for (const n of [1, 2, 3]) {
   if (n > 1) check(`phase ${n} reports no regressions on the reference`, r.regressed === 0, String(r.regressed));
 }
 
+// --- a timed-out run is void, not a low score ------------------------------
+// Phases are separate processes, so a timed-out phase does not stop the next
+// one: it runs against a half-finished repo and produces numbers that look
+// valid. Averaging those in reads as "the harness scored badly" when what
+// happened is that it was cut off.
+{
+  const src = fs.readFileSync(path.join(bench, "run.mjs"), "utf8");
+  check("a timeout in any phase marks the run void",
+    /timedOutAnywhere = firstTimedOut \|\| laterPhases\.some\(\(p\) => p\.timedOut\)/.test(src));
+  check("the record says so explicitly", /void: timedOutAnywhere/.test(src) && /voidReason/.test(src));
+  check("void runs are excluded from every statistic",
+    /const rs = armRuns\.filter\(\(r\) => !r\.void && r\.output > 0\)/.test(src),
+    "the last batch needed a void record spotted by hand");
+  check("and are counted rather than hidden", /\$\{voided\.length\} void/.test(src));
+  check("an arm with nothing but void runs still reports",
+    /all \$\{voided\.length\} run\(s\) void/.test(src),
+    "silently omitting the arm would read as if it was never run");
+}
+
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
 process.exit(results.every(Boolean) ? 0 : 1);

@@ -244,6 +244,9 @@ function runOnce(harness, index, effort, compactThinking) {
     });
   }
 
+  const firstTimedOut = r.error?.code === "ETIMEDOUT" || r.signal === "SIGTERM";
+  const timedOutAnywhere = firstTimedOut || laterPhases.some((p) => p.timedOut);
+
   const record = {
     at: new Date().toISOString(),
     task: TASK,
@@ -252,13 +255,25 @@ function runOnce(harness, index, effort, compactThinking) {
     compactThinking: compactThinking ?? "default",
     run: index,
     seconds,
-    timedOut: r.error?.code === "ETIMEDOUT" || r.signal === "SIGTERM",
+    timedOut: firstTimedOut,
     exit: r.status,
     passed: verdict.passed,
     total: verdict.total,
     failures: (verdict.results ?? []).filter((x) => !x.pass).map((x) => x.name),
     ...usage,
     ...(laterPhases.length ? { phases: laterPhases } : {}),
+    /**
+     * A run where ANY phase hit the timeout is void, not a low score.
+     *
+     * The phases are separate processes, so a timed-out phase does not stop the
+     * next one: it runs against a half-finished repo and produces numbers that
+     * look valid. Averaging those in reads as "the harness scored badly" when
+     * what happened is that it was cut off. Marked here rather than left to
+     * whoever reads the file, because the one void record in the last batch had
+     * to be spotted by hand.
+     */
+    void: timedOutAnywhere,
+    ...(timedOutAnywhere ? { voidReason: "a phase hit the timeout" } : {}),
     cwd,
   };
   fs.appendFileSync(OUT, `${JSON.stringify(record)}\n`);
@@ -310,13 +325,18 @@ const all = [];
 // cache or a busy machine does not land entirely on one side.
 for (let i = 1; i <= RUNS; i++) for (const [h, e, c] of arms) all.push(runOnce(h, i, e, c));
 
-console.log("\narm            passed      time        output tok   turns   tok/check   timeouts");
+console.log("\narm            passed      time        output tok   turns   tok/check   void");
 for (const arm of arms) {
 	const [h, e, c] = arm;
-	const rs = all.filter(
+	const armRuns = all.filter(
 		(r) => r.harness === h && (e ? r.effort === e : true) && (c ? r.compactThinking === c : true),
 	);
-	if (!rs.length) continue;
+	// Void runs are excluded from every statistic and counted separately. A
+	// timed-out run tells you the task did not fit, which is worth knowing, and
+	// averaging its score in would tell you something false instead.
+	const voided = armRuns.filter((r) => r.void || r.output === 0);
+	const rs = armRuns.filter((r) => !r.void && r.output > 0);
+	if (!rs.length) { if (voided.length) console.log(`${armName(arm).padEnd(15)}all ${voided.length} run(s) void`); continue; }
 	const range = (ns) => (Math.min(...ns) === Math.max(...ns) ? `${median(ns)}` : `${median(ns)} (${Math.min(...ns)}-${Math.max(...ns)})`);
 	// Output tokens per check passed. Thinking tokens count as output, so a
 	// level that thinks twice as hard for one more check is visible here and
@@ -330,7 +350,7 @@ for (const arm of arms) {
 			range(rs.map((r) => r.output)).padEnd(13) +
 			range(rs.map((r) => r.turns)).padEnd(8) +
 			(perCheck.length ? range(perCheck) : "-").padEnd(12) +
-			rs.filter((r) => r.timedOut).length,
+			`${voided.length} void`,
 	);
 }
 console.log(`\nMedian and range across ${RUNS} run(s). One run is noise; treat a single number as a hint, not a result.`);
