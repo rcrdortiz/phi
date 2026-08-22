@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.17.1 (2026-08-22)
+
 **Changed: compaction summarises with thinking off, not `low`.** Summarising is
 reading something that already exists and writing down what mattered, and
 whatever judgement that needs is the same judgement the model makes while
