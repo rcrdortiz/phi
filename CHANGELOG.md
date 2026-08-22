@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.13.2 (2026-08-22)
+
 **Changed: `[o]` means "where work last happened", not "in progress".** The mark
 is set by an edit landing while that step was current, which is evidence work
 happened near it rather than proof it was on it. Seen live: a step about
