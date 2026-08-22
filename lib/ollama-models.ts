@@ -72,7 +72,7 @@ export const MODELS: LocalModel[] = [
 		// quality actually comes from, and this setup is built for a model
 		// working alongside you rather than racing you — so spend the tokens.
 		// Shift+Tab lowers it live when a task is mechanical.
-		defaultThinking: "high",
+		defaultThinking: "low",
 	},
 ];
 

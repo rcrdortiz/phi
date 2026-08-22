@@ -212,10 +212,12 @@ changed = False
 # quietStartup suppresses pi's [Skills]/[Extensions]/[Themes] listing. What is
 # loaded is not news every single launch, and the boot box already says the
 # things that change: which model, and whether anything is out of date.
-# "high" is the top of the scale for this model, not the top of pi's. pi accepts
-# xhigh and max, but Ollama's reasoning_effort takes none/low/medium/high, so
-# mapping them would add levels that behave identically to high while looking
-# like more. pi's own default is "medium", which is why this has to be stated.
+# "low", chosen for cost in the absence of evidence rather than because it was
+# shown to be better. A sweep of off/low/medium/high on a bug-hunt task scored
+# 18-20 out of 23 at every level, inside a noise floor of +-2 measured from
+# identical control runs, and output tokens did not correlate with the level at
+# all (r = +0.17, n = 11). Nothing distinguished them, so the cheap one wins
+# until something does. Shift+Tab raises it live when a task warrants it.
 # fullscreenExitOutput defaults to "transcript", which prints the entire session
 # into the scrollback on the way out: the boot box, every tool call, every
 # banner. Quitting should hand the terminal back the way it was found, so this
@@ -238,7 +240,7 @@ for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX
              ("fullscreenExitOutput", "resume-hint"),
              ("httpIdleTimeoutMs", 500000),
              ("compaction", {"keepRecentTokens": 9800, "reserveTokens": 16384}),
-             ("defaultThinkingLevel", "high")):
+             ("defaultThinkingLevel", "low")):
     if not s.get(k):
         s[k] = v; changed = True
 if changed:

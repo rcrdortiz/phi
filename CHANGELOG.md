@@ -16,6 +16,13 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: the default thinking level is `low`, was `high`.** Not because `low`
+was shown to be better. A sweep of off/low/medium/high on a bug-hunt task scored
+18-20 out of 23 at every level, inside a plus-or-minus-two noise floor measured
+from identical control runs, and output tokens did not correlate with the level
+(r = +0.17, n = 11). Nothing distinguished them, so the default moves to the
+cheap end until something does. `Shift+Tab` and `/effort` still change it live.
+
 ## 0.17.1 (2026-08-22)
 
 **Changed: compaction summarises with thinking off, not `low`.** Summarising is

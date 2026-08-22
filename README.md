@@ -200,13 +200,17 @@ which fires inside a long run; pi checks at `agent_end`, which does not. Ours
 acting first means pi is only ever the backstop, and matching the two produces
 two compactions, one of which returns "Already compacted".
 
-**Thinking is set to `high` by default, and that is the recommendation.** high
-is the top of this model's scale, not of pi's: pi accepts `xhigh` and `max`, but
-Ollama's `reasoning_effort` takes none/low/medium/high, so mapping them would
-add levels that behave exactly like high while looking like more. On a
-27B at 4-bit the thinking pass is where the quality comes from, and this setup
-assumes a model working alongside you rather than racing you. `Shift+Tab` lowers
-it live when a task is mechanical; `/effort` sets it explicitly.
+**Thinking is set to `low` by default, and that is a cost choice rather than a
+measured one.** A sweep of off, low, medium and high on a bug-hunt task scored
+18 to 20 out of 23 at every level, inside a noise floor of plus or minus two
+measured from identical control runs, and output tokens did not track the level
+at all (r = +0.17, n = 11). Nothing distinguished them, so the cheap end wins
+until something does. `Shift+Tab` raises it live when a task warrants it, and
+`/effort` sets it explicitly.
+
+high is the top of this model's scale, not of pi's: pi accepts `xhigh` and
+`max`, but Ollama's `reasoning_effort` takes none/low/medium/high, so mapping
+them would add levels that behave identically to high while looking like more.
 
 Two other models were tried and dropped: the 8-bit build needs the machine to
 itself (~37.5 GB), and `qwen3-coder:30b` was fastest only on an empty context.

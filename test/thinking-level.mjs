@@ -44,7 +44,8 @@ const ctx = { ui: { notify: (t) => notes.push(t) }, model: { id: "qwen3.8-4MLX" 
 
 level = "off";
 await handlers["model_select"]({ model: { id: "qwen3.8-4MLX" } }, ctx);
-check("selecting the model applies its default (high)", level === "high", `level=${level}`);
+check("selecting the model applies its roster default", level === MODELS[0].defaultThinking,
+  `level=${level}, roster=${MODELS[0].defaultThinking}`);
 
 // A model with no roster entry must not clobber the current level: the map is
 // a per-model DEFAULT, not a reset.
@@ -108,12 +109,14 @@ check("cycling reports the new level", /Thinking: high/.test(notes.join(" ")), n
   });
   check("session_start is hooked", (h["session_start"] ?? []).length > 0);
   await h["session_start"][0]({}, { ui: { notify: () => {} }, model: { id: "qwen3.8-4MLX" } });
-  check("a session opens at the model's own default", lvl === "high", `level=${lvl}`);
+  check("a session opens at the model's own default", lvl === MODELS[0].defaultThinking, `level=${lvl}`);
 
-  // A model with no roster entry must not be forced anywhere.
-  lvl = "low";
+  // A model with no roster entry must not be forced anywhere. Set to something
+  // that is NOT the roster default, or this passes whatever the code does.
+  const other = MODELS[0].defaultThinking === "medium" ? "high" : "medium";
+  lvl = other;
   await h["session_start"][0]({}, { ui: { notify: () => {} }, model: { id: "some-other-model" } });
-  check("an unknown model is left alone", lvl === "low", `level=${lvl}`);
+  check("an unknown model is left alone", lvl === other, `level=${lvl}`);
 }
 
 // "high" is the top of the scale this model actually has. Mapping pi's xhigh
@@ -123,7 +126,12 @@ check("cycling reports the new level", /Thinking: high/.test(notes.join(" ")), n
   const mapped = Object.keys(top.thinkingLevelMap ?? {});
   check("the map stops at high", mapped.includes("high") && !mapped.includes("xhigh") && !mapped.includes("max"),
     mapped.join(", "));
-  check("the roster default is that top level", MODELS[0].defaultThinking === "high");
+  // Not the top of the scale. A sweep of off/low/medium/high scored 18-20 of 23
+  // at every level, inside a +-2 noise floor, and output tokens did not track
+  // the level (r = +0.17, n = 11). Nothing distinguished them, so the default is
+  // the cheap end until something does. It still has to BE on the scale.
+  check("the roster default is a level the map offers",
+    mapped.includes(MODELS[0].defaultThinking), `${MODELS[0].defaultThinking} vs ${mapped.join(", ")}`);
 }
 
 const failed = results.filter((r) => !r).length;
