@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.17.0 (2026-08-22)
+
 **Added: `bench/tasks/ledger`, a seeded bug hunt sized to reach a compaction.**
 The exporter task finished without compacting once, which makes it a poor
 phi-versus-pi comparison: compaction is most of what separates them. This is six
