@@ -61,7 +61,13 @@ for (const h of handlers.before_agent_start ?? []) brief = (await h({ systemProm
 check("the briefing names the in-progress step, not the next waiting one",
   /the interrupted one/.test(brief.systemPrompt) && !/do only this one:\*\*\nlater/.test(brief.systemPrompt),
   "naming the next one is the wrong answer at exactly the moment it matters");
-check("and says it is already under way", /in progress/.test(brief.systemPrompt));
+// Named for what it measures. The mark comes from an edit landing while that
+// step was current, which is evidence work happened near it, not proof it was
+// on it: live, a step about index.html was marked during an unrelated rename in
+// pang.js asked for in chat.
+check("the briefing says where work last happened, not that the step is underway",
+  /work last happened/.test(brief.systemPrompt) && !/in progress/.test(brief.systemPrompt),
+  "claiming more than the evidence supports is how the next session gets misled");
 
 const { default: handoff, resumeNote } = await import("../extensions/auto-handoff.ts");
 const h2 = {};

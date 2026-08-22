@@ -59,10 +59,17 @@ const MAX_AUTO = Number(process.env.PI_PLAN_MAX_AUTO ?? 25);
 /**
  * A step, and whether anyone has started it.
  *
- * `[ ]` waiting, `[o]` in progress, `[x]` done. The middle one exists because
- * "current" used to be inferred as "the first one not done", which cannot tell
- * a step that was started and interrupted from one nobody has touched. After a
- * crash, a ctrl+c, or a compaction, that distinction is the whole question.
+ * `[ ]` waiting, `[o]` the step work last happened on, `[x]` done. The middle
+ * one exists because "current" used to be inferred as "the first one not done",
+ * which cannot tell a step someone was interrupted in from one nobody has
+ * touched. After a crash, a ctrl+c or a compaction, that is the whole question.
+ *
+ * It is deliberately not called "in progress". The mark is set by an edit
+ * landing while that step was current, which is evidence that work happened
+ * near it, not proof that the work was ON it. Observed live: a plan step about
+ * index.html was marked while the model was doing an unrelated rename in
+ * pang.js that had been asked for in chat. Naming it for what it measures keeps
+ * the next session from trusting it further than it deserves.
  */
 type Step = { done: boolean; active?: boolean; text: string };
 
@@ -199,10 +206,14 @@ function currentStep(steps: Step[]): { index: number; step?: Step } {
 /**
  * Mark the current step as started, if it is not already.
  *
- * Deterministic and free: the model is told to do one step, so the moment it
- * changes anything, that step is under way. Asking it to declare a start would
- * cost a tool call and a round trip on every step, and would be forgotten
- * exactly when a session is about to be interrupted.
+ * Deterministic and free: the model is told to do one step, so an edit landing
+ * is the best available evidence of where work is. Asking the model to declare
+ * a start would be more accurate and would cost a round trip on every step at
+ * fifteen tokens a second, and would be forgotten exactly when a session is
+ * about to be interrupted, which is the case this exists for.
+ *
+ * The inaccuracy is real and is why the mark is named for evidence rather than
+ * intent. Work asked for in chat, outside the plan, marks the current step too.
  */
 export function markActive(steps: Step[]): Step[] | undefined {
 	const { index, step } = currentStep(steps);
@@ -270,7 +281,7 @@ function briefing(ctx: { cwd: string }): string {
 		`## Current work (from ${PLAN_FILE})`,
 		planGoal(planText) ? `Goal: ${planGoal(planText)}` : "",
 		"",
-		`**Step ${index + 1} of ${steps.length}${step.active ? " (in progress)" : ""} — do only this one:**`,
+		`**Step ${index + 1} of ${steps.length}${step.active ? " (work last happened here)" : ""} — do only this one:**`,
 		step.text,
 		"",
 		doneList ? `Recently done:\n${doneList}` : "",

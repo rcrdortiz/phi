@@ -112,7 +112,10 @@ export function resumeNote(o: {
 	touched: string[];
 }): string {
 	const lines = ["## Where this stopped", ""];
-	lines.push(o.step ? `Plan step in progress: ${o.step}` : "No plan step was in progress.");
+	// "Where work last happened", not "in progress": the mark comes from an edit
+	// landing while that step was current, which is evidence of proximity rather
+	// than proof of intent. Work asked for in chat marks it too.
+	lines.push(o.step ? `Step work last happened on: ${o.step}` : "No plan step was current.");
 	if (o.inFlight.length) {
 		lines.push(
 			"",

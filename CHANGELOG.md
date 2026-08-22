@@ -16,6 +16,13 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: `[o]` means "where work last happened", not "in progress".** The mark
+is set by an edit landing while that step was current, which is evidence work
+happened near it rather than proof it was on it. Seen live: a step about
+`index.html` was marked while the model did an unrelated rename in `pang.js`
+asked for in chat. The mechanism is unchanged and still costs nothing; only the
+claim it makes is now the one the evidence supports.
+
 ## 0.13.1 (2026-08-22)
 
 **Added: failed calls record why, and repeats are grouped.** A session lost five

@@ -19,7 +19,7 @@ const note = resumeNote({
   recent: [{ tool: "edit_block", detail: "run.html" }],
   touched: ["index.html"],
 });
-check("the note names the step that was in progress", /Phase A1/.test(note));
+check("the note names the step work last happened on", /Phase A1/.test(note));
 check("it says what was cut off mid-call", /Interrupted mid-call/.test(note) && /verify\.sh \(12s in\)/.test(note),
   "an aborted test run looks like a completed one otherwise");
 check("it lists what was changed", /index\.html/.test(note));

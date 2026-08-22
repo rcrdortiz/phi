@@ -231,11 +231,16 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 The two that change how you work:
 
 **`plan-notes`**. `plan_write` lays out steps, `plan_next` finishes one and
-resets the context. A step is `[ ]` waiting, `[o]` in progress, `[x]` done. The
-middle mark is set automatically on the first edit, because "current" was
-otherwise inferred as "the first one not done", which cannot tell a step that
-was started and interrupted from one nobody has touched. After a crash, a
-ctrl+c or a compaction, that is the whole question. State lives in `.phi/PLAN.md` and `.phi/NOTES.md`, so a wiped
+resets the context. A step is `[ ]` waiting, `[o]` where work last
+happened, `[x]` done. The middle mark is set automatically on the first edit,
+because "current" was otherwise inferred as "the first one not done", which
+cannot tell a step someone was interrupted in from one nobody has touched. After
+a crash, a ctrl+c or a compaction, that is the whole question.
+
+It is not called "in progress" on purpose. The mark is evidence that an edit
+landed while that step was current, not proof the edit was on it: work asked for
+in chat, outside the plan, marks it too. Naming it for what it measures keeps
+the next session from trusting it further than it deserves. State lives in `.phi/PLAN.md` and `.phi/NOTES.md`, so a wiped
 context costs nothing. `/notes-gc` trims notes that have outgrown their welcome.
 
 A finished plan briefs the model that it is finished, keeps showing `NOTES.md`,
