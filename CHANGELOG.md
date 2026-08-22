@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.19.0 (2026-08-22)
+
 **Added: `bench/tasks/quill`, one session, three phases, four languages.**
 Roughly eighty files of PHP, TypeScript, HTML, CSS and SQL. Phase one finds
 three planted defects, phase two adds a feature across all four languages, phase
