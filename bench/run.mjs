@@ -286,17 +286,21 @@ function runOnce(harness, index, effort, compactThinking) {
     ...usage,
     ...(laterPhases.length ? { phases: laterPhases } : {}),
     /**
-     * A run where ANY phase hit the timeout is void, not a low score.
+     * A run where ANY phase hit the timeout is reported, not discarded.
      *
-     * The phases are separate processes, so a timed-out phase does not stop the
-     * next one: it runs against a half-finished repo and produces numbers that
-     * look valid. Averaging those in reads as "the harness scored badly" when
-     * what happened is that it was cut off. Marked here rather than left to
-     * whoever reads the file, because the one void record in the last batch had
-     * to be spotted by hand.
+     * It used to be marked void and dropped from every statistic. That threw
+     * away the most interesting run in the batch: pi's first quill run climbed
+     * to 61,373 tokens without compacting, got killed at the 40 minute cap, and
+     * still scored 12/14 and 22/24 on the phases it had finished. "Void" said
+     * only that it was cut off, and hid that the work was good.
+     *
+     * So the score is kept and the truncation is stated. It stays out of the
+     * median, because a truncated run's score is a lower bound and averaging a
+     * lower bound with completed runs produces a number that is neither, but it
+     * is printed on its own line where it cannot be missed.
      */
-    void: timedOutAnywhere,
-    ...(timedOutAnywhere ? { voidReason: "a phase hit the timeout" } : {}),
+    timedOutAnywhere,
+    ...(timedOutAnywhere ? { timeoutNote: "a phase hit the wall-clock cap; scores are a lower bound" } : {}),
     cwd,
   };
   fs.appendFileSync(OUT, `${JSON.stringify(record)}\n`);
@@ -348,18 +352,34 @@ const all = [];
 // cache or a busy machine does not land entirely on one side.
 for (let i = 1; i <= RUNS; i++) for (const [h, e, c] of arms) all.push(runOnce(h, i, e, c));
 
-console.log("\narm            passed      time        output tok   turns   tok/check   void");
+/** One line of scores for a run, used where a median would mislead. */
+function scoreLine(r) {
+	const phases = (r.phases || []).map((p, i) => `phase ${i + 2}: ${p.passed}/${p.total}`).join("  ");
+	return `${r.passed}/${r.total}  ${phases}  ${r.seconds}s`.trim();
+}
+
+console.log("\narm            passed      time        output tok   turns   tok/check   cut short");
 for (const arm of arms) {
 	const [h, e, c] = arm;
 	const armRuns = all.filter(
 		(r) => r.harness === h && (e ? r.effort === e : true) && (c ? r.compactThinking === c : true),
 	);
-	// Void runs are excluded from every statistic and counted separately. A
-	// timed-out run tells you the task did not fit, which is worth knowing, and
-	// averaging its score in would tell you something false instead.
-	const voided = armRuns.filter((r) => r.void || r.output === 0);
-	const rs = armRuns.filter((r) => !r.void && r.output > 0);
-	if (!rs.length) { if (voided.length) console.log(`${armName(arm).padEnd(15)}all ${voided.length} run(s) void`); continue; }
+	// Truncated runs stay out of the median and are reported underneath it with
+	// their actual scores. A run cut off at the cap tells you the task did not
+	// fit in the time, which is worth knowing on its own; averaging its score in
+	// would blend a lower bound with completed runs and mean neither.
+	// `r.void` is the old field name for the same thing, kept so records written
+	// by an earlier build still read correctly out of results.jsonl.
+	const wasCut = (r) => r.timedOutAnywhere || r.void || r.output === 0;
+	const cut = armRuns.filter(wasCut);
+	const rs = armRuns.filter((r) => !wasCut(r) && r.output > 0);
+	if (!rs.length) {
+		if (cut.length) {
+			console.log(`${armName(arm).padEnd(15)}no completed runs; ${cut.length} timed out`);
+			for (const r of cut) console.log(`    timed out: ${scoreLine(r)}`);
+		}
+		continue;
+	}
 	const range = (ns) => (Math.min(...ns) === Math.max(...ns) ? `${median(ns)}` : `${median(ns)} (${Math.min(...ns)}-${Math.max(...ns)})`);
 	// Output tokens per check passed. Thinking tokens count as output, so a
 	// level that thinks twice as hard for one more check is visible here and
@@ -373,8 +393,9 @@ for (const arm of arms) {
 			range(rs.map((r) => r.output)).padEnd(13) +
 			range(rs.map((r) => r.turns)).padEnd(8) +
 			(perCheck.length ? range(perCheck) : "-").padEnd(12) +
-			`${voided.length} void`,
+			`${cut.length} timed out`,
 	);
+	for (const r of cut) console.log(`    timed out: ${scoreLine(r)}`);
 }
 console.log(`\nMedian and range across ${RUNS} run(s). One run is noise; treat a single number as a hint, not a result.`);
 if (EFFORTS.length) {

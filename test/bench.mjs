@@ -242,23 +242,32 @@ for (const n of [1, 2, 3]) {
   if (n > 1) check(`phase ${n} reports no regressions on the reference`, r.regressed === 0, String(r.regressed));
 }
 
-// --- a timed-out run is void, not a low score ------------------------------
+// --- a timed-out run is reported, not discarded ---------------------------
 // Phases are separate processes, so a timed-out phase does not stop the next
-// one: it runs against a half-finished repo and produces numbers that look
-// valid. Averaging those in reads as "the harness scored badly" when what
-// happened is that it was cut off.
+// one: it runs against a half-finished repo. Its score is a lower bound, so it
+// stays out of the median, but discarding it threw away the most interesting
+// run in a batch: pi's first quill run was cut off at the cap and had still
+// scored 12/14 and 22/24 on the phases it finished.
 {
   const src = fs.readFileSync(path.join(bench, "run.mjs"), "utf8");
-  check("a timeout in any phase marks the run void",
+  check("a timeout in any phase is detected",
     /timedOutAnywhere = firstTimedOut \|\| laterPhases\.some\(\(p\) => p\.timedOut\)/.test(src));
-  check("the record says so explicitly", /void: timedOutAnywhere/.test(src) && /voidReason/.test(src));
-  check("void runs are excluded from every statistic",
-    /const rs = armRuns\.filter\(\(r\) => !r\.void && r\.output > 0\)/.test(src),
-    "the last batch needed a void record spotted by hand");
-  check("and are counted rather than hidden", /\$\{voided\.length\} void/.test(src));
-  check("an arm with nothing but void runs still reports",
-    /all \$\{voided\.length\} run\(s\) void/.test(src),
+  check("the record says so explicitly, and says the score is a lower bound",
+    /\btimedOutAnywhere,/.test(src) && /timeoutNote/.test(src) && /lower bound/.test(src));
+  check("truncated runs stay out of the median",
+    /const rs = armRuns\.filter\(\(r\) => !wasCut\(r\) && r\.output > 0\)/.test(src),
+    "a lower bound averaged with completed runs is neither");
+  check("but their scores are printed, not just their count",
+    /timed out: \$\{scoreLine\(r\)\}/.test(src),
+    "a count alone hides whether the work was any good");
+  check("scoreLine reports every phase, not just the first",
+    /r\.phases \|\| \[\]\)\.map\(\(p, i\) =>/.test(src));
+  check("an arm with nothing but truncated runs still reports",
+    /no completed runs; \$\{cut\.length\} timed out/.test(src),
     "silently omitting the arm would read as if it was never run");
+  check("records written by the older build still read correctly",
+    /r\.timedOutAnywhere \|\| r\.void/.test(src),
+    "results.jsonl already holds records using the previous field name");
 }
 
 // --- the diff walker has to survive a real directory tree ------------------
