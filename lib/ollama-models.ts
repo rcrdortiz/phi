@@ -63,9 +63,9 @@ export const MODELS: LocalModel[] = [
 	{
 		id: "qwen3.8-4MLX",
 		vision: true,
-		name: "Qwen3.8 27B — 4-bit MLX",
+		name: "Qwen3.8 27B (4-bit MLX)",
 		reasoning: true,
-		contextWindow: 40960,
+		contextWindow: 65536,
 		maxTokens: 16384,
 		weightsGb: 18,
 		// Chosen for cost, not shown to be better: a sweep of off/low/medium/high
