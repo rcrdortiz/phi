@@ -173,6 +173,13 @@ reads 66K because that is what the model can hold; compaction fires at 36,000,
 so a footer showing 55% is already at the point of compacting. The `ctx` chip
 next to it shows the number that actually decides, and `/context` reports both.
 
+**Compaction summarises at a lower thinking level.** pi passes the session's
+level to the summarisation call, so at `high` the model deliberates before
+writing the summary. Measured live: 79 seconds of prefill and then roughly 380
+seconds of generation, against a 500 second timeout it was about to hit.
+Summarising a transcript is not a reasoning task, so it runs at `low` and the
+session's level is restored afterwards.
+
 **Compaction shows elapsed seconds and a progress bar.** It is a model call on
 a large prompt, so it takes as long as a turn does, and a slow one and a wedged
 one look identical behind a spinner. The estimate averages the last five
@@ -362,6 +369,7 @@ Everything has a working default. These exist for when it does not.
 | `PI_WATCHDOG_MAX_RESUMES` | `25` | mid-step compaction resumes before pausing |
 | `PI_MIN_FREE_GB` | `28` | memory floor before pi refuses to start |
 | `PI_TOKEN_RATE` | `1` | show decode speed |
+| `PI_COMPACT_THINKING` | `low` | thinking level for the summarisation; `keep` inherits the session's |
 | `PI_COMPACT_QUIET` | `1` | `0` shows the interruption our own compaction causes |
 | `PI_EXIT_HANDOFF` | `1` | `0` skips the note written when you quit |
 | `PI_COLLAPSE_TOOLS` | `1` | `0` renders tool results in full |

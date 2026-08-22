@@ -88,6 +88,59 @@ check("a context with no setStatus still compacts",
   requestCompaction(headless, "test", { force: true }) === true);
 opts.onComplete({ summary: "s", tokensBefore: 1 });
 
+// --- thinking during compaction --------------------------------------------
+// pi passes the session level to compact(), so at `high` the model deliberates
+// before writing the summary. Measured live: 79s of prefill then ~380s of
+// generation, against a 500s timeout it was about to hit. Summarising a
+// transcript is not a reasoning task.
+{
+  const levels = [];
+  // The setter is passed in, not read off the context: it lives on the
+  // ExtensionAPI object. Reaching for ctx.setThinkingLevel compiles through a
+  // cast and then does nothing at all, which is worse than not trying.
+  const thinkingCtx = { ...ctx, thinkingLevel: "high" };
+  const setLevel = (l) => { levels.push(l); };
+  resetCompactionState();
+  requestCompaction(thinkingCtx, "test", { force: true, setThinkingLevel: setLevel });
+  check("thinking is turned down before summarising", levels[0] === "low", levels.join(" -> "));
+  opts.onComplete({ summary: "s", tokensBefore: 1 });
+  check("and restored afterwards", levels[levels.length - 1] === "high", levels.join(" -> "),
+    "the level is session-wide, so leaving it low would change every later turn");
+
+  levels.length = 0;
+  resetCompactionState();
+  requestCompaction(thinkingCtx, "test", { force: true, setThinkingLevel: setLevel });
+  opts.onError(new Error("nope"));
+  check("restored after a failure too", levels[levels.length - 1] === "high", levels.join(" -> "));
+
+  // A session already at the target level should not be churned.
+  levels.length = 0;
+  resetCompactionState();
+  requestCompaction({ ...thinkingCtx, thinkingLevel: "low" }, "test", { force: true, setThinkingLevel: setLevel });
+  check("a session already low is left alone", levels.length === 0);
+  opts.onComplete({ summary: "s", tokensBefore: 1 });
+
+  // A host that cannot change it must still compact.
+  resetCompactionState();
+  check("a caller that passes no setter still compacts",
+    requestCompaction({ ...ctx, thinkingLevel: "high" }, "test", { force: true }) === true,
+    "the level is an optimisation; compaction is not");
+  opts.onComplete({ summary: "s", tokensBefore: 1 });
+}
+
+// The setter must actually be wired from the extensions, or the whole thing is
+// a no-op that passes its own unit test.
+{
+  const fsx = await import("node:fs");
+  for (const f of ["auto-handoff.ts", "plan-notes.ts"]) {
+    const src = fsx.readFileSync(new URL(`../extensions/${f}`, import.meta.url), "utf8");
+    const wired = (src.match(/setThinkingLevel:/g) ?? []).length;
+    const compactions = (src.match(/requestCompaction\(/g) ?? []).length;
+    check(`${f} passes the setter at every compaction it requests`,
+      wired === compactions, `${wired} setters for ${compactions} call sites`);
+  }
+}
+
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
 process.exit(results.every(Boolean) ? 0 : 1);

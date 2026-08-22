@@ -190,6 +190,8 @@ export interface CompactableContext {
 		onComplete?: (result: { summary: string; tokensBefore: number }) => void;
 		onError?: (error: Error) => void;
 	}) => void;
+	/** Current thinking level. Readable on the context; changing it is not. */
+	thinkingLevel?: string;
 	ui: {
 		notify: (message: string, level?: "info" | "warning" | "error") => void;
 		/** Footer chip, used for compaction progress. Absent outside the TUI. */
@@ -427,6 +429,22 @@ export function resetCompactionState(): void {
 // ---------------------------------------------------------------- progress
 
 /** Footer chip key for compaction progress. */
+/**
+ * Thinking level for the summarisation call.
+ *
+ * pi passes the session's level to compact(), so at `high` the model
+ * deliberates before writing the summary. Summarising a transcript is not a
+ * reasoning task, and on a 27B at twenty tokens a second the deliberation is
+ * the whole cost: measured live, a compaction spent 79s on prefill and then
+ * roughly 380s generating, against a 500s timeout it was about to hit.
+ *
+ * `low` rather than `off` because the summary has to decide what matters, and
+ * that is a judgement even if it is not a hard one.
+ *
+ * Set to `keep` to inherit the session level.
+ */
+const COMPACT_THINKING = process.env.PI_COMPACT_THINKING ?? "low";
+
 const PROGRESS_KEY = "phi-compacting";
 
 /** How many past compactions the estimate averages over. */
@@ -530,6 +548,17 @@ export function requestCompaction(
 		 * down when pi is genuinely about to act. */
 		force?: boolean;
 		announce?: boolean;
+		/**
+		 * How to change the thinking level, used to keep the summarisation off
+		 * the session's level.
+		 *
+		 * Passed in rather than read from the context, because it lives on the
+		 * ExtensionAPI object and not on the context: `ctx.thinkingLevel` reads,
+		 * `pi.setThinkingLevel` writes. Reaching for it on the context compiles
+		 * through a cast and then silently does nothing, which is worse than not
+		 * trying.
+		 */
+		setThinkingLevel?: (level: string) => void;
 	} = {},
 ): boolean {
 	if (inFlight) return false;
@@ -608,10 +637,35 @@ export function requestCompaction(
 		// A pending interval would keep node alive past the last turn.
 		ticker.unref?.();
 	}
+	// Turn the thinking down for the summarisation, and put it back afterwards.
+	// The level is a session-wide setting, so leaving it lowered would quietly
+	// change every turn after a compaction.
+	const priorThinking = ctx.thinkingLevel;
+	const setThinking = options.setThinkingLevel;
+	const canSetThinking =
+		COMPACT_THINKING !== "keep" &&
+		typeof setThinking === "function" &&
+		typeof priorThinking === "string" &&
+		priorThinking !== COMPACT_THINKING;
+	if (canSetThinking) {
+		try {
+			setThinking?.(COMPACT_THINKING);
+		} catch {
+			/* a slower compaction is better than a failed one */
+		}
+	}
+
 	const settle = () => {
 		if (ticker) clearInterval(ticker);
 		ticker = undefined;
 		setStatus?.(PROGRESS_KEY, undefined);
+		if (canSetThinking && typeof priorThinking === "string") {
+			try {
+				setThinking?.(priorThinking);
+			} catch {
+				/* the next model_select restores it from the roster */
+			}
+		}
 	};
 
 	try {

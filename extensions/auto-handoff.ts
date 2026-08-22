@@ -363,6 +363,8 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
 		requestCompaction(c, `Context at ${pct}% mid-run`, {
 			force: true,
+			// Lives on the ExtensionAPI, not the context. See requestCompaction.
+			setThinkingLevel: (l) => (pi as unknown as { setThinkingLevel?: (x: string) => void }).setThinkingLevel?.(l),
 			// Same rules as /handoff, plus the one thing that differs: this fires
 			// mid-flight, so what was just attempted has to survive. Kept as one
 			// definition, because three copies of the summarisation rules drifted
@@ -429,6 +431,8 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 				// Explicit: the user asked. The high-water guard exists to stop the
 				// SIZE-based watchdog racing pi, not to overrule a direct request.
 				force: true,
+			// Lives on the ExtensionAPI, not the context. See requestCompaction.
+			setThinkingLevel: (l) => (pi as unknown as { setThinkingLevel?: (x: string) => void }).setThinkingLevel?.(l),
 				instructions: INSTRUCTIONS,
 				onSummary: (summary, tokensBefore) => writeHandoff(c.cwd, summary, tokensBefore, "requested"),
 			});

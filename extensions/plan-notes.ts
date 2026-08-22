@@ -344,6 +344,8 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			// mid-run where pi does not act at all. Standing down here is how a
 			// finished step carries its whole context into the next one.
 			force: true,
+			// Lives on the ExtensionAPI, not the context. See requestCompaction.
+			setThinkingLevel: (l) => (pi as unknown as { setThinkingLevel?: (x: string) => void }).setThinkingLevel?.(l),
 			instructions:
 				`The next step is: ${reset.text}. Keep only what that step needs: ` +
 				`decisions, constraints and the state of the code. Drop the narrative of how the previous step went, ` +

@@ -16,6 +16,15 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: compaction inherited `thinking: high` and nearly timed out because of
+it.** pi passes the session's thinking level to the summarisation call, so the
+model deliberated before writing the summary. Caught from the Ollama log while
+a compaction sat at 459 seconds: 79 of prefill, then roughly 380 generating,
+against a 500 second idle timeout. Summarising a transcript is not a reasoning
+task. It runs at `low` now, and the session's level is restored afterwards,
+including when the compaction fails. `PI_COMPACT_THINKING=keep` restores the old
+behaviour.
+
 ## 0.15.0 (2026-08-22)
 
 **Added: a two-phase task that measures what SOLID is for.** `bench/tasks/exporter`
