@@ -140,5 +140,45 @@ check("and the README says diff size did not discriminate at this size",
   /did not discriminate|too small/.test(fs.readFileSync(path.join(bench, "README.md"), "utf8")),
   "a metric that failed its own validation must not be quietly presented as one that works");
 
+// --- the seeded bug-hunt task ----------------------------------------------
+// Sized to force compaction, which is most of what separates phi from pi. The
+// exporter task never reaches the trigger, so comparing harnesses on it would
+// mostly measure the model.
+const ledger = path.join(bench, "tasks/ledger");
+const gradeLedger = (dir) => JSON.parse(execFileSync(process.execPath, [path.join(ledger, "verify.mjs"), dir], { encoding: "utf8" }));
+
+check("the seeded repo's visible suite passes as shipped", (() => {
+  try {
+    execFileSync(process.execPath, ["test/run.js"], { cwd: path.join(ledger, "repo"), encoding: "utf8" });
+    return true;
+  } catch {
+    return false;
+  }
+})(), "a failing test tells you where to look, and the looking is the task");
+
+const seeded = gradeLedger(path.join(ledger, "repo"));
+check("and the hidden suite finds defects it does not", seeded.passed < seeded.total,
+  `${seeded.passed}/${seeded.total}`);
+check("the defects span several files", (() => {
+  const failing = seeded.results.filter((r) => !r.pass).map((r) => r.name).join(" ");
+  return ["allocate", "tier", "quote", "refund", "group"].filter((k) => failing.includes(k)).length >= 4;
+})(), "one file would be a puzzle, not a codebase");
+
+const fixed = gradeLedger(path.join(ledger, "reference"));
+check("the reference passes every check", fixed.passed === fixed.total,
+  fixed.results.filter((r) => !r.pass).map((r) => `${r.name}: ${r.detail}`).join("; ") || `${fixed.passed}/${fixed.total}`);
+
+check("editing the tests is caught", (() => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "bench-ledger-"));
+  fs.cpSync(path.join(ledger, "reference"), d, { recursive: true });
+  fs.appendFileSync(path.join(d, "test/run.js"), "\n// touched\n");
+  const r = gradeLedger(d);
+  fs.rmSync(d, { recursive: true, force: true });
+  return r.results.some((x) => !x.pass && /not modified/.test(x.name));
+})(), "editing the tests into agreement is the obvious way to score without fixing");
+
+check("the runner copies a task's seed repo", /fs.cpSync\(seed, cwd/.test(fs.readFileSync(path.join(bench, "run.mjs"), "utf8")),
+  "one run must not hand the next a half-fixed codebase");
+
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
 process.exit(results.every(Boolean) ? 0 : 1);

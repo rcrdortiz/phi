@@ -16,6 +16,15 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: `bench/tasks/ledger`, a seeded bug hunt sized to reach a compaction.**
+The exporter task finished without compacting once, which makes it a poor
+phi-versus-pi comparison: compaction is most of what separates them. This is six
+modules with five defects the visible suite does not catch, each one a case
+where a comment states the intent and the code below does something else.
+Finding them requires reading the codebase rather than reading a failing test.
+The hidden suite also checks the visible tests were not edited into agreement,
+and a reference copy with all five fixed proves the suite is passable at 17/17.
+
 ## 0.16.0 (2026-08-22)
 
 **Added: `--compact-thinking` sweeps the summarisation level.** A different

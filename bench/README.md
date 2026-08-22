@@ -117,6 +117,22 @@ A Tetris run takes 20 to 60 minutes on a 27B local model. Two harnesses times
 three runs is most of a day. Start with `--runs 1` to check the plumbing, and
 read the result as a smoke test rather than a finding.
 
+## Reaching a compaction
+
+The `exporter` task never compacts: it finished in 226 seconds having reached
+nowhere near the 36,000 token trigger. That makes it a fine smoke test and a
+poor comparison, because compaction is most of what separates phi from pi, and a
+task that never triggers it mostly measures the model.
+
+`ledger` is sized for it. A seeded repo of six modules with five defects the
+visible suite does not catch, spread across five files, none findable without
+reading. Finding them means reading most of the codebase, re-reading after
+edits, and running the suite repeatedly, which is what actually fills a context.
+
+Whether it reaches two compactions is a question for a real run. The runner
+already reports the count per run, and if it comes in under two the answer is a
+larger seeded repo rather than a different metric.
+
 ## Measuring architecture
 
 You cannot measure SOLID. You can measure what it is for: every one of those

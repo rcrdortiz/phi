@@ -142,6 +142,10 @@ function runOnce(harness, index, effort, compactThinking) {
   const spec = HARNESS[harness];
   if (!spec) throw new Error(`unknown harness: ${harness}`);
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), `bench-${TASK}-${harness}-`));
+  // A task can ship a starting repo. Copied fresh per run, so one run cannot
+  // leave the next a half-fixed codebase.
+  const seed = path.join(TASK_DIR, "repo");
+  if (fs.existsSync(seed)) fs.cpSync(seed, cwd, { recursive: true });
   // A two-phase task builds, then extends in a fresh session that has no memory
   // of building it. The second prompt is never present during the first: a task
   // that reveals what is coming measures whether the model can follow a hint,
