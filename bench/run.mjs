@@ -28,6 +28,16 @@ const arg = (name, fallback) => {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 };
 const HARNESSES = arg("harness", "phi,pi").split(",");
+/**
+ * Thinking levels to sweep.
+ *
+ * Ollama's reasoning_effort takes none/low/medium/high, so pi's xhigh and max
+ * map onto high and would measure the same thing three times under different
+ * names. Sweeping these four answers the question worth asking: whether
+ * thinking earns the tokens and the minutes it costs, which on a local model at
+ * fifteen tokens a second is not obvious in either direction.
+ */
+const EFFORTS = arg("effort", "").split(",").filter(Boolean);
 const RUNS = Number(arg("runs", 3));
 const TASK = arg("task", "tetris");
 const TIMEOUT_MIN = Number(arg("timeout", 45));
@@ -82,14 +92,19 @@ function readSession(agentDir, cwd, startedAt) {
   return { input, output, turns, compactions, sessionFile: best.p };
 }
 
-function runOnce(harness, index) {
+function runOnce(harness, index, effort) {
   const spec = HARNESS[harness];
   if (!spec) throw new Error(`unknown harness: ${harness}`);
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), `bench-${TASK}-${harness}-`));
   const prompt = fs.readFileSync(path.join(TASK_DIR, "PROMPT.md"), "utf8");
   const startedAt = Date.now();
 
-  const r = spawnSync("pi", ["--print", prompt, "--approve"], {
+  const argv = ["--print", prompt, "--approve"];
+  // Only passed when sweeping. Without it each harness runs at its own
+  // configured default, which is part of what "phi versus pi" means.
+  if (effort) argv.push("--thinking", effort);
+
+  const r = spawnSync("pi", argv, {
     cwd,
     encoding: "utf8",
     timeout: TIMEOUT_MIN * 60_000,
@@ -111,6 +126,7 @@ function runOnce(harness, index) {
     at: new Date().toISOString(),
     task: TASK,
     harness,
+    effort: effort ?? "default",
     run: index,
     seconds,
     timedOut: r.error?.code === "ETIMEDOUT" || r.signal === "SIGTERM",
@@ -124,7 +140,7 @@ function runOnce(harness, index) {
   fs.appendFileSync(OUT, `${JSON.stringify(record)}\n`);
   const score = record.total ? `${record.passed}/${record.total}` : "no artifact";
   console.log(
-    `  ${harness.padEnd(4)} run ${index}: ${score.padEnd(7)} ${record.seconds}s  ` +
+    `  ${harness.padEnd(4)} ${String(record.effort).padEnd(8)} run ${index}: ${score.padEnd(7)} ${record.seconds}s  ` +
       `${record.output} out / ${record.input} in  ${record.turns} turns` +
       `${record.timedOut ? "  TIMED OUT" : ""}`,
   );
@@ -138,27 +154,43 @@ const median = (ns) => {
   return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
 };
 
-console.log(`${TASK}: ${HARNESSES.join(" vs ")}, ${RUNS} run(s) each, ${TIMEOUT_MIN}min cap\n`);
+const arms = EFFORTS.length ? HARNESSES.flatMap((h) => EFFORTS.map((e) => [h, e])) : HARNESSES.map((h) => [h, undefined]);
+const totalRuns = arms.length * RUNS;
+console.log(
+  `${TASK}: ${arms.map(([h, e]) => (e ? `${h}/${e}` : h)).join(" vs ")}, ` +
+    `${RUNS} run(s) each = ${totalRuns} runs, ${TIMEOUT_MIN}min cap`,
+);
+if (totalRuns > 6) {
+  console.log(`That is up to ${Math.round((totalRuns * TIMEOUT_MIN) / 60)}h if every run hits the cap.`);
+}
+console.log();
 const all = [];
-// Alternate rather than running all of one then all of the other, so a warm
+// Alternate rather than running all of one arm then all of the next, so a warm
 // cache or a busy machine does not land entirely on one side.
-for (let i = 1; i <= RUNS; i++) for (const h of HARNESSES) all.push(runOnce(h, i));
+for (let i = 1; i <= RUNS; i++) for (const [h, e] of arms) all.push(runOnce(h, i, e));
 
-console.log("\nharness  passed      time        output tok   turns   compactions  timeouts");
-for (const h of HARNESSES) {
-  const rs = all.filter((r) => r.harness === h);
-  if (!rs.length) continue;
-  const pass = rs.map((r) => r.passed);
-  const range = (ns) => (Math.min(...ns) === Math.max(...ns) ? `${median(ns)}` : `${median(ns)} (${Math.min(...ns)}-${Math.max(...ns)})`);
-  console.log(
-    h.padEnd(8) +
-      `${range(pass)}/${rs[0].total}`.padEnd(12) +
-      `${range(rs.map((r) => r.seconds))}s`.padEnd(12) +
-      range(rs.map((r) => r.output)).padEnd(13) +
-      range(rs.map((r) => r.turns)).padEnd(8) +
-      range(rs.map((r) => r.compactions)).padEnd(13) +
-      rs.filter((r) => r.timedOut).length,
-  );
+console.log("\narm            passed      time        output tok   turns   tok/check   timeouts");
+for (const [h, e] of arms) {
+	const rs = all.filter((r) => r.harness === h && (e ? r.effort === e : true));
+	if (!rs.length) continue;
+	const range = (ns) => (Math.min(...ns) === Math.max(...ns) ? `${median(ns)}` : `${median(ns)} (${Math.min(...ns)}-${Math.max(...ns)})`);
+	// Output tokens per check passed. Thinking tokens count as output, so a
+	// level that thinks twice as hard for one more check is visible here and
+	// nowhere else: the score alone says it won, the token count alone says it
+	// lost, and neither is the question being asked.
+	const perCheck = rs.map((r) => (r.passed ? Math.round(r.output / r.passed) : 0)).filter(Boolean);
+	console.log(
+		`${h}${e ? `/${e}` : ""}`.padEnd(15) +
+			`${range(rs.map((r) => r.passed))}/${rs[0].total}`.padEnd(12) +
+			`${range(rs.map((r) => r.seconds))}s`.padEnd(12) +
+			range(rs.map((r) => r.output)).padEnd(13) +
+			range(rs.map((r) => r.turns)).padEnd(8) +
+			(perCheck.length ? range(perCheck) : "-").padEnd(12) +
+			rs.filter((r) => r.timedOut).length,
+	);
 }
 console.log(`\nMedian and range across ${RUNS} run(s). One run is noise; treat a single number as a hint, not a result.`);
+if (EFFORTS.length) {
+	console.log("tok/check is output tokens per check passed: the column that says whether thinking earned its cost.");
+}
 console.log(`Raw records: ${OUT}`);

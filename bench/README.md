@@ -9,6 +9,40 @@ node bench/run.mjs --harness phi,pi --runs 3 --task tetris
 Each run gets a fresh temporary directory, is handed `tasks/<task>/PROMPT.md`
 through `pi --print`, and is graded afterwards by `tasks/<task>/verify.mjs`.
 
+## Sweeping thinking levels
+
+```sh
+node bench/run.mjs --harness phi --effort off,low,medium,high --runs 3
+```
+
+Whether thinking earns its cost is not obvious in either direction on a local
+model. Thinking tokens are output tokens, so more effort costs both tokens and
+minutes at fifteen tokens a second, and the question is whether the extra checks
+passed are worth it.
+
+That is what the `tok/check` column is for: output tokens per check passed. The
+score alone says more thinking won; the token count alone says it lost; neither
+is the question. A level that thinks twice as hard for one more check is visible
+only in the ratio.
+
+```
+arm            passed      time        output tok   turns   tok/check   timeouts
+phi/off        9/15        780s        3200         38      356         0
+phi/high       13/15       1580s       8200         38      631         0
+```
+
+Four levels, not seven. Ollama's `reasoning_effort` takes none, low, medium and
+high, so pi's `xhigh` and `max` map onto high and would measure the same thing
+three times under different names.
+
+Sweeping is also how the phi-versus-pi comparison gets separated into its two
+halves. Run without `--effort` and each harness uses its own configured default,
+which measures the whole package including the settings. Run with a fixed level
+on both and the settings are held equal, so what is left is the extensions.
+
+Mind the arithmetic. Two harnesses times four levels times three runs is 24
+runs, and the runner prints the worst-case hours before it starts.
+
 ## What it reports
 
 ```

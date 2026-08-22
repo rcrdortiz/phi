@@ -60,5 +60,19 @@ check("the prompt does not ask for tests", !/write .*tests|add tests/i.test(prom
   "an agent that writes its own tests grades its own homework");
 check("the runner exists and parses", fs.existsSync(path.join(bench, "run.mjs")));
 
+// The effort sweep. Four levels, because Ollama's reasoning_effort takes
+// none/low/medium/high and pi's xhigh and max map onto high: sweeping all seven
+// would measure the same thing three times under different names.
+const runner = fs.readFileSync(path.join(bench, "run.mjs"), "utf8");
+check("thinking level is a sweepable dimension", /--thinking/.test(runner) && /EFFORTS/.test(runner));
+check("no effort means each harness uses its own default",
+  /EFFORTS\.length \?/.test(runner),
+  "that is what comparing phi against pi means, settings included");
+check("the summary reports tokens per check passed", /tok\/check/.test(runner),
+  "score alone says thinking won, tokens alone say it lost, and neither is the question");
+check("the run cost is stated before it starts", /if \(totalRuns > 6\)/.test(runner),
+  "24 runs at 45 minutes is not something to discover halfway through");
+check("each record carries its effort level", /effort: effort \?\? "default"/.test(runner));
+
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
 process.exit(results.every(Boolean) ? 0 : 1);

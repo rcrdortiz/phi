@@ -16,6 +16,19 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: the benchmark sweeps thinking levels.**
+`--effort off,low,medium,high` runs each harness at each level. Thinking tokens
+are output tokens, so more effort costs both tokens and minutes, and whether it
+earns that is not obvious in either direction on a local model. The summary
+reports tokens per check passed, which is the only column that answers it: the
+score alone says more thinking won, the token count alone says it lost.
+
+Four levels rather than seven, because Ollama's `reasoning_effort` takes
+none/low/medium/high and pi's `xhigh` and `max` map onto high. Sweeping also
+splits the phi-versus-pi comparison in two: without `--effort` each harness uses
+its own default and the settings are part of what is measured, with a fixed
+level on both they are held equal and only the extensions differ.
+
 ## 0.13.3 (2026-08-22)
 
 **Fixed: `Error: This operation was aborted` on a step-boundary compaction.**
