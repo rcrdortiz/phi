@@ -17,7 +17,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { resultText } from "../lib/collapse.ts";
 import { charsPerToken } from "../lib/token-estimate.ts";
-import { COMMAND_MAX, ENABLED, formatSummary, readUsage, record, usagePath } from "../lib/usage.ts";
+import { COMMAND_MAX, ENABLED, ERROR_MAX, formatSummary, readUsage, record, usagePath } from "../lib/usage.ts";
 
 /**
  * What identifies this call in a report.
@@ -94,7 +94,9 @@ export default function usageLog(pi: ExtensionAPI): void {
 			tokens: Math.round(text.length / charsPerToken(tool)),
 			ms: started ? Date.now() - started.at : 0,
 			...(started?.command ? { command: started.command } : {}),
-			...(e.isError ? { error: true } : {}),
+			...(e.isError
+				? { error: true, ...(text.trim() ? { detailError: text.trim().replace(/\s+/g, " ").slice(0, ERROR_MAX) } : {}) }
+				: {}),
 		});
 		return undefined;
 	});

@@ -16,6 +16,12 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: failed calls record why, and repeats are grouped.** A session lost five
+minutes to six edits and two failed runs of one shell script, and the log could
+say only that they failed. `/usage` now lists failures with the start of the
+error text, grouped so the same failure three times shows as one row with a
+count: three of one failure is a loop, three different ones are three problems.
+
 ## 0.13.0 (2026-08-21)
 
 **Added: `bench/`, comparing harnesses on one task with a suite they do not

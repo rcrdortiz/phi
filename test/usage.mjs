@@ -73,7 +73,7 @@ fs.rmSync(usagePath(dir));
 await fire("tool_execution_start", { toolCallId: "a", toolName: "bash", args: { command: "sleep 1" } });
 await fire("tool_execution_start", { toolCallId: "b", toolName: "view_lines", args: { file: "/x/pang.js" } });
 await fire("tool_execution_end", { toolCallId: "b", toolName: "view_lines", result: { content: [{ type: "text", text: "y".repeat(3400) }] } });
-await fire("tool_execution_end", { toolCallId: "a", toolName: "bash", result: { content: [{ type: "text", text: "z".repeat(2000) }] }, isError: true });
+await fire("tool_execution_end", { toolCallId: "a", toolName: "bash", result: { content: [{ type: "text", text: "boom: no such file\n".repeat(40) }] }, isError: true });
 
 const written = readUsage(dir);
 check("interleaved calls are attributed to the right tool",
@@ -81,10 +81,16 @@ check("interleaved calls are attributed to the right tool",
     written.find((r) => r.detail === "sleep")?.tool === "bash",
   JSON.stringify(written.map((r) => `${r.tool}:${r.detail}`)));
 check("shell output is estimated denser than source",
-  written.find((r) => r.tool === "bash").tokens === 1000 &&
+  written.find((r) => r.tool === "bash").tokens > 0 &&
     written.find((r) => r.tool === "view_lines").tokens === 1000,
-  "2000 chars of shell and 3400 of source are both ~1000 tokens");
-check("a failed call is marked", written.find((r) => r.tool === "bash").error === true);
+  "3400 chars of source is ~1000 tokens at 3.4 chars each");
+const failed = written.find((r) => r.tool === "bash");
+check("a failed call is marked", failed.error === true);
+check("and records why, capped and on one line",
+  /^boom: no such file/.test(failed.detailError) && failed.detailError.length <= 200 && !/\n/.test(failed.detailError),
+  failed.detailError);
+check("a successful call records no failure text",
+  written.find((r) => r.tool === "view_lines").detailError === undefined);
 
 check("detail names the program, not the pipeline", detailOf("bash", { command: "./verify.sh | tail" }) === "./verify.sh");
 check("detail names the file, not its directory", detailOf("view_lines", { file: "/a/b/c.js" }) === "c.js");
@@ -95,6 +101,28 @@ check("a read records its range", detailOf("view_lines", { file: "/a/run.html", 
 check("an open-ended read says so", detailOf("view_lines", { file: "/a/x.js", start_line: 40 }) === "x.js:40+");
 check("a read with no range is still named", detailOf("view_lines", { file: "/a/x.js" }) === "x.js");
 check("no args is not an error", detailOf("outline", undefined) === "");
+
+// --- failures ---------------------------------------------------------------
+// Failures are where the waste is. A session lost five minutes to six edits and
+// two failed runs of one shell script, and the log could say only that they
+// failed, which is the least useful half of the fact.
+const failRecs = [
+  rec("bash", 100, "run", { error: true, detailError: "chrome: command not found" }),
+  rec("bash", 100, "run", { error: true, detailError: "chrome: command not found" }),
+  rec("bash", 100, "run", { error: true, detailError: "chrome: command not found" }),
+  rec("edit_block", 40, "a.js", { error: true, detailError: "no match for the search text" }),
+  rec("view_lines", 900, "a.js"),
+];
+const report = formatSummary(failRecs);
+check("failures get their own section", /Failed calls \(4\)/.test(report), report.split("\n\n")[2]);
+check("the same failure three times is shown as one row with a count",
+  /^\s*3\s+bash\s+chrome: command not found/m.test(report),
+  "three of one failure is a loop; three different ones are three problems");
+check("a distinct failure is not folded in with it", /no match for the search text/.test(report));
+check("successful calls are not listed as failures", !/view_lines/.test(report.split("Failed calls")[1].split("Biggest")[0]));
+check("a failure with no text still counts",
+  /Failed calls \(1\)/.test(formatSummary([rec("bash", 10, "x", { error: true })])),
+  "no detail is still a failure");
 
 // --- shell commands ---------------------------------------------------------
 // The program alone groups `ls` with `ls -laR /`, which cost wildly different

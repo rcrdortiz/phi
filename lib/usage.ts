@@ -47,6 +47,15 @@ export interface UsageRecord {
 	ms: number;
 	error?: boolean;
 	/**
+	 * The start of a failed result.
+	 *
+	 * Failures are where the waste is: a session lost five minutes to six edits
+	 * and two failed runs of one shell script, and the log could say only that
+	 * they failed. Recorded for failures alone, and capped, because the point is
+	 * to recognise a repeated failure rather than to keep a transcript.
+	 */
+	detailError?: string;
+	/**
 	 * The whole command, for bash only.
 	 *
 	 * `detail` holds the program so calls group sensibly, but the program is not
@@ -59,6 +68,9 @@ export interface UsageRecord {
 
 /** Longest command kept. Enough to tell two apart without storing a script. */
 export const COMMAND_MAX = 160;
+
+/** Longest failure text kept. Enough to recognise the same failure twice. */
+export const ERROR_MAX = 200;
 
 export function usagePath(cwd: string): string {
 	return path.join(cwd, STATE_DIR, "usage.jsonl");
@@ -216,6 +228,22 @@ export function formatSummary(records: UsageRecord[]): string {
 				pad(num(r.worst), 8) +
 				`${r.seconds}s${r.errors ? `  (${r.errors} failed)` : ""}`,
 		);
+	}
+	const failures = records.filter((r) => r.error);
+	if (failures.length) {
+		// Repeats first: the same failure three times is a loop, and a loop is
+		// worth more attention than three different problems.
+		const by = new Map<string, { n: number; tool: string; text: string }>();
+		for (const f of failures) {
+			const key = `${f.tool}:${(f.detailError ?? "").slice(0, 60)}`;
+			const at = by.get(key);
+			if (at) at.n++;
+			else by.set(key, { n: 1, tool: f.tool, text: f.detailError ?? "(no detail recorded)" });
+		}
+		out.push("", `Failed calls (${failures.length}):`);
+		for (const f of [...by.values()].sort((a, b) => b.n - a.n).slice(0, 6)) {
+			out.push(`  ${String(f.n).padEnd(3)} ${f.tool.padEnd(12)} ${f.text.replace(/\s+/g, " ").slice(0, 90)}`);
+		}
 	}
 	out.push("", "Biggest single calls:");
 	for (const c of worstCalls(records)) {
