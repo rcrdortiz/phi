@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.14.0 (2026-08-22)
+
 **Added: the benchmark sweeps thinking levels.**
 `--effort off,low,medium,high` runs each harness at each level. Thinking tokens
 are output tokens, so more effort costs both tokens and minutes, and whether it
