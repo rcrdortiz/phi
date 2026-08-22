@@ -16,6 +16,18 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: `bench/tasks/quill`, one session, three phases, four languages.**
+Roughly eighty files of PHP, TypeScript, HTML, CSS and SQL. Phase one finds
+three planted defects, phase two adds a feature across all four languages, phase
+three adds an output format and measures whether it went in through the existing
+seam. The phases run as sequential prompts in a single session so context
+accumulates, because thirty runs across the earlier tasks produced zero
+compactions and compaction is most of what separates phi from pi.
+
+**Added: the runner supports N phases and per-task session policy.** `task.json`
+sets `sameSession`; quill shares one session, the exporter deliberately does not,
+since it measures whether a design survives being handed to a stranger.
+
 ## 0.18.0 (2026-08-22)
 
 **Changed: the default thinking level is `low`, was `high`.** Not because `low`
