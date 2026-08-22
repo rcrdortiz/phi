@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.20.0 (2026-08-22)
+
 **Added: `/doctor`, and a startup check for when the machine is the problem.**
 A session spent thirty-four minutes producing ninety-eight seconds of
 generation, with no error and no warning: Ollama was discarding its prefix cache
