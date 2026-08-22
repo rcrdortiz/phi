@@ -60,6 +60,21 @@ ask()  {
 TOTAL_MB=$(( $(sysctl -n hw.memsize) / 1048576 ))
 WIRED_LIMIT_MB=$(( TOTAL_MB * 83 / 100 ))
 (( WIRED_LIMIT_MB > TOTAL_MB - 8192 )) && WIRED_LIMIT_MB=$(( TOTAL_MB - 8192 ))
+
+# Cache slots, scaled to what the wired limit can actually hold.
+#
+# Two slots stop concurrent sessions evicting each other, but each one costs a
+# full KV cache: about 111 KB per token, so 7.3 GB at the roster's 65536 window,
+# on top of 18.5 GB of weights. That is 33 GB for two slots and 26 GB for one.
+# Asking for two on a machine that cannot hold them trades one kind of eviction
+# for a worse one, so a smaller machine gets a single slot and the warning that
+# comes with it.
+NEED_2_SLOTS_MB=33792
+if (( WIRED_LIMIT_MB >= NEED_2_SLOTS_MB )); then
+  OLLAMA_SLOTS=2
+else
+  OLLAMA_SLOTS=1
+fi
 GPU_PLIST=/Library/LaunchDaemons/local.iogpu-wired-limit.plist
 ENV_PLIST="$HOME/Library/LaunchAgents/local.ollama-env.plist"
 
@@ -109,6 +124,16 @@ fi
 # resets it — so an 18GB model unloads during any pause and the next message
 # pays a full reload. OLLAMA_MAX_LOADED_MODELS=1 is a memory guard.
 #
+# OLLAMA_NUM_PARALLEL=2 buys a second prefix-cache slot. Ollama defaults to one,
+# and one slot holds one conversation: two agent sessions talking to the same
+# Ollama evict each other's cache on every turn, so both re-read their whole
+# history. Measured 2026-08-22, that produced 8 evictions in 30 minutes with
+# 16 GB of headroom spare, each costing a full re-prefill of 27-31K tokens at
+# 190-220 seconds. It looks exactly like a memory problem and is not one:
+# lowering num_ctx changed nothing. Two slots cost KV cache (roughly 111 KB per
+# token per slot) and are worth it. `/doctor` reports the slot count and any
+# evictions.
+#
 # OLLAMA_FLASH_ATTENTION and OLLAMA_KV_CACHE_TYPE are deliberately NOT set.
 # They are llama.cpp runner options and the MLX runner ignores them: measured
 # 2026-08-20, qwen3.8-4MLX costs 136.5 KB/token at q8_0 and 136.5 at q4_0, with
@@ -127,7 +152,7 @@ if [[ $APP_RUNNING -eq 1 ]]; then
   <key>Label</key><string>local.ollama-env</string>
   <key>ProgramArguments</key><array>
     <string>/bin/sh</string><string>-c</string>
-    <string>launchctl setenv OLLAMA_KEEP_ALIVE 2h; launchctl setenv OLLAMA_MAX_LOADED_MODELS 1</string>
+    <string>launchctl setenv OLLAMA_KEEP_ALIVE 2h; launchctl setenv OLLAMA_MAX_LOADED_MODELS 1; launchctl setenv OLLAMA_NUM_PARALLEL ${OLLAMA_SLOTS}</string>
   </array>
   <key>RunAtLoad</key><true/>
 </dict></plist>
@@ -136,11 +161,23 @@ PLIST
   launchctl load -w "$ENV_PLIST" 2>/dev/null || true
   launchctl setenv OLLAMA_KEEP_ALIVE 2h
   launchctl setenv OLLAMA_MAX_LOADED_MODELS 1
-  ok "login agent installed (restart Ollama.app for it to take effect)"
+  launchctl setenv OLLAMA_NUM_PARALLEL "$OLLAMA_SLOTS"
+  ok "login agent installed ($OLLAMA_SLOTS cache slot(s))"
+  if (( OLLAMA_SLOTS < 2 )); then
+    warn "only one cache slot: this machine cannot hold two at the roster window."
+    echo "      Running two agent sessions at once will make them evict each other."
+  fi
+  # Quitting Ollama.app from the menu bar is not always enough: the Electron
+  # process can survive and respawn the server with its old environment, so the
+  # new values look applied (launchctl getenv agrees) while the server still
+  # runs on the old ones. Check the server's own view, not the shell's.
+  warn "restart Ollama.app fully for this to take effect, then confirm with:"
+  echo "      grep 'server config' ~/.ollama/logs/server.log | tail -1 | grep -o 'OLLAMA_NUM_PARALLEL:[0-9]*'"
 else
   launchctl setenv OLLAMA_KEEP_ALIVE 2h 2>/dev/null || true
   launchctl setenv OLLAMA_MAX_LOADED_MODELS 1 2>/dev/null || true
-  ok "keep-alive set to 2h"
+  launchctl setenv OLLAMA_NUM_PARALLEL "$OLLAMA_SLOTS" 2>/dev/null || true
+  ok "keep-alive 2h, $OLLAMA_SLOTS cache slot(s)"
 fi
 
 # ---------------------------------------------------------------- gpu limit

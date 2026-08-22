@@ -87,7 +87,8 @@ clear the flag for themselves.
 - Homebrew and node. `get-phi.sh` installs the rest and is safe to re-run.
 
 It raises the GPU wired limit to ~83% of RAM and installs a login agent for
-Ollama's keep-alive; both survive reboots. It also sets the TUI to fullscreen,
+Ollama's keep-alive, its loaded-model cap, and its prefix-cache slot count;
+all three survive reboots. It also sets the TUI to fullscreen,
 the theme to `phi-purple`, and `quietStartup`, so launching prints the boot box
 rather than a listing of everything that loaded. Exiting is quiet in the same
 way: `fullscreenExitOutput` is `resume-hint`, so quitting hands the terminal
@@ -434,6 +435,24 @@ people stop reading.
 
 It refuses to guess. With Ollama's log unreadable there is no verdict, only what
 could be seen, and a missing number prints as unknown rather than as zero.
+
+**The cause was contention, not capacity, and the two look identical.** Ollama
+defaults to `OLLAMA_NUM_PARALLEL=1`, which is a single prefix-cache slot, and a
+slot holds one conversation. Two agent sessions against the same Ollama take
+turns through that one slot and evict each other on every turn, so both re-read
+their entire history. The log shows it plainly once you look for it: requests
+alternating between a small conversation and a large one, each restoring only
+part of the prefix it matched.
+
+It reads exactly like running out of memory, and it is not. Halving the context
+window changed nothing: eight evictions still happened in the following thirty
+minutes with sixteen gigabytes of headroom spare. The fix is slots, not size.
+`get-phi.sh` asks for two where the wired limit can hold two, which at this
+roster's window means roughly 33 GB, and falls back to one with a warning below
+that rather than trading one kind of eviction for a worse one. `/doctor` reports
+the slot count alongside the session count and leads with contention when it
+finds it, because sending someone to rebuild their model does not help when the
+window was never the constraint.
 
 ## Releases
 
