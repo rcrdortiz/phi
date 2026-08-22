@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.18.0 (2026-08-22)
+
 **Changed: the default thinking level is `low`, was `high`.** Not because `low`
 was shown to be better. A sweep of off/low/medium/high on a bug-hunt task scored
 18-20 out of 23 at every level, inside a plus-or-minus-two noise floor measured
