@@ -236,6 +236,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `exit-word` | a bare `exit` closes pi instead of being answered by the model |
 | `working-timer` | what the turn is doing, and how long it has been doing it |
 | `resume-hint` | makes the resume command pi prints on exit name `phi` |
+| `doctor` | `/doctor`, and a startup check for cache thrashing |
 | `usage-log` | records what each tool call costs, for `/usage` |
 | `boot-screen` | replaces pi's banner with one about phi, and offers to install pi and phi updates |
 
@@ -342,6 +343,7 @@ This is the same evidence collected before the fact.
 | `/notes` | show what is currently on the notes file |
 | `/notes-gc` | trim notes that have outgrown their welcome |
 | `/usage` | which tools are spending the context |
+| `/doctor` | whether the machine is holding the model back |
 | `/syntax` | check a file parses, without reading it back |
 | `/handoff` | summarise and compact now |
 | `/effort` | set thinking level (or `Shift+Tab`) |
@@ -382,6 +384,8 @@ Everything has a working default. These exist for when it does not.
 | `PHI_DEBUG` | off | `1` records the logs and stops collapsing tool output |
 | `PHI_DEBUG_MESSAGE_END` | off | `1` logs every assistant message end to `.phi/message-end.log` |
 | `PHI_USAGE_LOG` | off | `1` records tool costs without the rest of debug mode |
+| `PHI_DOCTOR` | `1` | `0` skips the startup health check |
+| `PHI_DOCTOR_MINUTES` | `30` | how far back `/doctor` looks for evictions |
 | `PHI_USAGE_MAX_BYTES` | `2000000` | log size before the oldest half is dropped |
 | `PI_EXIT_WORD` | `1` | `0` sends a bare `exit` to the model instead of quitting |
 | `PI_WORKING_TIMER` | `1` | `0` leaves pi's plain "Working..." alone |
@@ -415,6 +419,21 @@ It goes above the previous compaction summary rather than over it. That summary
 is a model-written account of the work and is better material than this; an exit
 is no reason to lose it. A session that did nothing writes nothing, so a stub
 never replaces a real summary.
+
+**When the machine is the problem, not the model.** A session once spent
+thirty-four minutes producing ninety-eight seconds of generation. Nothing inside
+it said anything was wrong: no error, no warning, just slowness that read like a
+slow model. Ollama was discarding its prefix cache every couple of minutes, so
+every turn re-read the whole conversation from scratch.
+
+`/doctor` reports it: the wired limit, the resident model, the window it is
+loaded with, the headroom, and how often the cache was thrown away recently. A
+session checks once at startup and says something only when there is something
+to say, because a health check that reports good health every launch is one
+people stop reading.
+
+It refuses to guess. With Ollama's log unreadable there is no verdict, only what
+could be seen, and a missing number prints as unknown rather than as zero.
 
 ## Releases
 

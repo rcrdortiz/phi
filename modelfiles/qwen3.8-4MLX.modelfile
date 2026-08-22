@@ -4,7 +4,17 @@
 # Sampling values are Qwen's published instruct-mode settings — wrong sampling
 # hurts these models more than quantisation does.
 FROM qwen3.8:27b-mlx
-PARAMETER num_ctx 65536
+# 40960, not 65536. Ollama's own vram-based recommendation at a 40 GiB wired
+# limit is 32768, and running at double that left roughly 14 GB for prefix-cache
+# snapshots. Each snapshot at 30K depth is about 3.3 GB, so a handful filled it
+# and Ollama freed the whole cache: measured 14 times in one afternoon, each
+# costing a full re-prefill of 27-31K tokens, 190 to 220 seconds before the
+# first output token. A session spent 34 minutes on 98 seconds of generation.
+#
+# At 40960 the model needs about 23 GB, leaving 17 GB for snapshots that are
+# 60% the size, so roughly three times as many fit. phi's compaction trigger
+# follows the window automatically and lands at 28,672.
+PARAMETER num_ctx 40960
 PARAMETER temperature 0.7
 PARAMETER top_p 0.8
 PARAMETER top_k 20

@@ -16,6 +16,19 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: `/doctor`, and a startup check for when the machine is the problem.**
+A session spent thirty-four minutes producing ninety-eight seconds of
+generation, with no error and no warning: Ollama was discarding its prefix cache
+every couple of minutes, so every turn re-read the whole conversation. That is
+invisible from inside a session and the evidence lives in a log nobody knows
+exists. `/doctor` reports the wired limit, resident size, window, headroom and
+recent evictions, and a session warns once at startup only when it finds
+thrashing. It says "unknown" rather than guessing when a signal cannot be read.
+
+**Changed: the model window is 40,960, was 65,536.** Lower windows mean smaller
+cached snapshots. Note that this did not on its own stop the evictions, which is
+recorded in the task notes rather than claimed as a fix.
+
 ## 0.19.2 (2026-08-22)
 
 **Fixed: the benchmark's diff walker died on any nested codebase.** It listed

@@ -65,13 +65,12 @@ export const MODELS: LocalModel[] = [
 		vision: true,
 		name: "Qwen3.8 27B — 4-bit MLX",
 		reasoning: true,
-		contextWindow: 65536,
+		contextWindow: 40960,
 		maxTokens: 16384,
 		weightsGb: 18,
-		// High by default. On a 27B at 4-bit the thinking pass is where the
-		// quality actually comes from, and this setup is built for a model
-		// working alongside you rather than racing you — so spend the tokens.
-		// Shift+Tab lowers it live when a task is mechanical.
+		// Chosen for cost, not shown to be better: a sweep of off/low/medium/high
+		// scored 18-20 of 23 at every level, inside a noise floor of plus or
+		// minus two. Shift+Tab raises it live when a task warrants it.
 		defaultThinking: "low",
 	},
 ];
