@@ -261,5 +261,41 @@ for (const n of [1, 2, 3]) {
     "silently omitting the arm would read as if it was never run");
 }
 
+// --- the diff walker has to survive a real directory tree ------------------
+// It read the top level only and called readFileSync on whatever it found, so
+// the first nested codebase killed the run with EISDIR, halfway through an
+// overnight batch, at the phase boundary.
+{
+  const src = fs.readFileSync(path.join(bench, "run.mjs"), "utf8");
+  const snapshotOf = new Function("fs", "path",
+    "return " + src.match(/const snapshotOf = \(dir\) => \{[\s\S]*?\n\};/)[0].replace("const snapshotOf = ", ""))(fs, path);
+  const diffStat = new Function("fs", "path", "snapshotOf",
+    src.match(/function diffStat\(dir, snapshot\) \{[\s\S]*?\n\}/)[0] + "; return diffStat;")(fs, path, snapshotOf);
+
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "bench-walk-"));
+  fs.mkdirSync(path.join(d, "src/Deep/Deeper"), { recursive: true });
+  fs.mkdirSync(path.join(d, ".phi"), { recursive: true });
+  fs.writeFileSync(path.join(d, "top.txt"), "one\n");
+  fs.writeFileSync(path.join(d, "src/Deep/Deeper/x.php"), "a\nb\n");
+  fs.writeFileSync(path.join(d, ".phi/NOTES.md"), "agent state\n");
+
+  const before = snapshotOf(d);
+  check("the snapshot reaches nested files", before.has("src/Deep/Deeper/x.php"));
+  check("and does not choke on directories", before.has("top.txt"),
+    "a flat readdir plus readFileSync throws EISDIR on the first subdirectory");
+  check("agent state is not counted as the work", !before.has(".phi/NOTES.md"));
+
+  fs.writeFileSync(path.join(d, "src/Deep/Deeper/x.php"), "a\nb\nc\n");
+  fs.writeFileSync(path.join(d, "src/Deep/new.ts"), "n1\nn2\n");
+  const stat = diffStat(d, before);
+  check("an edit deep in the tree is counted", stat.added >= 1 && stat.filesTouched >= 2, JSON.stringify(stat));
+  check("a wholly new nested file counts as added", stat.added >= 3, JSON.stringify(stat));
+  check("an unchanged tree reports nothing", (() => {
+    const s2 = diffStat(d, snapshotOf(d));
+    return s2.added === 0 && s2.removed === 0 && s2.filesTouched === 0;
+  })());
+  fs.rmSync(d, { recursive: true, force: true });
+}
+
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
 process.exit(results.every(Boolean) ? 0 : 1);

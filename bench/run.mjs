@@ -107,37 +107,60 @@ function readSession(agentDir, cwd, startedAt) {
   return { input, output, turns, compactions, sessionFile: best.p };
 }
 
+/**
+ * Every file in the project, keyed by its path relative to the root.
+ *
+ * Recursive, because a real codebase has directories. A flat listing worked for
+ * the one-file exporter task and crashed on the first nested one with EISDIR,
+ * halfway through a batch, which is a cheap bug to have written and an
+ * expensive one to have shipped into an overnight run.
+ */
+const snapshotOf = (dir) => {
+	const out = new Map();
+	const walk = (abs, rel) => {
+		let entries = [];
+		try { entries = fs.readdirSync(abs, { withFileTypes: true }); } catch { return; }
+		for (const e of entries) {
+			// Skip agent state and version control: neither is the work.
+			if (e.name.startsWith(".") || e.name === "node_modules") continue;
+			const child = path.join(abs, e.name);
+			const key = rel ? `${rel}/${e.name}` : e.name;
+			if (e.isDirectory()) walk(child, key);
+			else {
+				try { out.set(key, fs.readFileSync(child, "utf8")); } catch { /* binary or unreadable */ }
+			}
+		}
+	};
+	walk(dir, "");
+	return out;
+};
+
 /** Lines added and removed between two states of the project. */
 function diffStat(dir, snapshot) {
+	const now = snapshotOf(dir);
 	let added = 0, removed = 0, files = 0;
+
 	for (const [rel, before] of snapshot) {
-		let after = "";
-		try { after = fs.readFileSync(path.join(dir, rel), "utf8"); } catch { /* deleted */ }
+		const after = now.get(rel) ?? "";
 		if (after === before) continue;
 		files++;
 		const b = before.split("\n"), a = after.split("\n");
-		const common = new Set(b);
-		added += a.filter((l) => l.trim() && !common.has(l)).length;
-		const now = new Set(a);
-		removed += b.filter((l) => l.trim() && !now.has(l)).length;
+		const wasThere = new Set(b);
+		added += a.filter((l) => l.trim() && !wasThere.has(l)).length;
+		const stillThere = new Set(a);
+		removed += b.filter((l) => l.trim() && !stillThere.has(l)).length;
 	}
-	// Files that did not exist before are wholly new.
-	for (const f of fs.readdirSync(dir)) {
-		if (snapshot.has(f) || f.startsWith(".")) continue;
+
+	// Files that did not exist before are wholly new. Counted separately rather
+	// than diffed, since there is nothing to diff against.
+	for (const [rel, text] of now) {
+		if (snapshot.has(rel)) continue;
 		files++;
-		added += fs.readFileSync(path.join(dir, f), "utf8").split("\n").filter((l) => l.trim()).length;
+		added += text.split("\n").filter((l) => l.trim()).length;
 	}
+
 	return { added, removed, filesTouched: files };
 }
-
-const snapshotOf = (dir) => {
-	const m = new Map();
-	for (const f of fs.readdirSync(dir)) {
-		if (f.startsWith(".")) continue;
-		try { m.set(f, fs.readFileSync(path.join(dir, f), "utf8")); } catch { /* directory */ }
-	}
-	return m;
-};
 
 function runOnce(harness, index, effort, compactThinking) {
   const spec = HARNESS[harness];

@@ -16,6 +16,13 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: the benchmark's diff walker died on any nested codebase.** It listed
+the project root and called `readFileSync` on everything it found, which is fine
+for a one-file task and throws `EISDIR` on the first subdirectory. It killed the
+quill smoke run at the phase boundary, twenty-seven minutes in. The walk is
+recursive now, skips agent state and `node_modules`, and is tested against a
+real tree.
+
 ## 0.19.1 (2026-08-22)
 
 **Fixed: a timed-out run is now marked void and excluded from the statistics.**
