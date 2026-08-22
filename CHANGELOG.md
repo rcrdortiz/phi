@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.15.1 (2026-08-22)
+
 **Fixed: compaction inherited `thinking: high` and nearly timed out because of
 it.** pi passes the session's thinking level to the summarisation call, so the
 model deliberated before writing the summary. Caught from the Ollama log while
