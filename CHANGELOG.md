@@ -16,6 +16,14 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: `Error: This operation was aborted` on a step-boundary compaction.**
+`plan_next` finishes a step and the compaction happens at the end of the turn,
+not inside the tool call. The turn is aborted in between, so the abort arrived
+before any compaction existed and the suppression window, which opened when a
+compaction started, missed it. Caught in `message-end.log` at busy:false four
+milliseconds after the tool result. A compaction is now announced when it is
+scheduled rather than when it begins.
+
 ## 0.13.2 (2026-08-22)
 
 **Changed: `[o]` means "where work last happened", not "in progress".** The mark

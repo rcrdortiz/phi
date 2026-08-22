@@ -19,7 +19,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { requestCompaction } from "../lib/compaction.ts";
+import { expectCompaction, requestCompaction } from "../lib/compaction.ts";
 import { EXPIRING_CATEGORY, NOTES_MAX_CHARS, NOTE_MAX_CHARS, duplicateOf, enforceBudget, gcNotes, narrationReason, pruneExpiring, trimNote } from "../lib/notes.ts";
 import { Type } from "../lib/schema.ts";
 import * as fs from "node:fs";
@@ -681,6 +681,9 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			// a tool comes from an optional factory and may lack newSession
 			// ("ctx.newSession is not a function"). The agent_settled handler
 			// below runs with the mode's full context, so it can do the swap.
+			// Say a compaction is coming as soon as it is scheduled. It happens at
+			// the end of this turn, and the abort in between belongs to it.
+			expectCompaction();
 			pendingReset = {
 				index: next.index,
 				total: steps.length,

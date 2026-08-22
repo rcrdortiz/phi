@@ -236,6 +236,20 @@ check("a user message is never touched",
     `${uses.length} call sites, one definition`);
 }
 
+// An abort that arrives before its compaction starts is still ours.
+{
+  const { expectCompaction, resetCompactionState: reset } = await import("../lib/compaction.ts");
+  reset();
+  const before = await fire("message_end", { message: { role: "assistant", stopReason: "error", errorMessage: "This operation was aborted" } });
+  check("an abort with nothing scheduled is left visible", before === undefined);
+  expectCompaction(30_000);
+  const after = await fire("message_end", { message: { role: "assistant", stopReason: "error", errorMessage: "This operation was aborted" } });
+  check("an abort after a compaction is announced is swallowed",
+    after?.message?.stopReason === "stop",
+    "plan_next announces one for the end of the turn; the abort lands first");
+  reset();
+}
+
 // --- the diagnostic --------------------------------------------------------
 // The suppressor above is correct in isolation and was still not working live,
 // so the next occurrence has to leave evidence rather than another theory.

@@ -350,6 +350,35 @@ export function compactionBusy(): boolean {
 	return inFlight;
 }
 
+/**
+ * A compaction that is coming but has not started.
+ *
+ * plan_next finishes a step and the compaction happens at the end of the turn,
+ * not inside the tool call. The turn is aborted in between, and that abort
+ * surfaced as a red "This operation was aborted" because the suppression window
+ * only opened when the compaction actually began, a moment after the thing it
+ * was supposed to cover.
+ *
+ * Recorded, not reasoned about: message-end.log had the abort at
+ * 00:08:03.129 with busy false and recent false, four milliseconds after the
+ * tool result and before any compaction existed to be busy with.
+ *
+ * Separate from inFlight on purpose. inFlight means "one is running, do not
+ * start another"; making this set it would refuse the very compaction it is
+ * announcing. This only says an abort in the next few seconds is ours.
+ */
+let expectingUntil = 0;
+
+/** Arm the window. Called when a compaction is scheduled rather than started. */
+export function expectCompaction(ms = 30_000): void {
+	expectingUntil = Date.now() + ms;
+}
+
+/** Whether a compaction of ours is running, imminent, or moments past. */
+export function compactionNearby(recentMs = 10_000): boolean {
+	return inFlight || Date.now() < expectingUntil || recentlyCompacted(recentMs);
+}
+
 /** Whether a compaction finished within `ms`. The abort it caused surfaces a
  *  moment later, so "busy" alone does not cover the whole window. */
 export function recentlyCompacted(ms: number): boolean {
@@ -391,6 +420,7 @@ export function resetCompactionState(): void {
 	baseline = 0;
 	baselineStale = false;
 	sessionFloor = Number.POSITIVE_INFINITY;
+	expectingUntil = 0;
 	cachedSettings = undefined;
 }
 
@@ -589,6 +619,7 @@ export function requestCompaction(
 			customInstructions: options.instructions,
 			onComplete: (result) => {
 				inFlight = false;
+				expectingUntil = 0;
 				lastAt = Date.now();
 				settle();
 				// Only successful compactions inform the estimate. One that failed
@@ -603,6 +634,7 @@ export function requestCompaction(
 			},
 			onError: (err) => {
 				inFlight = false;
+				expectingUntil = 0;
 				lastAt = Date.now();
 				settle();
 				if (!isBenign(err.message)) ctx.ui.notify(`Compaction failed: ${err.message}`, "warning");

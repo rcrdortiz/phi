@@ -108,5 +108,26 @@ for (const msg of ["Already compacted", "Nothing to compact (session too small)"
 
 fs.rmSync(DIR, { recursive: true, force: true });
 const failed = results.filter((r) => !r).length;
+// --- an abort can arrive before the compaction that causes it --------------
+// Recorded live. plan_next finishes a step and the compaction happens at the
+// end of the turn, not inside the tool call. The turn is aborted in between, and
+// message-end.log caught it at busy:false, recent:false, four milliseconds after
+// the tool result, so the suppression window opened after the thing it covers.
+{
+  const { expectCompaction, compactionNearby, compactionBusy, resetCompactionState: reset } =
+    await import("../lib/compaction.ts");
+  reset();
+  check("nothing nearby on a quiet session", compactionNearby(10_000) === false);
+  expectCompaction(30_000);
+  check("announcing one opens the window immediately", compactionNearby(10_000) === true,
+    "the abort lands before the compaction starts");
+  check("but it does not claim one is running", compactionBusy() === false,
+    "marking it busy would refuse the very compaction being announced");
+  expectCompaction(-1);
+  check("an expired window closes", compactionNearby(10_000) === false,
+    "an abort minutes later is somebody else's");
+  reset();
+}
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

@@ -27,7 +27,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { compactAtTokens, compactionBusy, observeContext, recentlyCompacted, requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
+import { compactAtTokens, compactionBusy, compactionNearby, observeContext, recentlyCompacted, requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
 import { DEBUG, flag } from "../lib/debug.ts";
 import { STATE_DIR, migrateStateDir, statePath } from "../lib/state-dir.ts";
 
@@ -167,6 +167,7 @@ function recordMessageEnd(ctx: { cwd: string }, event: unknown): void {
 			errorMessage: m.errorMessage ?? null,
 			parts: content.map((c) => c?.type),
 			busy: compactionBusy(),
+			nearby: compactionNearby(10_000),
 			recent: recentlyCompacted(10_000),
 		});
 		const p = path.join(ctx.cwd, STATE_DIR, "message-end.log");
@@ -223,7 +224,9 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 		if (m?.role !== "assistant") return undefined;
 		if (m.stopReason !== "error" && m.stopReason !== "aborted") return undefined;
 		if (m.errorMessage && !/abort/i.test(m.errorMessage)) return undefined;
-		if (!compactionBusy() && !recentlyCompacted(10_000)) return undefined;
+		// Nearby, not just busy: a compaction announced by plan_next happens at the
+		// end of the turn and the abort lands before it starts.
+		if (!compactionNearby(10_000)) return undefined;
 		// This is the evidence that a turn was genuinely cut off rather than
 		// finishing on its own, and it is what decides whether to resume. Set
 		// before the quiet check, so turning the suppression off does not also
