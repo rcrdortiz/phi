@@ -74,6 +74,19 @@ check("the run cost is stated before it starts", /if \(totalRuns > 6\)/.test(run
   "24 runs at 45 minutes is not something to discover halfway through");
 check("each record carries its effort level", /effort: effort \?\? "default"/.test(runner));
 
+// The compaction thinking level is its own dimension. Summarising a transcript
+// may need no deliberation at all, and at twenty tokens a second deliberation
+// is the whole cost. What is not obvious is whether a cheaper summary is a
+// worse one, and a worse summary costs the next session more than it saved.
+check("compaction thinking is sweepable", /COMPACT_EFFORTS/.test(runner) && /PI_COMPACT_THINKING/.test(runner));
+check("it is swept on phi only",
+  /h === "phi"/.test(runner),
+  "plain pi has no such setting, so a sweep there is one config under several names");
+check("it reaches both phases of a two-phase task",
+  (runner.match(/PI_COMPACT_THINKING: compactThinking/g) ?? []).length === 2,
+  "phase two compacts too, and an unset second phase would mix configurations");
+check("each record carries it", /compactThinking: compactThinking \?\? "default"/.test(runner));
+
 // --- the two-phase architecture task ---------------------------------------
 // Build, then extend in a fresh session, and see what the extension cost.
 const exporter = path.join(bench, "tasks/exporter");

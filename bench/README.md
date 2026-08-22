@@ -31,6 +31,27 @@ phi/off        9/15        780s        3200         38      356         0
 phi/high       13/15       1580s       8200         38      631         0
 ```
 
+### Compaction thinking, separately
+
+```sh
+node bench/run.mjs --harness phi --compact-thinking off,low,medium --runs 3
+```
+
+A different question from the agent's own effort. pi passes the session's
+thinking level to the summarisation call, so at `high` the model deliberates
+before writing the summary: measured live, a compaction spent 79 seconds on
+prefill and roughly 380 generating, against a 500 second timeout it was about to
+hit. phi now summarises at `low` by default for that reason.
+
+What is not obvious is whether a cheaper summary is a worse one, and a worse
+summary is paid for by every turn after it, in re-reads and lost decisions. That
+cost does not appear in the compaction's own timing, which is exactly why it
+needs measuring rather than assuming. The two-phase task is the one to run it
+against, since phase two is where a thin summary would show up.
+
+phi only: plain pi has no such setting, so sweeping it there would run one
+configuration under several names.
+
 Four levels, not seven. Ollama's `reasoning_effort` takes none, low, medium and
 high, so pi's `xhigh` and `max` map onto high and would measure the same thing
 three times under different names.

@@ -16,6 +16,13 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: `--compact-thinking` sweeps the summarisation level.** A different
+question from the agent's own effort, and now that phi summarises at `low` by
+default it is the one worth answering: whether a cheaper summary is a worse one.
+That cost lands on every turn after the compaction rather than on the
+compaction's own timing, so it has to be measured rather than assumed. phi only,
+since plain pi has no such setting.
+
 ## 0.15.1 (2026-08-22)
 
 **Fixed: compaction inherited `thinking: high` and nearly timed out because of

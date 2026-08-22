@@ -38,6 +38,20 @@ const HARNESSES = arg("harness", "phi,pi").split(",");
  * fifteen tokens a second is not obvious in either direction.
  */
 const EFFORTS = arg("effort", "").split(",").filter(Boolean);
+/**
+ * Thinking levels for the summarisation call, swept separately.
+ *
+ * A different question from the agent's own effort. Summarising a transcript is
+ * reading something that exists and writing down what mattered, which may need
+ * no deliberation at all, and at twenty tokens a second the deliberation is the
+ * whole cost: a compaction was measured at 79s of prefill and 380s of
+ * generation. What is not obvious is whether a cheaper summary is a worse one,
+ * and a worse summary costs the next session more than it saved.
+ *
+ * phi only. Plain pi has no such setting, so a sweep of it there would run the
+ * same configuration under several names.
+ */
+const COMPACT_EFFORTS = arg("compact-thinking", "").split(",").filter(Boolean);
 const RUNS = Number(arg("runs", 3));
 const TASK = arg("task", "tetris");
 const TIMEOUT_MIN = Number(arg("timeout", 45));
@@ -124,7 +138,7 @@ const snapshotOf = (dir) => {
 	return m;
 };
 
-function runOnce(harness, index, effort) {
+function runOnce(harness, index, effort, compactThinking) {
   const spec = HARNESS[harness];
   if (!spec) throw new Error(`unknown harness: ${harness}`);
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), `bench-${TASK}-${harness}-`));
@@ -145,7 +159,12 @@ function runOnce(harness, index, effort) {
     cwd,
     encoding: "utf8",
     timeout: TIMEOUT_MIN * 60_000,
-    env: { ...process.env, ...spec.env, PI_CODING_AGENT_DIR: spec.agentDir },
+    env: {
+      ...process.env,
+      ...spec.env,
+      PI_CODING_AGENT_DIR: spec.agentDir,
+      ...(compactThinking ? { PI_COMPACT_THINKING: compactThinking } : {}),
+    },
   });
   const seconds = Math.round((Date.now() - startedAt) / 1000);
 
@@ -171,7 +190,12 @@ function runOnce(harness, index, effort) {
       cwd,
       encoding: "utf8",
       timeout: TIMEOUT_MIN * 60_000,
-      env: { ...process.env, ...spec.env, PI_CODING_AGENT_DIR: spec.agentDir },
+      env: {
+        ...process.env,
+        ...spec.env,
+        PI_CODING_AGENT_DIR: spec.agentDir,
+        ...(compactThinking ? { PI_COMPACT_THINKING: compactThinking } : {}),
+      },
     });
     const v2 = grade("verify2.mjs");
     const u2 = readSession(spec.agentDir, cwd, startedAt2);
@@ -193,6 +217,7 @@ function runOnce(harness, index, effort) {
     task: TASK,
     harness,
     effort: effort ?? "default",
+    compactThinking: compactThinking ?? "default",
     run: index,
     seconds,
     timedOut: r.error?.code === "ETIMEDOUT" || r.signal === "SIGTERM",
@@ -226,10 +251,21 @@ const median = (ns) => {
   return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
 };
 
-const arms = EFFORTS.length ? HARNESSES.flatMap((h) => EFFORTS.map((e) => [h, e])) : HARNESSES.map((h) => [h, undefined]);
+const efforts = EFFORTS.length ? EFFORTS : [undefined];
+const compactEfforts = COMPACT_EFFORTS.length ? COMPACT_EFFORTS : [undefined];
+const arms = HARNESSES.flatMap((h) =>
+  efforts.flatMap((e) =>
+    compactEfforts
+      // Only phi reads PI_COMPACT_THINKING. Sweeping it on pi would run one
+      // configuration under several names and report the spread as a finding.
+      .filter((c) => !c || h === "phi")
+      .map((c) => [h, e, c]),
+  ),
+);
+const armName = ([h, e, c]) => `${h}${e ? `/${e}` : ""}${c ? `/c:${c}` : ""}`;
 const totalRuns = arms.length * RUNS;
 console.log(
-  `${TASK}: ${arms.map(([h, e]) => (e ? `${h}/${e}` : h)).join(" vs ")}, ` +
+  `${TASK}: ${arms.map(armName).join(" vs ")}, ` +
     `${RUNS} run(s) each = ${totalRuns} runs, ${TIMEOUT_MIN}min cap`,
 );
 if (totalRuns > 6) {
@@ -239,11 +275,14 @@ console.log();
 const all = [];
 // Alternate rather than running all of one arm then all of the next, so a warm
 // cache or a busy machine does not land entirely on one side.
-for (let i = 1; i <= RUNS; i++) for (const [h, e] of arms) all.push(runOnce(h, i, e));
+for (let i = 1; i <= RUNS; i++) for (const [h, e, c] of arms) all.push(runOnce(h, i, e, c));
 
 console.log("\narm            passed      time        output tok   turns   tok/check   timeouts");
-for (const [h, e] of arms) {
-	const rs = all.filter((r) => r.harness === h && (e ? r.effort === e : true));
+for (const arm of arms) {
+	const [h, e, c] = arm;
+	const rs = all.filter(
+		(r) => r.harness === h && (e ? r.effort === e : true) && (c ? r.compactThinking === c : true),
+	);
 	if (!rs.length) continue;
 	const range = (ns) => (Math.min(...ns) === Math.max(...ns) ? `${median(ns)}` : `${median(ns)} (${Math.min(...ns)}-${Math.max(...ns)})`);
 	// Output tokens per check passed. Thinking tokens count as output, so a
@@ -252,7 +291,7 @@ for (const [h, e] of arms) {
 	// lost, and neither is the question being asked.
 	const perCheck = rs.map((r) => (r.passed ? Math.round(r.output / r.passed) : 0)).filter(Boolean);
 	console.log(
-		`${h}${e ? `/${e}` : ""}`.padEnd(15) +
+		armName(arm).padEnd(15) +
 			`${range(rs.map((r) => r.passed))}/${rs[0].total}`.padEnd(12) +
 			`${range(rs.map((r) => r.seconds))}s`.padEnd(12) +
 			range(rs.map((r) => r.output)).padEnd(13) +
