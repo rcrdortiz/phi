@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.15.0 (2026-08-22)
+
 **Added: a two-phase task that measures what SOLID is for.** `bench/tasks/exporter`
 builds a CSV exporter, then in a fresh session with no memory of building it
 asks for a second format. The phase-two prompt is a separate file and is never
