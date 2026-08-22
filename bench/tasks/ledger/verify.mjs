@@ -90,6 +90,32 @@ if (lib) {
   check("grouping by a zero key keeps its group", () =>
     eq(Object.keys(lib.report.groupBy([lib.ledger.charge("a", 1, 0)], (e) => e.at)).length, 1));
 
+  // BUG 6: dates.within says both ends are inclusive and excludes the upper.
+  check("a timestamp on the closing edge is inside the period", () =>
+    eq(lib.dates.within(100, 0, 100), true));
+  check("and one past it is not", () => eq(lib.dates.within(101, 0, 100), false));
+
+  // BUG 7: fx.convert rounds on the way into USD as well as out, so a
+  // round trip loses more than the one cent the comment allows.
+  check("a currency round trip comes back within a cent", () => {
+    const there = lib.fx.convert(123456, "USD", "JPY");
+    const back = lib.fx.convert(there, "JPY", "USD");
+    return Math.abs(back - 123456) <= 1 || `drifted ${back - 123456} cents`;
+  });
+  check("converting to the same currency changes nothing", () =>
+    eq(lib.fx.convert(999, "EUR", "EUR"), 999));
+
+  // BUG 8: a payout exactly on the threshold is carried, and the comment says
+  // it is paid.
+  check("a payout exactly on the threshold is paid", () => {
+    const split = lib.settle.applyThreshold([{ party: "a", net: lib.settle.MIN_PAYOUT }]);
+    return eq(split.paid.length, 1);
+  });
+  check("a payout below the threshold is carried, not dropped", () => {
+    const split = lib.settle.applyThreshold([{ party: "a", net: 1 }]);
+    return split.paid.length === 0 && split.carried.length === 1 ? true : "lost a payout";
+  });
+
   // The visible suite must still pass: fixing a bug by breaking something the
   // tests already cover is not a fix.
   check("the visible suite still passes", () => {

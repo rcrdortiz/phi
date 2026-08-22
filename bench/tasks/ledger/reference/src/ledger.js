@@ -25,8 +25,6 @@ function netByParty(entries) {
   const out = {};
   for (const e of entries) {
     if (out[e.party] === undefined) out[e.party] = 0;
-    // A refund built directly carries a positive amount; one loaded from CSV
-    // arrives already signed. Normalise on the kind, which is authoritative.
     const signed = e.kind === "refund" ? -Math.abs(e.cents) : Math.abs(e.cents);
     out[e.party] = money.add(out[e.party], signed);
   }
