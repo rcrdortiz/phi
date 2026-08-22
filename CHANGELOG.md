@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.21.0 (2026-08-22)
+
 **Changed: Ollama now runs with two prefix-cache slots.** This is the fix for
 the thrashing 0.20.0 described but did not solve. Ollama defaults to one cache
 slot, and a slot holds one conversation, so two agent sessions evict each
