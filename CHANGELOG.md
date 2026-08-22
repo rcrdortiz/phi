@@ -16,6 +16,47 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: Ollama now runs with two prefix-cache slots.** This is the fix for
+the thrashing 0.20.0 described but did not solve. Ollama defaults to one cache
+slot, and a slot holds one conversation, so two agent sessions evict each
+other's cache on every turn and both re-read their whole history. It looks
+exactly like running out of memory and is not: halving the window changed
+nothing, and eight evictions still happened in thirty minutes with sixteen
+gigabytes of headroom spare. Measured after the change: zero evictions across a
+full hour of benchmark load.
+
+**Changed: the model window is 65,536 again, was 40,960.** The window was never
+the constraint, so the reduction is reverted. This moves compaction from 28,672
+to 36,000.
+
+**This release needs two things from you**, which is why it is not a quiet
+update. Run `/model-install` to rebuild the model at the new window, and restart
+Ollama so it picks up the slot count. Taking the update without the rebuild
+leaves phi believing the window is larger than the model actually has. Quitting
+Ollama.app from the menu bar is not always enough: the Electron process can
+survive and respawn the server with its old environment, so confirm with
+`grep 'server config' ~/.ollama/logs/server.log | tail -1`.
+
+**Added: `/doctor` names cache contention.** It reports the slot count and how
+many other sessions are running, leads with contention when it finds it, and
+withholds the "lower your window" advice in that case, because rebuilding a
+model does not help when the window was never the problem.
+
+**Added: the installer sets the slot count, scaled to the machine.** Two slots
+where the wired limit can hold them, which at this window means roughly 33 GB,
+and one below that with a warning that concurrent sessions will evict each
+other. A 32 GB machine asked for two would trade contention for real memory
+pressure.
+
+**Fixed: compaction fires early by what a turn has been shown to cost.** The
+trigger is only checked at turn_end, the one boundary where no tool call is
+half-finished, and a single agentic turn spans many model round-trips. Measured:
+a run crossed a 36,000 trigger at 37,560 and did not reach turn_end until
+53,097. The trigger now subtracts the largest growth any turn has been observed
+to add, so a turn ends near the intended depth instead of starting there. Capped
+at 40%, because one huge turn must not collapse the trigger into compacting
+every turn.
+
 ## 0.20.0 (2026-08-22)
 
 **Added: `/doctor`, and a startup check for when the machine is the problem.**
