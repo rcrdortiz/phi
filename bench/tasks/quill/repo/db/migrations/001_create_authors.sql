@@ -1,0 +1,2 @@
+-- migration 001: create authors
+-- Applied in order by Support\Migrator. Idempotent by convention.

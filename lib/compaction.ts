@@ -438,12 +438,15 @@ export function resetCompactionState(): void {
  * the whole cost: measured live, a compaction spent 79s on prefill and then
  * roughly 380s generating, against a 500s timeout it was about to hit.
  *
- * `low` rather than `off` because the summary has to decide what matters, and
- * that is a judgement even if it is not a hard one.
+ * `off`, not `low`. Summarising is reading something that already exists and
+ * writing down what mattered, and whatever judgement that needs is the same
+ * judgement the model makes while writing the summary itself. Deliberating
+ * first buys nothing here and is charged at the decode rate, which on this
+ * setup is the whole cost.
  *
  * Set to `keep` to inherit the session level.
  */
-const COMPACT_THINKING = process.env.PI_COMPACT_THINKING ?? "low";
+const COMPACT_THINKING = process.env.PI_COMPACT_THINKING ?? "off";
 
 const PROGRESS_KEY = "phi-compacting";
 

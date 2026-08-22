@@ -16,6 +16,12 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: compaction summarises with thinking off, not `low`.** Summarising is
+reading something that already exists and writing down what mattered, and
+whatever judgement that needs is the same judgement the model makes while
+writing the summary. Deliberating first buys nothing and is charged at the
+decode rate, which on this setup is the entire cost of a compaction.
+
 ## 0.17.0 (2026-08-22)
 
 **Added: `bench/tasks/ledger`, a seeded bug hunt sized to reach a compaction.**

@@ -102,7 +102,7 @@ opts.onComplete({ summary: "s", tokensBefore: 1 });
   const setLevel = (l) => { levels.push(l); };
   resetCompactionState();
   requestCompaction(thinkingCtx, "test", { force: true, setThinkingLevel: setLevel });
-  check("thinking is turned down before summarising", levels[0] === "low", levels.join(" -> "));
+  check("thinking is turned off before summarising", levels[0] === "off", levels.join(" -> "));
   opts.onComplete({ summary: "s", tokensBefore: 1 });
   check("and restored afterwards", levels[levels.length - 1] === "high", levels.join(" -> "),
     "the level is session-wide, so leaving it low would change every later turn");
@@ -116,7 +116,7 @@ opts.onComplete({ summary: "s", tokensBefore: 1 });
   // A session already at the target level should not be churned.
   levels.length = 0;
   resetCompactionState();
-  requestCompaction({ ...thinkingCtx, thinkingLevel: "low" }, "test", { force: true, setThinkingLevel: setLevel });
+  requestCompaction({ ...thinkingCtx, thinkingLevel: "off" }, "test", { force: true, setThinkingLevel: setLevel });
   check("a session already low is left alone", levels.length === 0);
   opts.onComplete({ summary: "s", tokensBefore: 1 });
 
