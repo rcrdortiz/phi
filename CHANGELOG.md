@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.19.1 (2026-08-22)
+
 **Fixed: a timed-out run is now marked void and excluded from the statistics.**
 Phases are separate processes, so a timed-out phase does not stop the next one:
 it runs against a half-finished repo and produces numbers that look valid.
