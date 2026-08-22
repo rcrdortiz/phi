@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.16.0 (2026-08-22)
+
 **Added: `--compact-thinking` sweeps the summarisation level.** A different
 question from the agent's own effort, and now that phi summarises at `low` by
 default it is the one worth answering: whether a cheaper summary is a worse one.
