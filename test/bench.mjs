@@ -239,7 +239,11 @@ for (const n of [1, 2, 3]) {
   const r = gradeQuill(n, path.join(quill, "reference"));
   check(`the reference passes phase ${n}`, r.passed === r.total,
     r.results.filter((x) => !x.pass).map((x) => `${x.name}: ${x.detail}`).join("; ") || `${r.passed}/${r.total}`);
-  if (n > 1) check(`phase ${n} reports no regressions on the reference`, r.regressed === 0, String(r.regressed));
+  // Without a baseline there is nothing to compare against, and the honest
+  // answer is null. It used to return 0 here, which looked like proof of no
+  // regressions and was really just "total minus passed" on a perfect tree.
+  if (n > 1) check(`phase ${n} reports regressions as unknown with no baseline`,
+    r.regressed === null, String(r.regressed));
 }
 
 // --- a timed-out run is reported, not discarded ---------------------------
@@ -268,6 +272,33 @@ for (const n of [1, 2, 3]) {
   check("records written by the older build still read correctly",
     /r\.timedOutAnywhere \|\| r\.void/.test(src),
     "results.jsonl already holds records using the previous field name");
+}
+
+
+// --- with a baseline, a regression is detected and a non-regression is not ---
+// The counting bug: every failing earlier check was reported as a regression,
+// so a defect that was never fixed read as damage this phase caused. A tree at
+// 12/14 reported 2 regressions before anything had been edited.
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "phi-regress-"));
+  fs.cpSync(path.join(quill, "reference"), tmp, { recursive: true });
+
+  const base = gradeQuill(1, tmp);
+  fs.writeFileSync(path.join(tmp, ".bench-baseline-1.json"), JSON.stringify(base.results));
+  check("a clean tree with a baseline reports zero regressions",
+    gradeQuill(2, tmp).regressed === 0, String(gradeQuill(2, tmp).regressed));
+
+  // Now claim the baseline had something passing that is failing now.
+  const faked = base.results.map((r) => ({ ...r, pass: true }));
+  fs.writeFileSync(path.join(tmp, ".bench-baseline-1.json"), JSON.stringify(faked));
+  const broken = path.join(tmp, "src/Query/Paginator.php");
+  fs.writeFileSync(broken, fs.readFileSync(broken, "utf8").replace("($this->page - 1)", "$this->page"));
+  const after = gradeQuill(2, tmp);
+  check("breaking earlier work is counted as a regression", after.regressed > 0, String(after.regressed));
+  check("and it counts only what actually stopped passing",
+    after.regressed <= base.total, `${after.regressed} of ${base.total}`);
+
+  fs.rmSync(tmp, { recursive: true, force: true });
 }
 
 // --- the diff walker has to survive a real directory tree ------------------
