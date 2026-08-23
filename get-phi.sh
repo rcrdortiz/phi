@@ -1,5 +1,5 @@
 #!/bin/bash
-# get-phi.sh — install phi and everything it needs, from nothing.
+# get-phi.sh: install phi and everything it needs, from nothing.
 #
 # curl -fsSL https://raw.githubusercontent.com/rcrdortiz/phi/master/get-phi.sh | bash
 #
@@ -121,7 +121,7 @@ fi
 
 # OLLAMA_KEEP_ALIVE is the one that matters: the default is 5 minutes, and a
 # per-request keep_alive does not stick because the next request without one
-# resets it — so an 18GB model unloads during any pause and the next message
+# resets it, so an 18GB model unloads during any pause and the next message
 # pays a full reload. OLLAMA_MAX_LOADED_MODELS=1 is a memory guard.
 #
 # OLLAMA_NUM_PARALLEL=2 buys a second prefix-cache slot. Ollama defaults to one,
@@ -208,7 +208,7 @@ PLIST
     sudo sysctl iogpu.wired_limit_mb=${WIRED_LIMIT_MB} >/dev/null
     ok "set to ${WIRED_LIMIT_MB} MB, and reapplied at every boot"
   else
-    warn "skipped — deep-context sessions may fall back to the CPU"
+    warn "skipped; deep-context sessions may fall back to the CPU"
   fi
 fi
 
@@ -221,7 +221,7 @@ fi
 
 # Seed the provider/model defaults so a bare `pi` works straight after install.
 # pi persists a model choice itself (setDefaultModelAndProvider) the first time
-# one is selected, which is why an established machine needs no flags — but a
+# one is selected, which is why an established machine needs no flags, but a
 # fresh one has nothing to persist yet, and without this the first `pi` opens
 # on whatever provider it can find rather than the local roster.
 # Only fills in what is missing: an existing choice is the user's, not ours.
@@ -267,11 +267,22 @@ changed = False
 # cache miss 26,000 tokens to re-prefill. 9800 is 35% of the trigger.
 # httpIdleTimeoutMs is 300000 by default, and 5 min is the largest value pi's
 # own settings picker offers, but the setting itself takes any millisecond
-# count. It matters here because a prefix-cache miss has to re-prefill the whole
-# context: at the measured ~120 tok/s that is 36,000 tokens inside 300s and
-# 60,000 inside 500s. Past the ceiling the turn comes back "Request timed out"
-# instead of slowly. The cost of raising it is that a genuinely hung request
-# takes 3 minutes longer to admit it.
+# count. It matters because a prefix-cache miss re-prefills the whole context,
+# and past the ceiling the turn comes back "Request timed out" rather than
+# slowly.
+#
+# Re-measured 2026-08-23 against Ollama's own prompt_eval timings on a prompt it
+# had never seen: 214.8 tok/s, with mlx-lm giving 218.8 on the same hardware.
+# The earlier ~120 figure was taken while the prefix cache was thrashing, before
+# we knew two sessions were sharing one cache slot, so it measured a fault
+# rather than the machine. At the real rate a miss covers roughly 64,000 tokens
+# inside 300s and 107,000 inside 500s.
+#
+# So the ceiling is no longer what limits working depth; the 45,000 safe depth
+# is. 500s is kept anyway, because it costs nothing when nothing goes wrong and
+# it is the difference between a slow turn and a lost one on a machine that is
+# busy with something else. The cost is that a genuinely hung request takes 3
+# minutes longer to admit it.
 for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX"),
              ("theme", "phi-purple"), ("tuiMode", "fullscreen"), ("quietStartup", True),
              ("fullscreenExitOutput", "resume-hint"),
@@ -330,7 +341,7 @@ step "Verifying"
 if curl -sf --max-time 3 http://localhost:11434/api/version >/dev/null; then
   ok "Ollama reachable"
 else
-  warn "Ollama not responding — start Ollama.app or run: brew services start ollama"
+  warn "Ollama not responding. Start Ollama.app or run: brew services start ollama"
 fi
 
 if pi list 2>/dev/null | grep -q "$PHI_REPO"; then

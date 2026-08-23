@@ -103,7 +103,29 @@ const KEEP_RECENT_TOKENS = Number(process.env.PI_KEEP_RECENT_RECOMMENDED ?? 9800
 /** Share of the prefill ceiling the working depth may use. See compactAtTokens. */
 const CEILING_FRACTION = Number(process.env.PI_CEILING_FRACTION ?? 0.7);
 
-const MAX_SAFE_DEPTH = Number(process.env.PI_MAX_SAFE_DEPTH ?? 36000);
+/**
+ * The deepest phi will run before compacting, whatever the window allows.
+ *
+ * Was 36,000, justified by a "decode cliff" that does not exist. Measured
+ * 2026-08-23 with 400-token samples: 55.0 tok/s at 3,610 tokens and 32.4 tok/s
+ * at 37,000. That is a smooth 41% decline across ten times the depth, exactly
+ * what reading a linearly growing KV cache predicts, with no knee anywhere. An
+ * earlier sweep suggested a cliff, but it sampled 60 tokens per point, which is
+ * under two seconds of decoding and mostly measures startup.
+ *
+ * So this is a time-versus-context preference, not a safety limit. 45,000 lets
+ * the window fraction bind instead (70% of 65,536 is 45,875), buying 25% more
+ * context between compactions for roughly 10% slower decode in the deeper
+ * range. A cold re-prefill of 45,000 tokens at the measured 215 tok/s is 209
+ * seconds, comfortably inside a 500s idle timeout.
+ *
+ * The constraint that does bite is memory, and it is not settled: KV cost is
+ * somewhere between 111 KB/token (phi's old figure) and about 320, and at the
+ * high end two concurrent sessions both running this deep would exceed a 48 GB
+ * machine's wired limit. One session at this depth is fine either way. Watch
+ * /doctor for evictions if two sessions run deep at once.
+ */
+const MAX_SAFE_DEPTH = Number(process.env.PI_MAX_SAFE_DEPTH ?? 45000);
 
 /**
  * Whether compaction may interrupt a turn that is still running.
@@ -300,7 +322,29 @@ let lastAt = 0;
  * a machine being used alongside the model prefills slower than this, which is
  * the normal case here and another reason not to run the number to its edge.
  */
-const PREFILL_TOKENS_PER_SECOND = Number(process.env.PI_PREFILL_TOKENS_PER_SECOND ?? 115);
+/**
+ * Cold prefill rate, measured rather than assumed.
+ *
+ * Was 115, which was wrong by nearly half and had been shaping the trigger ever
+ * since. Re-measured 2026-08-23 against Ollama's own prompt_eval_count and
+ * prompt_eval_duration, on a 16,438 token prompt it had never seen, so a true
+ * cache miss rather than a warm hit: 214.8 tok/s. mlx-lm on the same hardware
+ * and model family gave 218.8, which is close enough to rule out a runner
+ * quirk.
+ *
+ * The original 115 was taken during the afternoon when Ollama's prefix cache
+ * was thrashing, before we knew that two sessions were sharing one cache slot.
+ * It was a measurement of a fault, not of the hardware.
+ *
+ * 180 rather than the measured 215: both figures come from an idle machine, and
+ * the ceiling exists to protect a cache miss on a machine that is being used
+ * for something else. A sixth off the measurement is the margin.
+ *
+ * On an install with a raised idle timeout this changes nothing, because the
+ * 36,000 safe depth binds first. On a stock 300s install it moves the trigger
+ * from 24,150 to 36,000.
+ */
+const PREFILL_TOKENS_PER_SECOND = Number(process.env.PI_PREFILL_TOKENS_PER_SECOND ?? 180);
 
 /**
  * Depth beyond which a prefix-cache miss cannot finish prefilling in time.

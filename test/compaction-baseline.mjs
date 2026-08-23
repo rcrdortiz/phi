@@ -150,6 +150,12 @@ check("without a low reading it runs deep, which is what the fix addresses",
 // Derived, not hardcoded: the ceiling is the idle timeout times the measured
 // prefill rate, and both have moved. A literal here goes stale silently and
 // the test then asserts the wrong side of the line.
+// Pinned, because the real ceiling is now above the context window: at the
+// measured 180 tok/s a 500s timeout covers 90,000 tokens and the window is
+// 65,536, so "past the ceiling" cannot be reached at all on this install. That
+// is worth knowing on its own, but the valve still has to work wherever the
+// ceiling lands, so this pins one low enough to construct the case.
+process.env.PI_PREFILL_CEILING_TOKENS = "20000";
 const CEIL = prefillCeiling();
 resetCompactionState();
 observeContext(CEIL - 2000);
@@ -163,6 +169,16 @@ tokens = CEIL + 1000;
 check("past the ceiling it compacts on a thin margin anyway",
   requestCompaction(ctx, "x", { force: true }) === true,
   "a timed-out prompt is the more expensive failure");
+delete process.env.PI_PREFILL_CEILING_TOKENS;
+
+// At the measured rate even pi's stock 300s timeout clears the safe depth:
+// 300s x 180 tok/s is 54,000, and 70% of that is 37,800, above the 36,000 cap.
+// So the prefill ceiling has stopped being the binding constraint anywhere, and
+// the safe depth is what decides. Recorded because that was not true with the
+// old 115, where a stock install compacted at 24,150.
+check("the ceiling still binds before the raised safe depth",
+  Math.round(prefillCeiling() * 0.7) < 45000,
+  `ceiling ${prefillCeiling().toLocaleString()}, 70% is ${Math.round(prefillCeiling() * 0.7).toLocaleString()}`);
 
 // --- the ceiling is derived, not hardcoded ---------------------------------
 // It is the product of pi's HTTP idle timeout and the measured prefill rate.
@@ -250,8 +266,17 @@ check("the trigger never exceeds what a cache miss can recover from",
     return compactAtTokens(65536);
   };
   const before = process.env.PI_CODING_AGENT_DIR;
-  check("a 500s timeout allows the full working depth", at(500_000) === 36000, String(at(500_000)));
-  check("pi's 300s default pulls the trigger down", at(300_000) < 36000, String(at(300_000)));
+  check("a 500s timeout allows the full working depth", at(500_000) === 45000, String(at(500_000)));
+  // 300s no longer pulls it down. At the measured 180 tok/s a 300s timeout
+  // covers 54,000 tokens, and 70% of that is above the 36,000 safe depth, so
+  // the safe depth binds instead. With the old 115 this test asserted 24,150,
+  // which was half the usable context and came from a rate measured while the
+  // prefix cache was thrashing.
+  // 300s now lands between the two: 300s x 180 tok/s x 70% is 37,800, below the
+  // 45,000 safe depth, so the ceiling binds again. Still far above the 24,150 it
+  // gave with the old 115 tok/s figure.
+  check("pi's 300s default binds below the safe depth again", at(300_000) === 37800, String(at(300_000)));
+  check("a short timeout still binds before the safe depth", at(150_000) < 36000, String(at(150_000)));
   check("a 60s timeout makes it much shallower still", at(60_000) < at(300_000));
   if (before === undefined) delete process.env.PI_CODING_AGENT_DIR;
   else process.env.PI_CODING_AGENT_DIR = before;
