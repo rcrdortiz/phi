@@ -308,5 +308,25 @@ const failed = results.filter((r) => !r).length;
     "steer cuts into the turn in flight; followUp lets it finish");
 }
 
+
+// --- the handoff must not restate the plan ---------------------------------
+// Measured on a real handoff: 1,224 tokens, of which 661 were the goal, the
+// completed steps, the current step and the next steps. All four are in
+// PLAN.md, which is injected on every agent start, so the model paid for them
+// twice and read the whole file to reach the 525 tokens that were unique.
+{
+  const src = fs.readFileSync(path.join(root, "extensions/auto-handoff.ts"), "utf8");
+  check("the summary is told not to restate the plan",
+    /Do not restate anything in \$\{PLAN_FILE\}/.test(src),
+    "the instructions never asked for Goal or Next Steps; the model added them because nothing said not to");
+  check("it still asks for what the plan does not carry",
+    /Constraints & decisions/.test(src) && /Dead ends/.test(src) && /## Context/.test(src));
+  check("it no longer asks for a Done section",
+    !/"## Done/.test(src), "PLAN.md carries completed steps with their verification notes");
+  check("the file points at the plan and the archive",
+    /Plan and progress: .*PLAN_FILE.*PLAN_DONE_FILE/.test(src.replace(/\n/g, " ")),
+    "a trimmed handoff has to tell a cold reader where the rest lives");
+}
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

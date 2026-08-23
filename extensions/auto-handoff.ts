@@ -33,6 +33,9 @@ import { STATE_DIR, migrateStateDir, statePath } from "../lib/state-dir.ts";
 
 const HANDOFF_FILE = process.env.PI_HANDOFF_FILE || statePath("HANDOFF.md");
 const PLAN_FILE = process.env.PI_PLAN_FILE || statePath("PLAN.md");
+/** Where a finished plan is archived, named in the handoff so the trimmed file
+ *  still tells a cold reader where the completed work went. */
+const PLAN_DONE_FILE = process.env.PI_PLAN_DONE_FILE || statePath("PLAN-DONE.md");
 // Shared with plan-notes, so switching autonomy off switches off both routes.
 const AUTO_CONTINUE = process.env.PI_PLAN_AUTOCONTINUE !== "0";
 // A resume that produces no progress must not resume forever.
@@ -78,10 +81,17 @@ function pendingStep(cwd: string): string | undefined {
 
 const INSTRUCTIONS = [
 	"Summarise the work so far as state, not narrative, for a session that can see the repo but none of this conversation.",
-	"## Done — completed work, each with its concrete outcome (file changed, test passing)",
-	"## In progress — the current step and exactly where it stands",
+	// The plan is injected into every agent start, so anything restated from it
+	// is paid for twice. Measured on a real handoff: 661 of 1,224 tokens were the
+	// goal, the completed steps, the current step and the next steps, all of
+	// which PLAN.md already carries, and the model read the whole file to reach
+	// the 525 tokens that were unique to it. The instructions never asked for a
+	// Goal or Next Steps section; the model added them because nothing said not
+	// to.
+	`Do not restate anything in ${PLAN_FILE}: not the goal, not completed steps, not the current step, not what comes next. That file is already in context. Refer to it rather than copying it.`,
 	"## Constraints & decisions — choices made and why, plus anything that must not be broken",
 	"## Dead ends — what was tried and did not work, so it is not retried",
+	"## Context — anything a fresh session would get wrong without being told, that is not visible in the repo or the plan",
 	"Name files, functions, commands and error messages. Omit conversational back-and-forth and tool output that led nowhere.",
 	// The expensive thing to carry forward is not the conversation, it is the
 	// model arguing with itself. At thinking level high a single decision can
@@ -151,7 +161,11 @@ function writeHandoff(cwd: string, summary: string, tokensBefore: number | undef
 		fs.mkdirSync(path.dirname(p), { recursive: true });
 		const stamp = new Date().toISOString().replace("T", " ").slice(0, 16);
 		const size = tokensBefore ? `, at ${tokensBefore} tokens` : "";
-		fs.writeFileSync(p, `# Handoff\n\n_${stamp}${size} (${reason})._\n\n${summary}\n`, "utf8");
+		// Named, not copied. The handoff deliberately no longer restates the plan,
+		// so a person opening this file cold needs to know where the rest lives:
+		// the live plan, and the archive a finished plan is moved into.
+		const pointer = `Plan and progress: \`${PLAN_FILE}\`, with completed work archived to \`${PLAN_DONE_FILE}\`.`;
+		fs.writeFileSync(p, `# Handoff\n\n_${stamp}${size} (${reason})._\n\n${pointer}\n\n${summary}\n`, "utf8");
 	} catch {
 		/* the compaction itself is what matters; the file is a convenience */
 	}
