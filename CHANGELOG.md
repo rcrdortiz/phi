@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.24.0 (2026-08-23)
+
 **Fixed: a plan starts itself.** `plan_write` told the model to summarise the
 plan "and raise anything you want decided", so it wrote the plan, summarised it,
 raised a decision and asked "Shall I start with step 1?". Auto-continue never

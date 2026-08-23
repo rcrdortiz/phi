@@ -1,6 +1,6 @@
 {
   "name": "phi",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "type": "module",
   "description": "Run Qwen3.8 27B locally on a 48GB+ MacBook Pro and keep using the laptop while it runs",
   "license": "MIT",
