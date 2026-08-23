@@ -56,6 +56,20 @@ const COMPACT_EFFORTS = arg("compact-thinking", "").split(",").filter(Boolean);
 const RUNS = Number(arg("runs", 3));
 const TASK = arg("task", "tetris");
 const TIMEOUT_MIN = Number(arg("timeout", 45));
+/**
+ * How many phases of a multi-phase task to run. 0 means all of them.
+ *
+ * A full quill run is an hour or more, which makes it useless for any question
+ * that needs repetition. Phase 1 alone is about ten minutes, and phase 1 is
+ * where the spread is worst: phi scored 7, 7 and pi 12 on the same fourteen
+ * checks. Ten cheap samples answer whether that gap is real; one expensive
+ * sample of everything does not.
+ *
+ * Compaction is not exercised at this depth, so a phase-limited batch cannot
+ * speak to compaction or regressions. It is a variance instrument, not a
+ * replacement for the full task.
+ */
+const MAX_PHASES = Number(arg("phases", 0));
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const TASK_DIR = path.join(ROOT, "bench", "tasks", TASK);
 const OUT = path.join(ROOT, "bench", "results.jsonl");
@@ -71,12 +85,47 @@ const OUT = path.join(ROOT, "bench", "results.jsonl");
 const HARNESS = {
   phi: { agentDir: path.join(os.homedir(), ".phi"), env: {} },
   pi: { agentDir: path.join(os.homedir(), ".pi"), env: { PI_CODING_AGENT_DIR: path.join(os.homedir(), ".pi") } },
+  /**
+   * Claude Code, as a ceiling rather than a competitor.
+   *
+   * phi and pi are the same binary against the same local model, so their
+   * numbers are directly comparable. This one is a hosted frontier model with a
+   * much larger window, so it will not compact and its score says what the task
+   * is worth to a strong model, not whether a harness helps. Read it as the
+   * ceiling the local setup is trading away, and keep it out of the phi-vs-pi
+   * median.
+   *
+   * It also costs real money per run, where the others cost electricity. pi's
+   * first quill phase alone read 552,238 input tokens.
+   */
+  claude: {
+    cmd: "claude",
+    agentDir: path.join(os.homedir(), ".claude"),
+    sessionsDir: "projects",
+    metered: true,
+    env: {},
+    args: (prompt, sessionId, effort, isResume) => {
+      const a = ["-p", prompt, "--dangerously-skip-permissions"];
+      if (sessionId) a.push(isResume ? "--resume" : "--session-id", sessionId);
+      if (effort) a.push("--model", effort);
+      return a;
+    },
+  },
 };
 
+/** The executable and argv for one phase of a run. */
+function invocation(spec, prompt, sessionId, effort, isResume) {
+  if (spec.args) return { cmd: spec.cmd, argv: spec.args(prompt, sessionId, effort, isResume) };
+  const argv = ["--print", prompt, "--approve"];
+  if (sessionId) argv.push(isResume ? "--session" : "--session-id", sessionId);
+  if (effort) argv.push("--thinking", effort);
+  return { cmd: "pi", argv };
+}
+
 /** Tokens and turns, read from the session file the run wrote. */
-function readSession(agentDir, cwd, startedAt) {
+function readSession(agentDir, cwd, startedAt, sub = "sessions") {
   const dirName = cwd.replace(/\//g, "-");
-  const sessions = path.join(agentDir, "sessions");
+  const sessions = path.join(agentDir, sub);
   let best;
   try {
     for (const project of fs.readdirSync(sessions)) {
@@ -98,11 +147,16 @@ function readSession(agentDir, cwd, startedAt) {
     try { e = JSON.parse(line); } catch { continue; }
     const u = e?.message?.usage ?? e?.usage;
     if (u) {
-      input += Number(u.input ?? u.inputTokens ?? 0) + Number(u.cacheRead ?? 0) + Number(u.cacheWrite ?? 0);
-      output += Number(u.output ?? u.outputTokens ?? 0);
+      // Two schemas: pi writes camelCase, Claude Code writes snake_case, and a
+      // run whose tokens all read zero is indistinguishable from a run that
+      // produced nothing, which the summary treats as cut short.
+      input += Number(u.input ?? u.inputTokens ?? u.input_tokens ?? 0) +
+        Number(u.cacheRead ?? u.cache_read_input_tokens ?? 0) +
+        Number(u.cacheWrite ?? u.cache_creation_input_tokens ?? 0);
+      output += Number(u.output ?? u.outputTokens ?? u.output_tokens ?? 0);
     }
     if (e?.message?.role === "assistant") turns++;
-    if (e?.type === "compaction" || e?.compactionEntry) compactions++;
+    if (e?.type === "compaction" || e?.compactionEntry || e?.isCompactSummary) compactions++;
   }
   return { input, output, turns, compactions, sessionFile: best.p };
 }
@@ -177,6 +231,7 @@ function runOnce(harness, index, effort, compactThinking) {
   // Phases, in order. A task with PHASE1..N runs them as sequential prompts.
   const phases = [];
   for (let n = 1; n <= 9; n++) {
+    if (MAX_PHASES > 0 && phases.length >= MAX_PHASES) break;
     const f = path.join(TASK_DIR, `PHASE${n}.md`);
     if (fs.existsSync(f)) phases.push(f);
   }
@@ -198,13 +253,12 @@ function runOnce(harness, index, effort, compactThinking) {
   const sessionId = sameSession ? randomUUID() : undefined;
   const startedAt = Date.now();
 
-  const argv = ["--print", prompt, "--approve"];
-  if (sessionId) argv.push("--session-id", sessionId);
   // Only passed when sweeping. Without it each harness runs at its own
   // configured default, which is part of what "phi versus pi" means.
-  if (effort) argv.push("--thinking", effort);
+  const first = invocation(spec, prompt, sessionId, effort, false);
+  const argv = first.argv;
 
-  const r = spawnSync("pi", argv, {
+  const r = spawnSync(first.cmd, argv, {
     cwd,
     encoding: "utf8",
     timeout: TIMEOUT_MIN * 60_000,
@@ -227,7 +281,7 @@ function runOnce(harness, index, effort, compactThinking) {
     }
   };
   let verdict = grade(multi ? "verify1.mjs" : "verify.mjs");
-  const usage = readSession(spec.agentDir, cwd, startedAt);
+  const usage = readSession(spec.agentDir, cwd, startedAt, spec.sessionsDir);
 
   // Later phases, each graded by its own suite, each re-running the earlier ones
   // as a regression check. They share the first phase's session, which is the
@@ -237,10 +291,9 @@ function runOnce(harness, index, effort, compactThinking) {
   for (let i = 1; i < phases.length; i++) {
     const snapshot = snapshotOf(cwd);
     const startedPhase = Date.now();
-    const argvN = ["--print", fs.readFileSync(phases[i], "utf8"), "--approve"];
-    if (sessionId) argvN.push("--session", sessionId);
-    if (effort) argvN.push("--thinking", effort);
-    const rN = spawnSync("pi", argvN, {
+    const later = invocation(spec, fs.readFileSync(phases[i], "utf8"), sessionId, effort, true);
+    const argvN = later.argv;
+    const rN = spawnSync(later.cmd, argvN, {
       cwd,
       encoding: "utf8",
       timeout: TIMEOUT_MIN * 60_000,
@@ -252,7 +305,7 @@ function runOnce(harness, index, effort, compactThinking) {
       },
     });
     const vN = grade(`verify${i + 1}.mjs`);
-    const uN = readSession(spec.agentDir, cwd, startedPhase);
+    const uN = readSession(spec.agentDir, cwd, startedPhase, spec.sessionsDir);
     laterPhases.push({
       phase: i + 1,
       seconds: Math.round((Date.now() - startedPhase) / 1000),
@@ -341,7 +394,8 @@ const armName = ([h, e, c]) => `${h}${e ? `/${e}` : ""}${c ? `/c:${c}` : ""}`;
 const totalRuns = arms.length * RUNS;
 console.log(
   `${TASK}: ${arms.map(armName).join(" vs ")}, ` +
-    `${RUNS} run(s) each = ${totalRuns} runs, ${TIMEOUT_MIN}min cap`,
+    `${RUNS} run(s) each = ${totalRuns} runs, ${TIMEOUT_MIN}min cap` +
+      (MAX_PHASES > 0 ? `, PHASE 1-${MAX_PHASES} ONLY (no compaction, no regression data)` : ""),
 );
 if (totalRuns > 6) {
   console.log(`That is up to ${Math.round((totalRuns * TIMEOUT_MIN) / 60)}h if every run hits the cap.`);

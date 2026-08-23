@@ -1,2 +1,7 @@
 node_modules/
 *.log
+
+# Benchmark results: a data file that churns every run, and every developer's
+# copy differs. The tasks and the harness are worth versioning; the scores are
+# not, and a shared results file just produces merge conflicts.
+bench/results.jsonl
