@@ -16,6 +16,32 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: a plan starts itself.** `plan_write` told the model to summarise the
+plan "and raise anything you want decided", so it wrote the plan, summarised it,
+raised a decision and asked "Shall I start with step 1?". Auto-continue never
+applied, because that governs step boundaries rather than the first step. It now
+says to summarise and then begin, and that writing the plan is the agreement to
+run it. The recap stays: that is the point where a wrong plan is still cheap to
+correct.
+
+**Fixed: `plan_write` accepts steps as a string.** The model sends one string
+instead of an array often enough to matter, and rejecting it cost a whole turn
+of reasoning about the schema before the retry. Either shape now works.
+
+**Fixed: a regression means something that passed and then stopped.** The later
+suites counted every failing earlier check as a regression, so a defect that was
+never fixed read as damage the new phase caused: a tree at 12/14 on phase one
+reported 2 regressions before anything had been edited, and an untouched
+checkout reported 7. Each phase now diffs against a baseline captured before it
+runs, and reports "unknown" rather than a confident zero when there is no
+baseline. Every regression figure measured before this was inflated.
+
+**Changed: medium is the default thinking level, was low.** The sweep that chose
+low never distinguished the levels, and it ran on a task short enough never to
+compact. The failures worth caring about since have been judgement rather than
+knowledge, and deliberation is the lever most likely to move those. Shift+Tab
+lowers it live.
+
 ## 0.23.0 (2026-08-23)
 
 **Changed: sessions now run to 45,000 tokens before compacting, was 36,000.**
