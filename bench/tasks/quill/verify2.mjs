@@ -25,12 +25,27 @@ const ts = (code) => {
 const article = (words) => `$a = new Quill\\Domain\\Article(1, 1, Quill\\Domain\\Slug::fromString('s'), 'T',
   implode(' ', array_fill(0, ${words}, 'word')), Quill\\Domain\\Status::Published, 1700000000, null, 1, 1, []);`;
 
-// Regression: phase one must still hold.
-let regressed = 0;
+// Regression: what phase one had working must still work.
+//
+// Measured against a baseline written before this phase ran, not against a
+// perfect score. Counting every failing earlier check as a regression makes a
+// defect that was never fixed look like damage the new work caused: a tree
+// sitting at 12/14 reported 2 regressions before anything had been edited, and
+// an untouched checkout reported 7. A regression is something that passed and
+// then stopped.
+//
+// With no baseline on disk, nothing can be said about what changed, so this
+// reports null rather than inventing a number. The harness writes the baseline
+// by running the earlier suite before it starts the phase.
+let regressed = null;
 try {
   const prior = JSON.parse(execFileSync(process.execPath, [path.join(here, "verify1.mjs"), dir], { encoding: "utf8", timeout: 180000 }));
-  regressed = prior.total - prior.passed;
   for (const r of prior.results) results.push({ ...r, name: `phase 1 still: ${r.name}` });
+  const basePath = path.join(dir, ".bench-baseline-1.json");
+  if (fs.existsSync(basePath)) {
+    const was = new Map(JSON.parse(fs.readFileSync(basePath, "utf8")).map((r) => [r.name, r.pass]));
+    regressed = prior.results.filter((r) => was.get(r.name) === true && !r.pass).length;
+  }
 } catch (e) {
   results.push({ name: "phase 1 still passes", pass: false, detail: (e && e.message) || String(e) });
   regressed = 1;

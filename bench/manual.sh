@@ -36,6 +36,15 @@ echo
 echo "  2. Paste the prompt:"
 echo "       pbcopy < $(pwd)/$TASK/PHASE$PHASE.md     # then paste into phi"
 echo
+# A later phase needs to know what the earlier one had working, or a defect that
+# was never fixed reads as a regression this phase caused.
+if [ "$PHASE" != "1" ]; then
+  PREV=$((PHASE - 1))
+  node "$TASK/verify$PREV.mjs" "$DIR" > "$DIR/.bench-baseline-$PREV.json.tmp" 2>/dev/null &&
+    node -e 'const fs=require("fs");const p=process.argv[1];fs.writeFileSync(p.replace(/\.tmp$/,""),JSON.stringify(JSON.parse(fs.readFileSync(p,"utf8")).results));fs.rmSync(p)' "$DIR/.bench-baseline-$PREV.json.tmp" &&
+    echo "  baseline  recorded phase $PREV as it stands now"
+fi
+
 echo "  3. When it finishes, grade it from here:"
 echo "       node $(pwd)/$TASK/verify$PHASE.mjs $DIR"
 echo

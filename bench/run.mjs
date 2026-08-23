@@ -289,6 +289,18 @@ function runOnce(harness, index, effort, compactThinking) {
   // benchmark run gets deep enough to compact.
   const laterPhases = [];
   for (let i = 1; i < phases.length; i++) {
+    // What the earlier suite had working BEFORE this phase runs. Without it a
+    // check that was never fixed reads as a regression the new work caused: a
+    // tree at 12/14 reported 2 regressions before anything had been edited, and
+    // every REGRESSED number in the ledger up to now was inflated by whatever
+    // the earlier phase had left unfixed.
+    try {
+      const prior = JSON.parse(execFileSync(process.execPath,
+        [path.join(TASK_DIR, `verify${i}.mjs`), cwd], { encoding: "utf8", timeout: 300000 }));
+      fs.writeFileSync(path.join(cwd, `.bench-baseline-${i}.json`), JSON.stringify(prior.results));
+    } catch {
+      /* no baseline is honest: the suite reports unknown rather than a number */
+    }
     const snapshot = snapshotOf(cwd);
     const startedPhase = Date.now();
     const later = invocation(spec, fs.readFileSync(phases[i], "utf8"), sessionId, effort, true);
@@ -366,7 +378,7 @@ function runOnce(harness, index, effort, compactThinking) {
         .map((p) =>
           `\n       phase ${p.phase}: ${p.passed}/${p.total}  ${p.seconds}s  ` +
             `+${p.added}/-${p.removed} in ${p.filesTouched} file(s)  ${p.compactions} compaction(s)  ` +
-            `${p.regressed ? `${p.regressed} REGRESSED` : "no regressions"}`)
+            `${p.regressed === null || p.regressed === undefined ? "regressions unknown" : p.regressed ? `${p.regressed} REGRESSED` : "no regressions"}`)
         .join(""),
   );
   return record;

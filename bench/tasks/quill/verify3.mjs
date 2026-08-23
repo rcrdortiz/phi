@@ -23,13 +23,26 @@ const php = (code) => execFileSync("php", ["-r", `require '${dir}/bin/seed.php';
   { encoding: "utf8", timeout: 30000, stdio: ["ignore", "pipe", "ignore"] }).trim();
 const seeded = `$c = new Quill\\Container(); $c->db()->runScript(file_get_contents('${dir}/db/schema.sql')); $c->db()->runScript(file_get_contents('${dir}/db/seed.sql'));`;
 
-// Regression: phases one and two must still hold.
-let regressed = 0;
+// Regression: what the earlier phases had working must still work.
+//
+// Measured against a baseline written before this phase ran, not against a
+// perfect score. Counting every failing earlier check as a regression makes a
+// defect that was never fixed look like damage the new work caused: a tree at
+// 12/14 on phase one reported 2 regressions before anything had been edited.
+// A regression is something that passed and then stopped.
+//
+// With no baseline on disk, nothing can be said about what changed, so this
+// reports null rather than inventing a number.
+let regressed = null;
 try {
   const prior = JSON.parse(execFileSync(process.execPath, [path.join(here, "verify2.mjs"), dir],
     { encoding: "utf8", timeout: 300000, stdio: ["ignore", "pipe", "ignore"] }));
-  regressed = prior.total - prior.passed;
   for (const r of prior.results) results.push({ ...r, name: `earlier still: ${r.name}` });
+  const basePath = path.join(dir, ".bench-baseline-2.json");
+  if (fs.existsSync(basePath)) {
+    const was = new Map(JSON.parse(fs.readFileSync(basePath, "utf8")).map((r) => [r.name, r.pass]));
+    regressed = prior.results.filter((r) => was.get(r.name) === true && !r.pass).length;
+  }
 } catch (e) {
   results.push({ name: "earlier phases still pass", pass: false, detail: (e && e.message) || String(e) });
   regressed = 1;
