@@ -16,6 +16,44 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: a plan describes outcomes, and can be expanded rather than
+bulldozed.** A five-step plan of "read the PHP", "read the TS", "identify",
+"fix", "verify" got written live, and the model then did all five inside step 1,
+because that is how the work goes. It spent the rest of the session reconciling
+a sequential plan against work already finished. `plan_write` now asks for the
+outcome that will be true rather than the activity, warns against planning by
+phase, and offers expansion: replace the current step with finer outcomes, keep
+the rest verbatim, never let a substep contradict a later step. The reason given
+is the concrete one, that a compaction should land between outcomes rather than
+inside one.
+
+**Fixed: the briefing shows the steps still to come.** It injected the goal, the
+current step and the finished ones, and withheld the pending ones. A session at
+"step 1 of 5" could not see what four of them were, guessed, read `PLAN.md`
+through the shell to check, and was told by a steer that the file was already in
+context. It was not.
+
+**Changed: notes may be 700 characters, was 350.** The old cap existed because a
+"one or two sentences" instruction had produced a 565 character average, but it
+was too tight for the notes worth keeping: a session recorded a four-defect
+summary, watched it truncated, and said so. `note_add` now leads with how long a
+finding stays true, and says step-scoped is the common case.
+
+**Added: reading several files is one call, and phi says so.** `view_lines`
+takes a list. The model was building the same thing out of the shell 224 times
+across 47 sessions, so the shell result now names the exact call with the exact
+files, and a run of three single-file reads gets the same nudge. Both fire on
+the behaviour rather than in a description, which is the only thing that has
+worked: `outline` has been described in its own tool definition throughout and
+called 8 times in 47 sessions.
+
+**Changed: the handoff names the plan instead of copying it.** 661 of 1,224
+tokens restated a plan that is injected on every agent start.
+
+**Added: `draft_num_predict` in the sampling params.** Ollama zeroes it whenever
+a model has no separate draft path, which is true of any drafter baked into the
+model, and speculation then runs off with nothing saying so.
+
 ## 0.24.0 (2026-08-23)
 
 **Fixed: a plan starts itself.** `plan_write` told the model to summarise the
