@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.25.0 (2026-08-23)
+
 **Changed: a plan describes outcomes, and can be expanded rather than
 bulldozed.** A five-step plan of "read the PHP", "read the TS", "identify",
 "fix", "verify" got written live, and the model then did all five inside step 1,
