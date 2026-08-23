@@ -36,9 +36,21 @@
  *  boundary, because that is exactly when "currently" stops being true. */
 export const EXPIRING_CATEGORY = "state";
 
-/** One or two sentences. The file averaged 565 characters per note against a
- *  "one or two sentences" instruction, so the instruction alone did not hold. */
-export const NOTE_MAX_CHARS = Number(process.env.PI_NOTE_MAX_CHARS ?? 350);
+/**
+ * A cap the instruction alone could not enforce.
+ *
+ * The file averaged 565 characters per note against a "one or two sentences"
+ * instruction, so 350 was set to make the limit real. That turned out to be too
+ * tight for the notes worth keeping: observed live, a session recorded a
+ * four-defect summary, watched it truncated, and said so ("that's a concern, it
+ * may have dropped important info"). A note that has to be re-derived because it
+ * was cut costs far more than the characters saved.
+ *
+ * 700 sits above the 565 average, so it stops binding on ordinary notes and only
+ * catches the ones that are really progress reports. The narration guard already
+ * rejects those on shape rather than length.
+ */
+export const NOTE_MAX_CHARS = Number(process.env.PI_NOTE_MAX_CHARS ?? 700);
 
 /**
  * Detect a note that is really a progress report.

@@ -325,6 +325,7 @@ function briefing(ctx: { cwd: string }): string {
 		"",
 		notes ? `## Findings so far (from ${NOTES_FILE})\n${notes}` : "",
 		"",
+		`If this step turns out to hold more than one outcome, expand it with plan_write (that step replaced by the finer outcomes, the others verbatim) rather than doing all of it in one pass.`,
 		`When this step is finished and verified, record anything worth keeping with note_add, then call plan_next. ${remaining - 1} step(s) will remain.`,
 	]
 		.filter((s) => s !== "")
@@ -456,14 +457,32 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		renderResult: collapsedRenderer(),
 		label: "Write plan",
 		description:
-			`Create or replace ${PLAN_FILE} with an ordered checklist of small, independently verifiable steps. ` +
+			`Create or replace ${PLAN_FILE} with an ordered checklist of steps. ` +
+			`Each step must name the OUTCOME that will be true when it is done, not the activity it consists of: ` +
+			`"Paginator::offset() returns 0 for page 1, verified by a runtime check" rather than "look at the paginator". ` +
+			`A step whose outcome cannot be checked cannot be finished, only abandoned. ` +
 			`Call this once at the start of any task that needs more than one edit.`,
 		promptSnippet: `Write ${PLAN_FILE}: break the task into small ordered steps`,
 		promptGuidelines: [
 			`Use plan_write before starting multi-step work, so progress survives a context reset.`,
 			`After writing a plan, tell the user what you found and what the plan is, then let them respond before starting step 1. Investigation that only exists in your context is investigation the user cannot correct.`,
 			`Keep each step small enough to finish and verify on its own.`,
+			// Phase-shaped plans read well and do not survive contact with the work.
+			// Observed live: a five-step plan of "read the PHP", "read the TS",
+			// "identify the defects", "fix them", "verify" was written, and the
+			// model then did all five inside step 1, because that is how the work
+			// actually goes. It spent the rest of the session reconciling a
+			// sequential plan against work already finished, and a compaction
+			// resumed it into re-reading files it had already read.
+			`State each step as the outcome that will be true, not the activity: "the feed returns the newest articles, checked against the seed" rather than "review the feed code". Outcomes can be verified and cannot be half-done; activities can always be done again.`,
+			`Do not plan by phase ("read everything", then "fix everything"). Investigation and its fix belong in the same step, because a plan that separates them is one the work will not follow, and every later step then has to be reconciled against work already finished.`,
 			`If the agreed direction changes, call plan_write again with the revised steps BEFORE continuing — never keep working against a plan that no longer matches what was agreed.`,
+			// The failure this prevents: a step turns out to hold several distinct
+			// outcomes, the model does all of them in one pass, and the plan then
+			// describes a shape the work no longer has. Expanding costs one call
+			// and keeps the plan a true record of where things stand.
+			`When the step you are on turns out to contain more than one outcome, expand it: call plan_write with that step replaced by the finer outcomes, every other step repeated verbatim. Do that instead of finishing all of it in a single pass, so a compaction lands between outcomes rather than in the middle of one.`,
+			`An expansion must stay inside the step it replaces. If a substep duplicates or contradicts a later step, the plan is wrong rather than too coarse: revise the whole thing instead.`,
 			`Completed steps beyond the most recent three live in ${DONE_FILE}. Read it before rewriting a plan, so finished work is not scheduled again.`,
 			`Steps that still apply should be repeated verbatim in the revision; their completed state is preserved automatically.`,
 		],
@@ -550,13 +569,17 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		renderResult: collapsedRenderer(),
 		label: "Add note",
 		description:
-			`Append a durable finding to ${NOTES_FILE} — something a future session would need to know. ` +
-			`Categories: ${CATEGORIES.join(", ")}. Use "${EXPIRING_CATEGORY}" for observations about the current ` +
-			`condition of the work; those are dropped at the next step boundary. Keep it to one or two sentences.`,
+			`Append a finding to ${NOTES_FILE}. Ask first how long it stays true. ` +
+			`"${EXPIRING_CATEGORY}" is for anything scoped to the step you are on ("the PHP sweep found nothing further", ` +
+			`"3 tests still fail"): it is dropped at the next step boundary, which is exactly when it stops being true. ` +
+			`Everything else (${CATEGORIES.filter((c) => c !== EXPIRING_CATEGORY).join(", ")}) is permanent and will be ` +
+			`carried into every later session, so use it only for what outlives this step: a constraint, a gotcha, ` +
+			`a decision and its reason. When in doubt, "${EXPIRING_CATEGORY}" is the safe choice.`,
 		promptSnippet: `Record a finding in ${NOTES_FILE} (technical/product/design/gotcha/decision)`,
 		promptGuidelines: [
 			`note_add records what would be expensive to rediscover: a constraint, a gotcha, a decision and its reason. Not what you just did — step summaries belong in plan_next.`,
 			`Use category "${EXPIRING_CATEGORY}" for anything only true right now ("3 tests still fail"), so it expires instead of rotting into a false statement.`,
+			`Step-scoped findings are the common case, not the exception. A permanent note is a claim that a future session, on unrelated work, still needs this.`,
 		],
 		parameters: Type.Object({
 			category: Type.String({ description: CATEGORIES.join("|") }),

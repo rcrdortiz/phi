@@ -95,5 +95,57 @@ const failed = results.filter((r) => !r).length;
     /do not start these yet/.test(src));
 }
 
+
+// --- steps are outcomes, notes are scoped -------------------------------
+// A five-step plan of "read the PHP", "read the TS", "identify", "fix",
+// "verify" was written live, and the model did all five inside step 1 because
+// that is how the work goes. It then spent the session reconciling a sequential
+// plan against work already finished, and a compaction resumed it into
+// re-reading files it had already read.
+{
+  const src = fs.readFileSync(path.join(root, "extensions/plan-notes.ts"), "utf8");
+  check("plan_write asks for the outcome, not the activity",
+    /name the OUTCOME that will be true/.test(src),
+    "an activity can always be done again; an outcome cannot be half-done");
+  check("and gives a worked example of the difference",
+    /rather than "look at the paginator"/.test(src));
+  check("it warns against planning by phase",
+    /Do not plan by phase/.test(src) && /same step/.test(src),
+    "separating investigation from its fix is what produced the tangle");
+
+  check("note_add leads with how long the finding stays true",
+    /Ask first how long it stays true/.test(src));
+  check("step-scoped is presented as the common case",
+    /the common case, not the exception/.test(src),
+    "the model reached for a permanent category for a step-scoped finding");
+  check("permanent categories are named as permanent",
+    /permanent and will be\s*\n?\s*`? *\+? *`?carried into every later session/.test(src.replace(/\s+/g, " ")) ||
+      /permanent and will be carried into every later session/.test(src.replace(/\s+/g, " ")));
+}
+
+
+// --- expanding a step beats bulldozing it ---------------------------------
+// A step that holds several outcomes gets done in one pass, and the plan then
+// describes a shape the work no longer has. Expanding is a plan_write revision,
+// which already preserves completed state for steps repeated verbatim, so this
+// needs guidance rather than machinery.
+{
+  const src = fs.readFileSync(path.join(root, "extensions/plan-notes.ts"), "utf8");
+  check("plan_write offers expansion when a step is too coarse",
+    /expand it: call plan_write with that step replaced by the finer outcomes/.test(src),
+    "the alternative is a plan that stops matching the work");
+  check("expansion keeps the other steps verbatim",
+    /every other step repeated verbatim/.test(src),
+    "plan_write preserves completed state only for steps repeated exactly");
+  check("a substep must not reach outside the step it replaces",
+    /must stay inside the step it replaces/.test(src) && /duplicates or contradicts a later step/.test(src),
+    "otherwise expanding quietly rewrites the plan");
+  check("and the briefing says it where it matters",
+    /If this step turns out to hold more than one outcome/.test(src),
+    "tool descriptions are read once; the briefing arrives every turn");
+  check("the reason is compaction, not tidiness",
+    /compaction lands between outcomes rather than in the middle of one/.test(src));
+}
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

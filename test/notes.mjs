@@ -36,7 +36,11 @@ check("a step mentioned in passing is not narration",
 // --- length cap -----------------------------------------------------------
 const short = "Keys are more sensitive than values.";
 check("short notes pass through", trimNote(short).text === short && !trimNote(short).trimmed);
-const long = "First sentence explains the constraint clearly. " + "padding words that go on and on ".repeat(20);
+// Sized from the cap, not hardcoded. The fixture was 688 characters against a
+// 350 cap; when the cap moved to 700 it stopped being long enough and the test
+// silently asserted nothing.
+const long = "First sentence explains the constraint clearly. " +
+  "padding words that go on and on ".repeat(Math.ceil(NOTE_MAX_CHARS / 16));
 const t = trimNote(long);
 check("long notes are trimmed to the cap", t.text.length <= NOTE_MAX_CHARS && t.trimmed, `${long.length} -> ${t.text.length}`);
 check("trimming prefers a sentence boundary", /\.$/.test(t.text) || /\.\.\.$/.test(t.text), t.text.slice(-40));
