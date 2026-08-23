@@ -16,6 +16,33 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: sessions now run to 45,000 tokens before compacting, was 36,000.**
+Both constants that decide when phi compacts turned out to be wrong, and one was
+wrong because it was measured while the machine was faulting.
+
+Prefill was assumed at 115 tok/s. Measured against Ollama's own timings on a
+prompt it had never seen, it is 214.8, and mlx-lm gives 218.8 on the same
+hardware. The old figure was taken while the prefix cache was thrashing, before
+we knew two sessions were sharing one cache slot. It is now 180, deliberately
+below the measurement, because the ceiling protects a cache miss on a machine
+that is busy and both readings come from an idle one.
+
+The 36,000 cap was justified by a decode cliff that does not exist. With proper
+400-token samples, decode goes 55.0 tok/s at 3,610 tokens to 32.4 at 37,000: a
+smooth 41% decline across ten times the depth, no knee anywhere. The earlier
+sweep that suggested a cliff sampled 60 tokens per point, which is under two
+seconds of decoding and mostly measures startup.
+
+You get 25% more context between compactions, for roughly 10% slower decode at
+the deeper end. **Watch `/doctor` if you run two sessions at once**: KV cost per
+token is not settled, and at the high end of the estimates two concurrent
+sessions this deep could exceed a 48 GB machine's wired limit, which shows up as
+cache eviction rather than an error.
+
+**Changed: the terminal tab says `φ phi` instead of `π`.** pi takes its title
+from its own package metadata, which phi cannot change without renaming plain pi
+too, so phi sets the title directly and re-asserts it when pi rebuilds it.
+
 ## 0.22.0 (2026-08-23)
 
 **Fixed: `--print` runs no longer die at the first compaction.** This is the big
