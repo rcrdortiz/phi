@@ -6,6 +6,7 @@ process.env.PI_KEEP_RECENT_TOKENS = "9800";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 import { STATE_DIR, statePath } from "../lib/state-dir.ts";
 const { requestCompaction, resetCompactionState, progressLabel, estimateMs, recordCompactionMs } =
   await import("../lib/compaction.ts");
@@ -142,5 +143,26 @@ opts.onComplete({ summary: "s", tokensBefore: 1 });
 }
 
 fs.rmSync(dir, { recursive: true, force: true });
+
+// --- the abort must arrive explained ---------------------------------------
+// Compaction cancels the turn it fires in, and pi prints that as
+// "Error: This operation was aborted" through its own channel, which an
+// extension rewriting the message cannot reach. Observed live at a plan step
+// boundary: plan_next, then a red error, then the compaction spinner, with
+// nothing saying the error was the compaction's own doing.
+{
+  const src = fs.readFileSync(path.join(root, "lib/compaction.ts"), "utf8");
+  check("the announcement says what compacting buys",
+    /full context window/.test(src),
+    "a bare reason does not tell the user why their turn just stopped");
+  check("and warns that the turn is cancelled to do it",
+    /the turn is cancelled to do it/.test(src) && /reports as an abort/.test(src),
+    "the error line follows; it should read as the price, not a fault");
+  check("it is announced before the abort, not after",
+    src.indexOf("Compacting now so the next step") < src.indexOf("const startedAt = Date.now()"),
+    "an explanation after the error explains nothing");
+  check("still suppressible", /options\.announce !== false/.test(src));
+}
+
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
 process.exit(results.every(Boolean) ? 0 : 1);

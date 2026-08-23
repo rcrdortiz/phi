@@ -740,7 +740,21 @@ export function requestCompaction(
 	}
 
 	inFlight = true;
-	if (options.announce !== false) ctx.ui.notify(`${reason} — compacting.`, "info");
+	// Said before the abort, not after, and said in terms of what it buys.
+	//
+	// Compaction cancels the turn it fires in, and pi prints that cancellation as
+	// "Error: This operation was aborted" through its own channel, which an
+	// extension rewriting the message cannot reach. So the error arrives with no
+	// explanation attached and reads like a fault. Announcing first puts the
+	// reason above it: the line that follows is the price of the line that came
+	// before.
+	if (options.announce !== false) {
+		ctx.ui.notify(
+			`${reason}. Compacting now so the next step starts with a full context window; ` +
+				`the turn is cancelled to do it, which pi reports as an abort.`,
+			"info",
+		);
+	}
 
 	// Compaction is a model call on a large prompt, so it takes as long as a
 	// turn does. A spinner that says nothing about elapsed time is the same
