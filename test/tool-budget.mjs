@@ -1,4 +1,4 @@
-import mod, { budgetChars, charsPerToken, truncate, shrinkImage, looksLikeFileDump } from "../extensions/tool-budget.ts";
+import mod, { budgetChars, charsPerToken, truncate, shrinkImage, looksLikeFileDump, looksLikeBulkRead } from "../extensions/tool-budget.ts";
 import { alreadyInContext } from "../lib/read-lean.ts";
 
 const results = [];
@@ -159,5 +159,29 @@ check("the archive is not claimed to be injected, because it is not",
   "the briefing names it and tells the model to read it before replanning");
 
 const failed = results.filter((r) => !r).length;
+
+// --- steering a shell bulk read toward the list form -----------------------
+// 224 bash calls across 47 sessions shaped `for f in a b c; do cat "$f"; done`,
+// none of them steered, because looksLikeFileDump recognises one file and a
+// loop names many. outline shows why the tool existing is not enough: it was
+// available throughout and called 8 times in 47 sessions. The hints that landed
+// attach to a result the model already receives.
+check("a loop over named files is recognised",
+  JSON.stringify(looksLikeBulkRead('for f in src/A.php src/B.php; do cat "$f"; done')) === '["src/A.php","src/B.php"]',
+  JSON.stringify(looksLikeBulkRead('for f in src/A.php src/B.php; do cat "$f"; done')));
+check("a glob names many files in one token",
+  JSON.stringify(looksLikeBulkRead('for f in src/Domain/*.php; do cat "$f"; done')) === '["src/Domain/*.php"]',
+  "seen in a live run");
+check("a filtered loop is left alone",
+  looksLikeBulkRead('for f in a b; do cat $f; done | grep x') === undefined,
+  "filtered output is not the problem this steers");
+check("a single cat is not a bulk read",
+  looksLikeBulkRead("cat one.php") === undefined,
+  "looksLikeFileDump already covers that one");
+check("a loop that reads nothing is not a bulk read",
+  looksLikeBulkRead('for f in a.php b.php; do echo "$f"; done') === undefined);
+check("at most twelve files are named back",
+  (looksLikeBulkRead("for f in " + Array.from({length:20},(_,i)=>`f${i}.php`).join(" ") + '; do cat "$f"; done') || []).length === 12);
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

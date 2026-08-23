@@ -104,6 +104,43 @@ export function budgetChars(contextWindow: number | undefined, toolName?: string
  * before anything reaches the context, and steering the model away from it
  * would make things worse, not better.
  */
+/**
+ * A shell loop reading several files, which view_lines now does in one call.
+ *
+ * Measured across 47 sessions: 224 bash calls shaped `for f in a b c; do cat
+ * "$f"; done`, against 727 view_lines calls. A third of all reading went this
+ * way, and none of it was steered, because looksLikeFileDump recognises one
+ * file and a loop names many.
+ *
+ * Steering matters more than the tool existing. `outline` has been available
+ * the whole time and was called 8 times in 47 sessions; the symbol anchor and
+ * the callers hint landed because they attach to a result the model already
+ * receives. This is the same shape: it fires on the behaviour, not on a
+ * description the model has to go and read.
+ *
+ * Returns the files named, or undefined when this is not that pattern.
+ */
+export function looksLikeBulkRead(command: string): string[] | undefined {
+	const Q = "\u0000";
+	const masked = command.trim().replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, Q);
+	// A loop that pipes or redirects is filtering, and filtered output is not
+	// the problem this steers.
+	if (!/\bfor\s+\w+\s+in\s/.test(masked)) return undefined;
+	if (!/\b(cat|sed|head|tail)\b/.test(masked)) return undefined;
+	if (/[|><]/.test(masked.replace(/\s*2>\s*(?:&1|\/dev\/null|\S+)/g, ""))) return undefined;
+
+	const m = /\bfor\s+\w+\s+in\s+([^;)]+)/.exec(command);
+	if (!m) return undefined;
+	const files = m[1]
+		.split(/\s+/)
+		.map((t) => t.trim())
+		.filter((t) => t && !t.startsWith("$") && /[./]/.test(t));
+	// A glob names many files in one token: `for f in src/Domain/*.php` is the
+	// same behaviour and was seen in a live run.
+	const glob = files.some((f) => f.includes("*"));
+	return files.length >= 2 || glob ? files.slice(0, 12) : undefined;
+}
+
 export function looksLikeFileDump(command: string): string | undefined {
 	// Mask quoted spans FIRST. The worst offender in the logs was
 	//   awk '{printf "%3d| %s\n", NR, $0}' pang.js
@@ -263,6 +300,7 @@ export default function toolBudgetExtension(pi: ExtensionAPI) {
 		const limit = budgetChars(c.getContextUsage?.()?.contextWindow, e.toolName);
 		const command = e.toolName === "bash" ? String((e as { input?: Record<string, unknown> }).input?.command ?? "") : "";
 		const dumped = command ? looksLikeFileDump(command) : undefined;
+		const bulk = command ? looksLikeBulkRead(command) : undefined;
 		const wrote = command ? looksLikeSourceWrite(command) : undefined;
 
 		let changed = false;
@@ -293,6 +331,17 @@ export default function toolBudgetExtension(pi: ExtensionAPI) {
 					trimmed +=
 						`\n\n[tool-budget] Reading ${dumped} through the shell sends the whole file. ` +
 						`view_lines takes a line range and remembers what it has already sent.`;
+				}
+				// The push that `outline` never got. A tool the model has to remember
+				// does not get called: outline was available throughout and used 8
+				// times in 47 sessions, while the two hints that landed both attach
+				// to results the model already receives. This one fires on the
+				// behaviour it replaces.
+				if (bulk && part.text.length > STEER_MIN_CHARS) {
+					trimmed +=
+						`\n\n[tool-budget] That read ${bulk.length === 1 ? bulk[0] : `${bulk.length} files`} through the shell. ` +
+						`view_lines takes a list: \`view_lines({ file: [${bulk.slice(0, 3).map((f) => `"${f}"`).join(", ")}${bulk.length > 3 ? ", ..." : ""}] })\` ` +
+						`reads them in one call, caps each file, and skips any it has already sent.`;
 				}
 				if (wrote) {
 					trimmed +=

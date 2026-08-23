@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import mod from "../extensions/smart-edit.ts";
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+import mod, { resetReadRun } from "../extensions/smart-edit.ts";
 
 // The fixture is written here rather than read from disk, and its irregular
 // indentation IS the test: 2, 3 and 5 spaces, with a closing brace at 2. That
@@ -132,5 +133,110 @@ check("the bar is kept", /^\d+\|/m.test(r.content[0].text),
 
 fs.writeFileSync(FILE, ORIGINAL);
 const failed = results.filter((x) => !x.pass).length;
+
+// --- the line-free experiment ---------------------------------------------
+// replace_lines is the only tool that needs a gutter: 727 reads paid for it
+// across 47 sessions, 40 replace_lines calls used it, against 174 edit_block
+// and 34 edit_symbol which match on content and on a name.
+{
+  const src = fs.readFileSync(path.join(root, "extensions/smart-edit.ts"), "utf8");
+  check("the flag withholds replace_lines",
+    /if \(!LINE_FREE\) pi\.registerTool\(\{\s*\n\s*name: "replace_lines"/.test(src),
+    "the tool and the gutter go together; neither is useful without the other");
+  check("and strips the gutter with it",
+    /LINE_FREE \? l : `\$\{s \+ i\}\|\$\{l\}`/.test(src));
+  check("it is off unless asked for",
+    /process\.env\.PI_DROP_REPLACE_LINES === "1"/.test(src),
+    "an experiment must not change behaviour for anyone who did not opt in");
+  check("edit_block and edit_symbol are untouched by it",
+    !/if \(!LINE_FREE\) pi\.registerTool\(\{\s*\n\s*name: "(edit_block|edit_symbol|view_lines)"/.test(src),
+    "they are what the experiment expects the model to use instead");
+}
+
+
+// --- reading several files in one call -------------------------------------
+// 727 view_lines calls across 47 sessions, and 368 reads that went through bash
+// instead, 224 of them `for f in a b c; do cat "$f"; done`. A third of all
+// reading bypassed this tool because it took one file, and every bypass lost
+// the read cache, the line cap, the budget and the anchor.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phi-batch-"));
+  const big = (n) => Array.from({ length: n }, (_, i) => `line ${i + 1} of content here`).join("\n");
+  fs.writeFileSync(path.join(dir, "a.ts"), big(80));
+  fs.writeFileSync(path.join(dir, "b.ts"), big(80));
+  fs.writeFileSync(path.join(dir, "c.ts"), big(80));
+
+  const tools = {};
+  mod({ registerTool: (t) => (tools[t.name] = t), registerCommand: () => {}, on: () => {} });
+  const ctx = { cwd: dir };
+  const run = (files, refresh) => tools.view_lines.execute("x", { file: files, refresh }, null, null, ctx);
+
+  const first = await run(["a.ts", "b.ts", "c.ts"]);
+  const t1 = first.content[0].text;
+  check("a list reads every file in one call", (t1.match(/^===== /gm) || []).length === 3, String((t1.match(/^===== /gm) || []).length));
+  check("each file is labelled with its name and length", /===== a\.ts \(80 lines\) =====/.test(t1));
+  check("the gutter is the same one view_lines uses", /\n1\|line 1 of content/.test(t1));
+
+  const second = await run(["a.ts", "b.ts", "c.ts"]);
+  check("a re-read is suppressed by the cache, not repeated",
+    second.content[0].text.length < t1.length / 5,
+    `${second.content[0].text.length} vs ${t1.length} chars`);
+  check("and it says which files it skipped", /not repeated: a\.ts/.test(second.content[0].text));
+
+  const forced = await run(["a.ts"], true);
+  check("refresh overrides the cache", /===== a\.ts/.test(forced.content[0].text));
+
+  const missing = await run(["a.ts", "nope.ts"], true);
+  check("a missing file does not fail the batch",
+    /nope\.ts: no such file/.test(missing.content[0].text) && /===== a\.ts/.test(missing.content[0].text),
+    "one bad path must not cost the other five files");
+
+  // Both caps. A batch cap alone would divide a twelve-file request into
+  // twelfths, which is useless, and the model would go back to bash.
+  const many = Array.from({ length: 20 }, (_, i) => `f${i}.ts`);
+  many.forEach((f) => fs.writeFileSync(path.join(dir, f), big(80)));
+  const capped = await run(many, true);
+  const shown = (capped.content[0].text.match(/^===== /gm) || []).length;
+  check("a huge batch is capped by file count", shown <= 12, String(shown));
+  check("and says what it did not read", /not read: at most/.test(capped.content[0].text) || /stopped at/.test(capped.content[0].text),
+    "a silently shortened batch is how a model concludes a file does not exist");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+
+// --- nudging a run of single-file reads ------------------------------------
+// The bash steer covers 224 shell loops but misses the other half: one run made
+// 70 single-file view_lines calls and 4 bash calls, so nothing fired at all.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phi-nudge-"));
+  for (const f of ["a.ts", "b.ts", "c.ts", "d.ts"]) fs.writeFileSync(path.join(dir, f), "x\ny\nz\n");
+  const tools = {};
+  mod({ registerTool: (t) => (tools[t.name] = t), registerCommand: () => {}, on: () => {} });
+  const ctx = { cwd: dir };
+  const read = (f) => tools.view_lines.execute("x", { file: f }, null, null, ctx);
+  const nudged = (r) => /That is \d+ single-file reads in a row/.test(r.content[0].text);
+
+  resetReadRun();
+  check("one read is not nagged", !nudged(await read("a.ts")));
+  check("two reads are not nagged", !nudged(await read("b.ts")));
+  const third = await read("c.ts");
+  check("a run of three is nudged", nudged(third), third.content[0].text.split("\n")[1] || "");
+  check("the nudge names the files it would batch",
+    /"a\.ts", "b\.ts", "c\.ts"/.test(third.content[0].text),
+    "a suggestion the model has to compose itself is one it will not take");
+  check("it does not nag on every call after that", !nudged(await read("d.ts")),
+    "a message repeated every call is one the model learns to skip");
+
+  // Using the list is what the nudge asks for, so it must reset the run.
+  resetReadRun();
+  await read("a.ts"); await read("b.ts");
+  await tools.view_lines.execute("x", { file: ["c.ts", "d.ts"], refresh: true }, null, null, ctx);
+  check("a batch read resets the run", !nudged(await read("a.ts")),
+    "otherwise doing the right thing still earns a telling-off");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

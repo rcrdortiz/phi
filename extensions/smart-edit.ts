@@ -228,6 +228,147 @@ function callersFor(cwd: string, file: string, lines: string[], line: number): s
 	}
 }
 
+/**
+ * An experiment: no line-based editing, and therefore no line numbers.
+ *
+ * `replace_lines` is the only tool that needs a gutter. Measured across 47
+ * sessions: 727 view_lines calls paid for it, and 40 replace_lines calls used
+ * it, against 174 edit_block (matches on content) and 34 edit_symbol (matches
+ * on a name). The gutter costs roughly 3.4 tokens a line, so about 95% of reads
+ * carry a cost they never spend.
+ *
+ * phi already learned this once from the other side: replace_lines failed 34%
+ * of the time on stale line numbers, which is why lib/symbols.ts exists. The
+ * conclusion then was that the model was never asking for "lines 311-329", it
+ * was asking for "the end of play()". This tests taking that to its end.
+ *
+ * Set PI_DROP_REPLACE_LINES=1 to withhold the tool and strip the gutter
+ * together, since neither is useful without the other.
+ */
+const LINE_FREE = process.env.PI_DROP_REPLACE_LINES === "1";
+
+/**
+ * Reading several files costs one call, not one call each.
+ *
+ * Measured across 47 sessions: 727 view_lines calls, and 368 reads that went
+ * through bash instead, 224 of them `for f in a b c; do cat "$f"; done`. A third
+ * of all reading bypassed this tool, and the reason is that it takes one file.
+ * Everything the bypass costs is what this tool exists to provide: the read
+ * cache that suppresses a file already shown, the line cap, the budget, the
+ * symbol anchor.
+ *
+ * Two caps, not one. A per-batch cap alone would divide a twelve-file request
+ * into twelfths, which is useless, and the model would go back to bash to avoid
+ * the round trip. So each file gets a workable slice AND the batch has a
+ * ceiling: a normal two-to-six file request is never clipped, and twenty files
+ * cannot quietly cost twenty times one.
+ */
+const BATCH_MAX_FILES = Number(process.env.PI_VIEW_MAX_FILES ?? 12);
+const BATCH_MAX_CHARS = Number(process.env.PI_VIEW_BATCH_CHARS ?? 24_000);
+const PER_FILE_CHARS = Number(process.env.PI_VIEW_FILE_CHARS ?? 8_000);
+
+/**
+ * Nudge a run of single-file reads toward the list form.
+ *
+ * The bash steer covers one half of the behaviour: 224 shell loops across 47
+ * sessions. It misses the other half entirely. One benchmark run made 70
+ * single-file view_lines calls and 4 bash calls, so nothing fired, and 70 round
+ * trips carried 70 headers into the context for want of one call.
+ *
+ * Fires on the behaviour rather than in a description, which is the only thing
+ * that has worked: outline was available throughout and called 8 times in 47
+ * sessions, while the symbol anchor and the callers hint landed because they
+ * attach to a result the model already receives.
+ *
+ * Nudges at most once per RUN_LENGTH reads, and resets when a list is used or a
+ * batch arrives, because a message repeated on every call is one the model
+ * learns to skip.
+ */
+const RUN_LENGTH = Number(process.env.PI_VIEW_RUN_NUDGE ?? 3);
+let singleRun: string[] = [];
+
+/** Test seam: a run is per session, and nothing else resets it. */
+export function resetReadRun(): void {
+	singleRun = [];
+}
+
+function nudgeForRun(file: string): string {
+	if (RUN_LENGTH <= 0) return "";
+	singleRun.push(file);
+	if (singleRun.length < RUN_LENGTH) return "";
+	const names = singleRun.slice(-RUN_LENGTH);
+	singleRun = [];
+	return (
+		`\n[view_lines] That is ${RUN_LENGTH} single-file reads in a row. ` +
+		`\`view_lines({ file: [${names.map((f) => `"${f}"`).join(", ")}] })\` would have been one call, ` +
+		`capped per file and skipping any already sent.`
+	);
+}
+
+/**
+ * Read a batch of files, honouring the cache, the caps and the anchors.
+ *
+ * Each file is truncated to PER_FILE_CHARS so one large file cannot eat the
+ * batch, and the whole result stops at BATCH_MAX_CHARS. Truncation is always
+ * stated: a silently shortened file is how a model concludes a function does
+ * not exist. Files already shown and unchanged are named rather than repeated,
+ * which is the read cache doing the thing a shell loop cannot.
+ */
+function readMany(ctx: { cwd: string }, files: string[], refresh: boolean) {
+	singleRun = [];
+	const wanted = files.slice(0, BATCH_MAX_FILES);
+	const dropped = files.length - wanted.length;
+	const parts: string[] = [];
+	const skipped: string[] = [];
+	let used = 0;
+	let stoppedAt: string | undefined;
+
+	for (const rel of wanted) {
+		if (used >= BATCH_MAX_CHARS) {
+			stoppedAt = rel;
+			break;
+		}
+		const abs = resolve(ctx.cwd, rel);
+		if (!fs.existsSync(abs)) {
+			parts.push(`${rel}: no such file`);
+			continue;
+		}
+		const injected = alreadyInContext(abs);
+		if (injected && !refresh) {
+			skipped.push(`${rel} (already injected into the system prompt)`);
+			continue;
+		}
+		const lines = readLines(abs);
+		const stamp = stampOf(abs);
+		const end = Math.min(lines.length, MAX_SPAN);
+		if (!refresh && readCache.covered(abs, stamp, 1, end)) {
+			skipped.push(`${rel} (already shown above, unchanged)`);
+			continue;
+		}
+		readCache.record(abs, stamp, 1, end);
+
+		let body = lines.slice(0, end).map((l, i) => (LINE_FREE ? l : `${i + 1}|${l}`)).join("\n");
+		const room = Math.min(PER_FILE_CHARS, BATCH_MAX_CHARS - used);
+		let note = lines.length > end ? `, showing 1-${end}` : "";
+		if (body.length > room) {
+			body = body.slice(0, room);
+			note += `, truncated at ${room} characters`;
+		}
+		used += body.length;
+		parts.push(`===== ${rel} (${lines.length} lines${note}) =====\n${body}`);
+	}
+
+	const tail: string[] = [];
+	if (skipped.length) tail.push(`[view_lines] not repeated: ${skipped.join("; ")}`);
+	if (stoppedAt) tail.push(`[view_lines] stopped at ${stoppedAt}: the batch reached ${BATCH_MAX_CHARS} characters. Ask for the rest separately.`);
+	if (dropped > 0) tail.push(`[view_lines] ${dropped} more file(s) not read: at most ${BATCH_MAX_FILES} per call.`);
+
+	return {
+		content: [{ type: "text", text: [...parts, ...tail].filter(Boolean).join("\n\n") || "Nothing to show." }],
+		details: { files: parts.length, skipped: skipped.length, chars: used },
+	};
+}
+
 export default function smartEditExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "edit_block",
@@ -320,7 +461,7 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	if (!LINE_FREE) pi.registerTool({
 		name: "replace_lines",
 		renderResult: collapsedRenderer(),
 		label: "Replace lines",
@@ -359,10 +500,15 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 				// view_lines to copy an exact string, and that round trip is where a
 				// failed edit turns into a loop. Everything needed to correct the
 				// call is in this message.
-				const width = String(e).length;
+				// Same gutter as view_lines, deliberately. This is the message the
+				// model copies an `expect` string out of, and two formats for the
+				// same thing is how a copied line arrives with a stray space or a
+				// padded number attached. Measured on the model's own tokenizer,
+				// the padded form also costs 39% over bare source against the
+				// compact form's 23%, so matching is cheaper as well as safer.
 				const numbered = lines
 					.slice(s - 1, e)
-					.map((l, i) => `${String(s + i).padStart(width)}| ${l}`)
+					.map((l, i) => `${s + i}|${l}`)
 					.join("\n");
 				const firstLine = params.expect.split("\n")[0].trim();
 				const foundAt = firstLine
@@ -409,10 +555,14 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 		label: "View lines",
 		description:
 			`Show a numbered range of a file (max ${MAX_SPAN} lines per call). Use before replace_lines, and to check an edit landed. ` +
-			"Give start_line plus either end_line or limit. `offset` is accepted as start_line.",
+			"Give start_line plus either end_line or limit. `offset` is accepted as start_line. " +
+			`\`file\` also takes a list, which reads up to ${BATCH_MAX_FILES} files in one call: prefer that over several calls or a shell loop.`,
 		promptSnippet: "Show a numbered line range",
 		parameters: Type.Object({
-			file: Type.String(),
+			// A list reads them all in one call. Ranges apply to a single file
+			// only: a start_line that meant different things in each of six files
+			// would be a worse tool than the bash loop it replaces.
+			file: Type.Union([Type.String(), Type.Array(Type.String())]),
 			start_line: Type.Optional(Type.Union([Type.Number(), Type.String()])),
 			end_line: Type.Optional(Type.Union([Type.Number(), Type.String()])),
 			// Accepted because the model reaches for the built-in read tool's
@@ -423,6 +573,9 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			refresh: Type.Optional(Type.Boolean()),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
+			if (Array.isArray(params.file)) {
+				return readMany(ctx, params.file as string[], Boolean(params.refresh));
+			}
 			const file = resolve(ctx.cwd, params.file);
 			if (!fs.existsSync(file)) {
 				return { content: [{ type: "text", text: `No such file: ${params.file}` }], isError: true };
@@ -474,7 +627,7 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			// line and are the whole point of a gutter.
 			const body = lines
 				.slice(s - 1, e)
-				.map((l, i) => `${s + i}|${l}`)
+				.map((l, i) => (LINE_FREE ? l : `${s + i}|${l}`))
 				.join("\n");
 			// The note matters as much as the text: it is how the model learns
 			// it got a different range than it asked for, instead of concluding
@@ -493,7 +646,8 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			})();
 			const head =
 				`${params.file} (${lines.length} lines) showing ${s}-${e}${anchor}` +
-				(notes.length ? `\n[view_lines] ${notes.join("; ")}` : "");
+				(notes.length ? `\n[view_lines] ${notes.join("; ")}` : "") +
+				nudgeForRun(String(params.file));
 			return {
 				content: [{ type: "text", text: `${head}\n${body}` }],
 				details: { total: lines.length, from: s, to: e },
@@ -531,8 +685,10 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 					details: { total: lines.length, entries: 0 },
 				};
 			}
-			const width = String(lines.length).length;
-			const body = entries.map((x) => `${String(x.line).padStart(width)}| ${x.text}`).join("\n");
+			// Same gutter as view_lines and replace_lines. An outline is read
+			// alongside both, and one format across all three is what stops a
+			// line number being copied with a stray space attached.
+			const body = entries.map((x) => `${x.line}|${x.text}`).join("\n");
 			return {
 				content: [{
 					type: "text",
