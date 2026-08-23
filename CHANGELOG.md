@@ -16,6 +16,41 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: `--print` runs no longer die at the first compaction.** This is the big
+one, and it invalidated every benchmark number phi has produced. A print run is
+a single turn: pi awaits one `session.prompt()`, and the moment it resolves,
+aborted or not, it reads the last message and exits. Compaction aborts the turn
+it fires in, so the resume that repairs the run is a new turn issued after the
+process has decided to leave, and it never arrives. phi's own error suppressor
+then rewrote the abort into a clean stop, which is why nothing looked wrong:
+the session recorded an assistant message with no content, zero tokens, and
+`stopReason: "stop"`.
+
+Reproduced three times out of three on a 100-file task. Two of the three had
+diagnosed every planted defect and written a plan, then exited without applying
+a single edit, scoring exactly what an untouched checkout scores. Mid-run
+compaction now stands down in print mode, at both places that interrupt a
+running turn. Interactive sessions are unchanged, and a manual run confirms the
+path works there: it compacted twice, carried on both times, and scored 12/14
+where print mode scored 7/14.
+
+**Fixed: a resume is queued rather than fired bare.** `sendUserMessage` throws
+"Agent is already processing" whenever the agent is streaming, which is exactly
+when a resume happens. The step-boundary resume was seen erroring out mid-run.
+Both resumes now queue as `followUp`, so the turn in flight finishes and the
+next step follows it.
+
+**Added: an edit says who else calls what you changed.** phi regressed 15 checks
+against pi's 4 on the same task, and the tool log showed why: it read in narrow
+windows and never saw the callers. `edit_block`, `replace_lines` and
+`edit_symbol` now return the other places the edited symbol appears, and
+`view_lines` names the declaration a range sits inside. Both are hints, not
+guarantees: it is grep, not a language server, and it over-reports on purpose.
+
+**Added: `--phases N` for the benchmark**, two fast canary tasks, a manual
+runner for exercising compaction interactively, and a Claude Code harness for
+measuring the ceiling the local setup trades away.
+
 ## 0.21.0 (2026-08-22)
 
 **Changed: Ollama now runs with two prefix-cache slots.** This is the fix for
