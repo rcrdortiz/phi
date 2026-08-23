@@ -249,12 +249,15 @@ changed = False
 # quietStartup suppresses pi's [Skills]/[Extensions]/[Themes] listing. What is
 # loaded is not news every single launch, and the boot box already says the
 # things that change: which model, and whether anything is out of date.
-# "low", chosen for cost in the absence of evidence rather than because it was
-# shown to be better. A sweep of off/low/medium/high on a bug-hunt task scored
-# 18-20 out of 23 at every level, inside a noise floor of +-2 measured from
-# identical control runs, and output tokens did not correlate with the level at
-# all (r = +0.17, n = 11). Nothing distinguished them, so the cheap one wins
-# until something does. Shift+Tab raises it live when a task warrants it.
+# "medium". A sweep of off/low/medium/high on a bug-hunt task scored 18-20 out of
+# 23 at every level, inside a noise floor of +-2 measured from identical control
+# runs, and output tokens did not correlate with the level at all (r = +0.17,
+# n = 11). That sweep never distinguished them, but it ran on a task short enough
+# never to compact, so it says little about a real session. "low" was the cheap
+# default that followed from it; "medium" is the deliberate one, because the
+# failures worth caring about have been judgement rather than knowledge and
+# deliberation is the lever most likely to move those. Shift+Tab lowers it live
+# when a task does not warrant it.
 # fullscreenExitOutput defaults to "transcript", which prints the entire session
 # into the scrollback on the way out: the boot box, every tool call, every
 # banner. Quitting should hand the terminal back the way it was found, so this
@@ -288,7 +291,7 @@ for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX
              ("fullscreenExitOutput", "resume-hint"),
              ("httpIdleTimeoutMs", 500000),
              ("compaction", {"keepRecentTokens": 9800, "reserveTokens": 16384}),
-             ("defaultThinkingLevel", "low")):
+             ("defaultThinkingLevel", "medium")):
     if not s.get(k):
         s[k] = v; changed = True
 if changed:

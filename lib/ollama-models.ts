@@ -68,10 +68,21 @@ export const MODELS: LocalModel[] = [
 		contextWindow: 65536,
 		maxTokens: 16384,
 		weightsGb: 18,
-		// Chosen for cost, not shown to be better: a sweep of off/low/medium/high
-		// scored 18-20 of 23 at every level, inside a noise floor of plus or
-		// minus two. Shift+Tab raises it live when a task warrants it.
-		defaultThinking: "low",
+		// A sweep of off/low/medium/high scored 18-20 of 23 at every level, inside
+		// a noise floor of plus or minus two, so the sweep never distinguished
+		// them. That sweep ran on a bug-hunt task short enough never to compact,
+		// and every quill result taken since was measuring the print-mode
+		// compaction bug rather than the model, so it is thin evidence either way.
+		//
+		// "low" was the cheap choice in the absence of evidence. "medium" is the
+		// deliberate one: the failures worth caring about on quill were judgement
+		// rather than knowledge, an incomplete fix left half-applied after the
+		// model had itself identified what was missing, and deliberation is the
+		// lever most likely to touch that. It costs decode time, which at the
+		// measured 32-55 tok/s is affordable.
+		//
+		// Shift+Tab moves it live when a task does not warrant it.
+		defaultThinking: "medium",
 	},
 ];
 
