@@ -31,6 +31,23 @@
  * decode from 26.3 to 37.9 tok/s.
  *
  * Harmless on a model without a drafter, which ignores it.
+ *
+ * 4 is a ceiling, not a fixed depth, and raising it was measured and rejected.
+ *
+ * Ollama's depthController picks argmax EV(N) each round over depths from 0
+ * (plain decode) up to the drafter's limit, measuring per-position acceptance
+ * and per-depth cost, and persists what it learned across requests. The DFlash2
+ * drafter reports block_size 8, so its own limit is 7, and 4 looked like an
+ * artificial cap.
+ *
+ * It is not the binding constraint. Same prompt, back to back: ceiling 4 gave
+ * 50.6 tok/s at acceptance 0.76 and avg_draft 2.41; ceiling 7 gave 48.1 tok/s
+ * at acceptance 0.73 and avg_draft 2.40, reaching depth 5 at most. The
+ * controller settles at the same shallow depth either way, because acceptance
+ * decays with position and the deeper draft does not pay for itself. The wider
+ * ceiling only bought a few losing probe rounds.
+ *
+ * PI_DRAFT_NUM_PREDICT raises it for a drafter where deeper does pay.
  */
 const DRAFT_TOKENS = Number(process.env.PI_DRAFT_NUM_PREDICT ?? 4);
 
