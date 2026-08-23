@@ -133,44 +133,60 @@ cold on an idle machine:
 The cliff sits between 9K and 18K, and past it the model stays at about a third
 of its speed for the rest of the session.
 
-**Compaction fires at 36,000 tokens**, and that number is a measured bound
-rather than a preference. A prefix-cache miss has to re-prefill the whole context, and
-prefill runs ~120 tok/s at depth, so past a certain depth a miss cannot finish
-before pi's HTTP idle timeout and comes back as `Request timed out` instead of
-slowly. Misses happen: the server log carries `failed to restore cache, freeing
-all caches`. So the working depth has to stay somewhere a miss is survivable.
-`PI_MAX_SAFE_DEPTH` caps it independently of the window.
+**Compaction fires at 45,000 tokens.** A prefix-cache miss has to re-prefill the
+whole context, and past some depth a miss cannot finish before pi's HTTP idle
+timeout and comes back as `Request timed out` rather than slowly. So the working
+depth has to stay somewhere a miss is survivable, and `PI_MAX_SAFE_DEPTH` caps
+it independently of the window.
 
-Prefill rate is not flat, which an earlier version of this assumed. Measured on
-an idle machine with the weights resident, forcing a cache miss each time:
+Both numbers behind that were re-measured on 2026-08-23, and both had been
+wrong. They are recorded here in full because the first set was wrong in a way
+that was invisible: it was measured while the machine was faulting.
 
-| depth | prefill | rate | margin under a 500s timeout |
-|---|---|---|---|
-| 12,193 | 74s | 165 tok/s | |
-| 18,271 | 126s | 145 tok/s | |
-| 31,772 | 224s | 142 tok/s | 276s |
-| 39,698 | 335s | 119 tok/s | 165s |
-| 47,625 | 413s | 115 tok/s | 87s |
+**Prefill is 214.8 tok/s**, taken from Ollama's own `prompt_eval_count` and
+`prompt_eval_duration` on a 16,438 token prompt it had never seen, so a genuine
+cold prefill. mlx-lm gives 218.8 on the same hardware and model family, which
+rules out a runner quirk. The figure phi used before was 115, and it came from a
+sweep run while Ollama's prefix cache was thrashing, before we understood that
+two sessions were sharing a single cache slot. It measured the fault, not the
+machine. phi now assumes 180, deliberately below the measurement, because the
+ceiling exists to protect a miss on a machine that is busy with something else
+and both readings come from an idle one.
 
-`httpIdleTimeoutMs` is a pi setting: 300s is the default and the largest value
-its settings picker offers, but it takes any millisecond count, and this install
-seeds 500s. That is what makes 36,000 possible at all; under 300s the same
-depth cannot recover from a miss. The cost of the longer timeout is that a
-genuinely hung request takes three minutes longer to admit it.
+**There is no decode cliff.** The 36,000 cap was justified by one, and it does
+not exist. With 400-token samples:
 
-**The trigger is bounded by the timeout, not set beside it.** It is the lowest
-of three: 70% of the window, a fixed 36,000, and 70% of what prefill can cover
-before the timeout. So lowering `httpIdleTimeoutMs` lowers the working depth
-automatically. A literal trigger and a changed timeout drift apart silently, and
-36,000 above a 300s install's 34,500 ceiling is a guaranteed `Request timed out`
-dressed up as a configuration choice.
+| depth | decode |
+|---|---|
+| 3,610 | 55.0 tok/s |
+| 37,000 | 32.4 tok/s |
 
-48,000 was rejected: 413s against a 500s timeout is 87s of margin, and these
-numbers come from an idle machine. One being used for something else, which is
-the entire point here, prefills slower than this.
+A smooth 41% decline across ten times the depth, which is what reading a
+linearly growing KV cache predicts, with no knee anywhere. An earlier sweep did
+appear to show a cliff, with decode collapsing to 16.7 tok/s at 25K, but it
+sampled 60 tokens per point. That is under two seconds of decoding and mostly
+measures startup.
+
+So the depth is a time-versus-context preference rather than a safety limit.
+45,000 buys 25% more context between compactions for roughly 10% slower decode
+in that range, and a cold re-prefill of 45,000 tokens at the measured rate is
+209 seconds, comfortably inside a 500s timeout.
+
+**The trigger is the lowest of three:** 70% of the window, `PI_MAX_SAFE_DEPTH`,
+and 70% of what prefill can cover before the idle timeout. Deriving it means a
+changed timeout moves the working depth automatically instead of drifting
+silently. At the corrected prefill rate the ceiling no longer binds anywhere, so
+the safe depth is what decides.
+
+**What is not settled is memory.** KV cost per token is somewhere between 111 KB,
+the figure phi used to assume, and about 320, inferred two independent ways from
+mlx-lm's memory growth and from the decode slope. At the high end, two
+concurrent sessions both running to 45,000 would exceed a 48 GB machine's wired
+limit, which shows up as cache eviction rather than an error. `/doctor` reports
+evictions; watch it if you run two sessions at once.
 
 **The footer counts against the model's window, not against the trigger.** It
-reads 66K because that is what the model can hold; compaction fires at 36,000,
+reads 66K because that is what the model can hold; compaction fires at 45,000,
 so a footer showing 55% is already at the point of compacting. The `ctx` chip
 next to it shows the number that actually decides, and `/context` reports both.
 
@@ -180,6 +196,49 @@ writing the summary. Measured live: 79 seconds of prefill and then roughly 380
 seconds of generation, against a 500 second timeout it was about to hit.
 Summarising a transcript is not a reasoning task, so it runs with thinking off
 and the session's level is restored afterwards.
+
+**An edit says who else calls what you changed.** Reading a slice of a file
+tells you what a function does, not who depends on it, so a change that is
+locally correct breaks a caller nobody looked at. `edit_block`, `replace_lines`
+and `edit_symbol` return the other places the edited symbol appears, phrased as
+work still to do:
+
+```
+[callers] `offset` is referenced in 3 other place(s). Check these still hold after this edit:
+  src/Query/QueryBuilder.php:35  $this->offset = $p->offset();
+  src/Query/QueryBuilder.php:17  private ?int $offset = null;
+```
+
+`view_lines` names the declaration a range sits inside for the same reason. Both
+are pushed rather than offered, because a tool that has to be remembered does
+not get called: `outline` was used 8 times across 47 sessions.
+
+It is grep, not a language server. There is no parser here for PHP and
+TypeScript together, so it over-reports, which is the safe direction: a listed
+caller that turns out to be unrelated costs a glance, and a missed one costs the
+regression this exists to prevent. Magic methods are suppressed by name, since
+32 unrelated constructors is the noise that teaches people to skip the hint.
+
+**Mid-run compaction stands down in `--print`.** A print run is a single turn:
+pi awaits one `session.prompt()`, and the moment it resolves, aborted or not, it
+reads the last message and exits. Compaction aborts the turn it fires in, so the
+resume that repairs an interrupted run is a new turn issued after the process
+has already decided to leave, and it never lands. phi's error suppressor then
+rewrote the abort into a clean stop, which is why nothing looked wrong: the
+session recorded an assistant message with no content, zero tokens, and
+`stopReason: "stop"`.
+
+Reproduced three times out of three on a 100-file task. Two of the three had
+diagnosed every planted defect and written a plan, then exited without applying
+a single edit, scoring exactly what an untouched checkout scores. Interactive
+sessions are unaffected, because there the resume lands: the same task run by
+hand compacted twice, carried on both times, and scored 12/14 where print mode
+scored 7/14. `PI_PRINT_COMPACT=1` restores the old behaviour for testing the
+resume path itself.
+
+The consequence worth knowing: a `--print` benchmark cannot exercise phi's
+watchdog at all. Measuring compaction needs an interactive session, which is
+what `bench/manual.sh` sets up.
 
 **Compaction shows elapsed seconds and a progress bar.** It is a model call on
 a large prompt, so it takes as long as a turn does, and a slow one and a wedged
@@ -201,13 +260,21 @@ which fires inside a long run; pi checks at `agent_end`, which does not. Ours
 acting first means pi is only ever the backstop, and matching the two produces
 two compactions, one of which returns "Already compacted".
 
-**Thinking is set to `low` by default, and that is a cost choice rather than a
-measured one.** A sweep of off, low, medium and high on a bug-hunt task scored
-18 to 20 out of 23 at every level, inside a noise floor of plus or minus two
-measured from identical control runs, and output tokens did not track the level
-at all (r = +0.17, n = 11). Nothing distinguished them, so the cheap end wins
-until something does. `Shift+Tab` raises it live when a task warrants it, and
-`/effort` sets it explicitly.
+**Thinking is set to `medium` by default.** A sweep of off, low, medium and high
+on a bug-hunt task scored 18 to 20 out of 23 at every level, inside a noise floor
+of plus or minus two measured from identical control runs, and output tokens did
+not track the level at all (r = +0.17, n = 11). That sweep never distinguished
+them, and `low` won on cost. But it ran on a task short enough never to compact,
+and every result taken since was measuring the print-mode compaction bug rather
+than the model, so the evidence behind that choice was thinner than it looked.
+
+`medium` is the deliberate choice. The failures worth caring about have been
+judgement rather than knowledge: on one run the model worked out that changing
+`INNER JOIN` to `LEFT JOIN` would duplicate rows without `DISTINCT`, wrote that
+observation down, and then declined to act on it, leaving a half-applied fix and
+its own stated goal unmet. Deliberation is the lever most likely to move that.
+`Shift+Tab` lowers it live when a task does not warrant it, and `/effort` sets
+it explicitly.
 
 high is the top of this model's scale, not of pi's: pi accepts `xhigh` and
 `max`, but Ollama's `reasoning_effort` takes none/low/medium/high, so mapping
@@ -227,7 +294,7 @@ has direct evidence that giving a model two ways to do one job costs accuracy.
 | `model-preload` | loads the weights before you type |
 | `thinking-level` | `Shift+Tab` / `/effort` change effort mid-session |
 | `plan-notes` | plan and findings live on disk, so context can be thrown away |
-| `smart-edit` | edits that survive a model with imperfect whitespace recall |
+| `smart-edit` | edits that survive a model with imperfect whitespace recall, and say who else calls what you changed |
 | `tool-budget` | stops one tool result eating the window |
 | `collapse` (lib) | tool results render as one line until `ctrl+o` |
 | `auto-handoff` | compacts mid-run, resumes what it interrupted, and writes a handoff on every compaction and on exit |
@@ -365,10 +432,10 @@ Everything has a working default. These exist for when it does not.
 | `PI_NOTE_MAX_CHARS` | `350` | cap on one note |
 | `PI_NOTES_MAX_CHARS` | `4000` | cap on the whole notes file |
 | `PI_COMPACT_AT_TOKENS` | 70% of window | depth at which context is compacted |
-| `PI_MAX_SAFE_DEPTH` | `36000` | absolute cap on that depth |
+| `PI_MAX_SAFE_DEPTH` | `45000` | absolute cap on that depth |
 | `PI_CEILING_FRACTION` | `0.7` | share of the prefill ceiling the depth may use |
 | `PI_PREFILL_CEILING_TOKENS` | derived | depth past which compaction stops waiting for a clean margin |
-| `PI_PREFILL_TOKENS_PER_SECOND` | `115` | measured prefill rate at depth, used to derive that ceiling |
+| `PI_PREFILL_TOKENS_PER_SECOND` | `180` | measured 214.8, set below it for margin; derives the ceiling |
 | `PI_PLAN_KEEP_DONE` | `3` | completed steps kept in the plan |
 | `PI_PLAN_AUTOCONTINUE` | `1` | run steps unattended (also gates the compaction resume) |
 | `PI_PLAN_GATE` | `1` | `0` allows edits when the plan on disk is finished |
