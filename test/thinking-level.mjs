@@ -163,5 +163,24 @@ const failed = results.filter((r) => !r).length;
     "otherwise switching model leaves the wrong temperature behind");
 }
 
+
+// --- a model must carry its own server, not the default one ---------------
+// toPiModel hardcoded PROVIDER and BASE_URL, so a model registered under
+// ollama-dflash was still sent to 11434. The released build shares
+// ~/.ollama/models, so it saw the model, tried to load it, and rejected
+// DFlash2DraftModel. It read as a broken model rather than a misrouted request,
+// and the footer showed the right provider the whole time.
+{
+  const m = MODELS[0];
+  const dflt = toPiModel(m);
+  const other = toPiModel(m, undefined, { provider: "ollama-dflash", baseUrl: "http://localhost:11435/v1" });
+  check("a model defaults to the main provider and URL",
+    dflt.provider === "ollama-local" && /11434/.test(dflt.baseUrl), `${dflt.provider} ${dflt.baseUrl}`);
+  check("and takes an override for both",
+    other.provider === "ollama-dflash" && /11435/.test(other.baseUrl), `${other.provider} ${other.baseUrl}`);
+  check("the override changes nothing else",
+    other.id === dflt.id && other.contextWindow === dflt.contextWindow);
+}
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

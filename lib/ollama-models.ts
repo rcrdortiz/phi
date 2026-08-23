@@ -148,13 +148,24 @@ export const MODELS: LocalModel[] = [
 ];
 
 /** Shape pi expects from registerProvider / setModel. */
-export function toPiModel(m: LocalModel, level?: string) {
+/**
+ * `where` names the server this model lives on, because there can be two.
+ *
+ * Each model carries its own provider and baseUrl, not just the provider it is
+ * registered under. Hardcoding PROVIDER and BASE_URL here meant a model on the
+ * second Ollama was registered under `ollama-dflash` and then sent to 11434
+ * anyway: the released build shares ~/.ollama/models, so it could see the model,
+ * tried to load it, and rejected DFlash2DraftModel, an architecture only the PR
+ * build knows. The failure looked like a broken model rather than a misrouted
+ * request, and the footer showed the right provider throughout.
+ */
+export function toPiModel(m: LocalModel, level?: string, where?: { provider: string; baseUrl: string }) {
 	return {
 		id: m.id,
 		name: m.name,
 		api: "openai-completions" as const,
-		provider: PROVIDER,
-		baseUrl: BASE_URL,
+		provider: where?.provider ?? PROVIDER,
+		baseUrl: where?.baseUrl ?? BASE_URL,
 		reasoning: m.reasoning,
 		// Kept as a per-model flag rather than a provider-wide constant: not every
 		// local model has vision, and silently sending an image to one that does

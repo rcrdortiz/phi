@@ -95,7 +95,7 @@ export default function thinkingLevelExtension(pi: ExtensionAPI) {
 					baseUrl: DFLASH_URL,
 					apiKey: "ollama",
 					api: "openai-completions",
-					models: DFLASH_MODELS.map((m) => toPiModel(m, level)),
+					models: DFLASH_MODELS.map((m) => toPiModel(m, level, { provider: DFLASH_PROVIDER, baseUrl: DFLASH_URL })),
 				} as never);
 			}
 			registeredFor = level;

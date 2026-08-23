@@ -27,7 +27,7 @@ export default function ollamaLocalExtension(pi: ExtensionAPI) {
 			baseUrl: DFLASH_URL,
 			apiKey: "ollama",
 			api: "openai-completions",
-			models: DFLASH_MODELS.map(toPiModel),
+			models: DFLASH_MODELS.map((m) => toPiModel(m, undefined, { provider: DFLASH_PROVIDER, baseUrl: DFLASH_URL })),
 		});
 	}
 }
