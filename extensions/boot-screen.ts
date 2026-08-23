@@ -426,8 +426,35 @@ export default function bootScreenExtension(pi: ExtensionAPI) {
 		handler: async (_args, ctx) => install(ctx as unknown as ExtensionContext),
 	});
 
+	/**
+	 * Name the terminal tab after phi, not after pi.
+	 *
+	 * pi derives its title from `pkg.piConfig?.name` in its own package.json,
+	 * falling back to the literal "π". phi cannot set that without renaming the
+	 * shared binary for plain pi as well, so it sets the title directly instead.
+	 *
+	 * Re-asserted on every turn because pi rebuilds the title on session and cwd
+	 * changes, and a title that reverts halfway through a session is worse than
+	 * one that never changed: you stop trusting which tab is which.
+	 */
+	const nameTheTab = (c: ExtensionContext) => {
+		try {
+			if (typeof c.ui.setTitle !== "function") return;
+			const dir = c.cwd ? c.cwd.split("/").filter(Boolean).pop() : undefined;
+			c.ui.setTitle(dir ? `\u03c6 phi - ${dir}` : "\u03c6 phi");
+		} catch {
+			/* a tab name is never worth failing a turn over */
+		}
+	};
+
+	pi.on("turn_end", async (_event, ctx) => {
+		nameTheTab(ctx as unknown as ExtensionContext);
+		return undefined;
+	});
+
 	pi.on("session_start", async (_event, ctx) => {
 		const c = ctx as unknown as ExtensionContext;
+		nameTheTab(c);
 		if (c.mode !== "tui" || typeof c.ui.setHeader !== "function") return undefined;
 
 		c.ui.setHeader((tui, theme) => {

@@ -172,6 +172,38 @@ check("rows still align in debug", (() => {
   return new Set(rows).size === 1;
 })(), "colour must not change the geometry");
 
+
+// --- the terminal tab says phi, not pi -------------------------------------
+// pi builds its title from pkg.piConfig?.name in its own package.json, falling
+// back to the literal "π". phi cannot set that without renaming the shared
+// binary for plain pi too, so it sets the title itself and re-asserts it,
+// because pi rebuilds the title on session and cwd changes.
+{
+  const titles = [];
+  const ctx = { cwd: "/Users/x/AI/pang-clone", mode: "tui", ui: { setTitle: (t) => titles.push(t), setHeader: undefined } };
+  const handlers = {};
+  const pi = {
+    on: (name, fn) => { handlers[name] = fn; },
+    registerCommand: () => {}, registerTool: () => {}, setThinkingLevel: () => {},
+  };
+  mod(pi);
+  check("a session_start hook is registered", typeof handlers.session_start === "function");
+  check("a turn_end hook re-asserts it", typeof handlers.turn_end === "function",
+    "pi rebuilds the title mid-session; a tab name that reverts is worse than one that never changed");
+  if (handlers.session_start) await handlers.session_start({}, ctx);
+  if (handlers.turn_end) await handlers.turn_end({}, ctx);
+  check("the title names phi", titles.every((t) => /phi/.test(t)), JSON.stringify(titles));
+  check("the title carries the directory", titles.every((t) => /pang-clone/.test(t)), JSON.stringify(titles));
+  check("it never says pi on its own", !titles.some((t) => /(^|[^h])\bpi\b/.test(t)), JSON.stringify(titles));
+
+  // A terminal without setTitle must not take the session down with it.
+  const bare = { cwd: "/tmp/x", mode: "tui", ui: {} };
+  let threw = false;
+  try { if (handlers.turn_end) await handlers.turn_end({}, bare); } catch { threw = true; }
+  check("a terminal that cannot set a title is survivable", !threw,
+    "a tab name is never worth failing a turn over");
+}
+
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);
