@@ -26,6 +26,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "../lib/schema.ts";
+import { callersNote, declarationCount, enclosingSymbol, findCallers, recordHint } from "../lib/references.ts";
 import { collapsedRenderer } from "../lib/collapse.ts";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -207,6 +208,26 @@ function writeChecked(file: string, lines: string[], before: string): string {
 	return "ok";
 }
 
+/**
+ * The callers line to append to an edit result, or nothing.
+ *
+ * Wrapped so a failure here can never fail an edit that already succeeded: the
+ * file is written by this point, and losing the write to a grep problem would
+ * be a far worse bug than missing a hint.
+ */
+function callersFor(cwd: string, file: string, lines: string[], line: number): string {
+	try {
+		const sym = enclosingSymbol(lines, file, line);
+		if (!sym) return "";
+		const callers = findCallers(cwd, sym.name, file);
+		const note = callersNote(callers, sym.name, declarationCount(cwd, sym.name));
+		if (note) recordHint(sym.name, callers);
+		return note ? `\n\n${note}` : "";
+	} catch {
+		return "";
+	}
+}
+
 export default function smartEditExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "edit_block",
@@ -290,7 +311,8 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 						type: "text",
 						text:
 							`Replaced ${count} line(s) at ${params.file}:${start + 1} with ${replacement.length}. ` +
-							`Indented to "${baseIndent.length}" spaces to match the file.`,
+							`Indented to "${baseIndent.length}" spaces to match the file.` +
+							callersFor(ctx.cwd, params.file, updated, start + 1),
 					},
 				],
 				details: { line: start + 1, removed: count, added: replacement.length },
@@ -369,7 +391,12 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			}
 			return {
 				content: [
-					{ type: "text", text: `Replaced lines ${s}-${e} of ${params.file} with ${replacement.length} line(s).` },
+					{
+						type: "text",
+						text:
+							`Replaced lines ${s}-${e} of ${params.file} with ${replacement.length} line(s).` +
+							callersFor(ctx.cwd, params.file, updated, s),
+					},
 				],
 				details: { start: s, end: e, added: replacement.length },
 			};
@@ -452,8 +479,20 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			// The note matters as much as the text: it is how the model learns
 			// it got a different range than it asked for, instead of concluding
 			// the file simply ends where the output does.
+			// Where the reader is, which a windowed read otherwise never says. The
+			// nearest declaration at or above the range, the same thing a person
+			// gets by scrolling up, so it is an anchor rather than a claim of
+			// containment.
+			const anchor = (() => {
+				try {
+					const sym = enclosingSymbol(lines, params.file, s);
+					return sym ? `  [in ${sym.name}, declared line ${sym.line}]` : "";
+				} catch {
+					return "";
+				}
+			})();
 			const head =
-				`${params.file} (${lines.length} lines) showing ${s}-${e}` +
+				`${params.file} (${lines.length} lines) showing ${s}-${e}${anchor}` +
 				(notes.length ? `\n[view_lines] ${notes.join("; ")}` : "");
 			return {
 				content: [{ type: "text", text: `${head}\n${body}` }],
@@ -616,7 +655,9 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			return {
 				content: [{
 					type: "text",
-					text: `${params.symbol} (${found.start}-${found.end}): ${where}, ${body.length} line(s).`,
+					text:
+						`${params.symbol} (${found.start}-${found.end}): ${where}, ${body.length} line(s).` +
+						callersFor(ctx.cwd, params.file, updated, found.start),
 				}],
 				details: { start: found.start, end: found.end, action },
 			};
