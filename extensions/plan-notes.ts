@@ -127,6 +127,23 @@ const MUTATING = new Set(["edit_symbol", "replace_lines", "edit_block", "edit", 
  * Blocking is the mechanism because guidance was not. The instruction to call
  * plan_write first has been in this tool's guidelines the whole time.
  */
+/**
+ * The steps, however the model sent them.
+ *
+ * The schema asks for an array and the model sometimes sends one string. That
+ * used to fail validation, which cost a whole turn: observed live, plan_write
+ * was rejected, the model spent a turn reasoning about the schema, then retried.
+ * A step is one line, so splitting on newlines is unambiguous. Numbered or
+ * bulleted prefixes are stripped, since a model writing a list writes "1." in
+ * front of it.
+ */
+export function asSteps(input: string[] | string): string[] {
+	const raw = Array.isArray(input) ? input : String(input).split(/\r?\n/);
+	return raw
+		.map((t) => String(t).replace(/^\s*(?:[-*]|\d+[.)])\s+/, "").trim())
+		.filter(Boolean);
+}
+
 export function planIsSpent(steps: Step[]): boolean {
 	return steps.length > 0 && steps.every((s) => s.done);
 }
@@ -433,13 +450,19 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		],
 		parameters: Type.Object({
 			goal: Type.String({ description: "one sentence" }),
-			steps: Type.Array(Type.String(), {
+			// A string is accepted as well as an array. The model serialises the
+			// steps as one string often enough that rejecting it costs a whole
+			// turn: observed live, plan_write failed validation, the model spent a
+			// turn reasoning about the schema, and retried. Splitting a string on
+			// newlines is unambiguous here, since a step is one line.
+			steps: Type.Union([Type.Array(Type.String()), Type.String()], {
 				description: "Ordered steps, each independently verifiable",
 			}),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
+			const stepList = asSteps(params.steps);
 			const existing = parsePlan(readFileSafe(planPath(ctx)));
-			const d = planDiff(existing, params.steps);
+			const d = planDiff(existing, stepList);
 			const losesWork = d.droppedDone.length > 0 || d.droppedPending.length > 0;
 
 			// A plan revision no longer asks permission. Blocking on a dialog
@@ -472,7 +495,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			// the mark here would be silent until the next edit re-set it, and an
 			// interruption inside that window is exactly the case it exists for.
 			const activeText = new Set(existing.filter((s) => s.active && !s.done).map((s) => norm(s.text)));
-			const steps: Step[] = params.steps.map((t: string) => {
+			const steps: Step[] = stepList.map((t: string) => {
 				const prior = doneText.get(norm(t));
 				// Keep the completed step's original wording, which carries its
 				// summary — the revision should not erase what was recorded.
@@ -492,8 +515,10 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 						// still cheap to correct.
 						text:
 							`Wrote ${PLAN_FILE} with ${steps.length} steps. First step: ${steps[0]?.text ?? "(none)"}. ` +
-							`Before starting it, summarise for the user what you found and what you intend to do, ` +
-							`and raise anything you want decided.`,
+							`Summarise for the user what you found and what you intend to do, then begin step 1 ` +
+							`in this same turn. Do not ask whether to start: writing the plan is the agreement to ` +
+							`run it. If something genuinely blocks progress, say which assumption you are ` +
+							`proceeding under and carry on.`,
 					},
 				],
 				details: { steps: steps.length },

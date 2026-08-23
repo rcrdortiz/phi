@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import mod from "../extensions/plan-notes.ts";
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+import mod, { asSteps } from "../extensions/plan-notes.ts";
 import { resetCompactionState } from "../lib/compaction.ts";
 import { STATE_DIR, statePath } from "../lib/state-dir.ts";
 
@@ -56,5 +57,22 @@ check("plan still records the completed step", /- \[x\] one/.test(plan), plan.tr
 
 fs.rmSync(DIR, { recursive: true, force: true });
 const failed = results.filter((r) => !r).length;
+
+// --- plan_write must not stall, and must not be fussy --------------------
+{
+  const src = fs.readFileSync(path.join(root, "extensions/plan-notes.ts"), "utf8");
+  check("plan_write tells the model to begin, not to ask",
+    /begin step 1 in this same turn/.test(src) && /Do not ask whether to start/.test(src),
+    "it used to say 'raise anything you want decided', and the model stopped and asked");
+  check("the recap survives", /Summarise for the user what you found/.test(src),
+    "a wrong plan is cheapest to correct before any editing happens");
+
+  check("steps sent as one string are accepted", JSON.stringify(asSteps("1. one\n2. two")) === '["one","two"]',
+    JSON.stringify(asSteps("1. one\n2. two")));
+  check("bullets are stripped too", JSON.stringify(asSteps("- a\n* b")) === '["a","b"]');
+  check("an array is passed through", JSON.stringify(asSteps(["x", "y"])) === '["x","y"]');
+  check("blank lines are dropped", JSON.stringify(asSteps("a\n\n  \nb")) === '["a","b"]');
+}
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);
