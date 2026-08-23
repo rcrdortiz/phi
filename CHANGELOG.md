@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.22.0 (2026-08-23)
+
 **Fixed: `--print` runs no longer die at the first compaction.** This is the big
 one, and it invalidated every benchmark number phi has produced. A print run is
 a single turn: pi awaits one `session.prompt()`, and the moment it resolves,
