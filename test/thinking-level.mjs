@@ -139,28 +139,23 @@ check("cycling reports the new level", /Thinking: high/.test(notes.join(" ")), n
 
 const failed = results.filter((r) => !r).length;
 
-// --- the DFlash2 build, alongside the released one ------------------------
+// --- draft_num_predict stays, the DFlash2 provider does not ---------------
+// The second provider was removed after measuring: MTP produces 3.12 tokens per
+// forward pass against DFlash2's 2.22, counted by the runtime over 146,357
+// iterations, so it does not depend on this machine's timing. But the option
+// itself matters: Ollama zeroes it when a model has no separate DraftPath,
+// which is the case for a drafter baked in by `ollama create`, and then
+// speculation is off with nothing saying so.
 {
-  const src = fs.readFileSync(path.join(root, "extensions/thinking-level.ts"), "utf8");
   const roster = fs.readFileSync(path.join(root, "lib/ollama-models.ts"), "utf8");
   check("draft_num_predict is in the sampling params",
-    /draft_num_predict: DRAFT_TOKENS/.test(roster),
-    "Ollama zeroes it when DraftPath is empty, which it is for a baked-in drafter, and says nothing");
+    /draft_num_predict: DRAFT_TOKENS/.test(roster));
   check("both sampling modes carry it",
     (roster.match(/draft_num_predict: DRAFT_TOKENS/g) || []).length === 2,
-    "switching thinking level must not drop it");
-  const base = fs.readFileSync(path.join(root, "extensions/ollama-local.ts"), "utf8");
-  check("the second provider is registered at load, like the first",
-    /pi\.registerProvider\(DFLASH_PROVIDER/.test(base),
-    "applySampling only runs when the level CHANGES, so a session opening at the roster default never registered it and /model showed one model");
-  check("and in applySampling too, so sampling follows a level change",
-    /pi\.registerProvider\(DFLASH_PROVIDER/.test(src));
-  check("and only when a URL is configured",
-    /if \(DFLASH_URL\) \{/.test(src),
-    "nobody who has not built it should see a model they cannot load");
-  check("its sampling moves with the level too",
-    /DFLASH_MODELS\.map\(\(m\) => toPiModel\(m, level\)\)/.test(src),
-    "otherwise switching model leaves the wrong temperature behind");
+    "switching thinking level re-registers the provider and would otherwise drop it");
+  check("no DFlash provider is left behind",
+    !/DFLASH_PROVIDER|DFLASH_URL/.test(roster),
+    "a provider pointing at a server nobody is running is a model you cannot load");
 }
 
 

@@ -32,6 +32,11 @@
  *
  * Harmless on a model without a drafter, which ignores it.
  *
+ * Kept after DFlash2 was removed, because the option is not DFlash-specific:
+ * Ollama zeroes draft_num_predict whenever a model has no separate DraftPath,
+ * which is the case for any drafter baked into the model, and then speculation
+ * is silently off. MTP is such a model.
+ *
  * 4 is a ceiling, not a fixed depth, and raising it was measured and rejected.
  *
  * Ollama's depthController picks argmax EV(N) each round over depths from 0
@@ -63,34 +68,6 @@ export function samplingFor(level: string) {
 export const PROVIDER = "ollama-local";
 export const BASE_URL = `${process.env.PI_OLLAMA_URL ?? "http://localhost:11434"}/v1`;
 
-/**
- * A second Ollama, built from the DFlash2 PR, on its own port.
- *
- * Registered separately rather than swapped in, because a provider carries one
- * base URL and the two servers are different builds: the released one on 11434
- * and a local build of pull/17865 on 11435. Keeping both means /model switches
- * between them in a live session, which is the only way to compare them on this
- * machine, where a stopwatch has proved useless (the first sustained request
- * runs at roughly twice the steady-state rate, so wall-clock A/Bs have returned
- * +12% and -21% for the same question).
- *
- * Absent unless PI_DFLASH_URL is set, so nobody who has not built it sees a
- * model they cannot load.
- */
-export const DFLASH_URL = process.env.PI_DFLASH_URL ? `${process.env.PI_DFLASH_URL}/v1` : undefined;
-export const DFLASH_PROVIDER = "ollama-dflash";
-export const DFLASH_MODELS: LocalModel[] = [
-	{
-		id: "qwen38-dflash2",
-		vision: true,
-		name: "Qwen3.8 27B (DFlash2)",
-		reasoning: true,
-		contextWindow: 65536,
-		maxTokens: 16384,
-		weightsGb: 17,
-		defaultThinking: "medium",
-	},
-];
 
 export interface LocalModel {
 	id: string;

@@ -23,7 +23,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
-import { BASE_URL, MODELS, PROVIDER, samplingFor, toPiModel, DFLASH_MODELS, DFLASH_PROVIDER, DFLASH_URL } from "../lib/ollama-models.ts";
+import { BASE_URL, MODELS, PROVIDER, samplingFor, toPiModel } from "../lib/ollama-models.ts";
 
 const APPLY_DEFAULTS = process.env.PI_THINKING_DEFAULTS !== "0";
 
@@ -87,17 +87,6 @@ export default function thinkingLevelExtension(pi: ExtensionAPI) {
 				api: "openai-completions",
 				models: MODELS.map((m) => toPiModel(m, level)),
 			} as never);
-			// A second Ollama on its own port, only when one is configured. Sampling
-			// moves with the level here too, or switching model would silently leave
-			// the wrong temperature behind.
-			if (DFLASH_URL) {
-				pi.registerProvider(DFLASH_PROVIDER, {
-					baseUrl: DFLASH_URL,
-					apiKey: "ollama",
-					api: "openai-completions",
-					models: DFLASH_MODELS.map((m) => toPiModel(m, level, { provider: DFLASH_PROVIDER, baseUrl: DFLASH_URL })),
-				} as never);
-			}
 			registeredFor = level;
 		} catch (e) {
 			ctx?.ui.notify(`Could not update sampling for ${level}: ${String(e)}`, "warning");
