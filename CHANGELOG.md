@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.23.0 (2026-08-23)
+
 **Changed: sessions now run to 45,000 tokens before compacting, was 36,000.**
 Both constants that decide when phi compacts turned out to be wrong, and one was
 wrong because it was measured while the machine was faulting.
