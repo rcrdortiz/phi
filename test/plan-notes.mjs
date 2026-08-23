@@ -74,5 +74,26 @@ const failed = results.filter((r) => !r).length;
   check("blank lines are dropped", JSON.stringify(asSteps("a\n\n  \nb")) === '["a","b"]');
 }
 
+
+// --- the briefing must show where the plan is going -----------------------
+// It used to inject the goal, the current step and the finished ones, but not
+// the pending ones. Observed live: a session spent a long stretch guessing
+// ("steps 2-5 presumably are: apply fixes, verify..."), read PLAN.md through
+// the shell to find out, and was told by a steer that the file was already in
+// context. It was not.
+{
+  const src = fs.readFileSync(path.join(root, "extensions/plan-notes.ts"), "utf8");
+  check("the briefing lists the steps still to come",
+    /Still to come, in order/.test(src) && /pendingList/.test(src),
+    "a model reasoning about what it cannot see costs more than the list does");
+  check("pending steps are built from the ones after the current",
+    /\.slice\(index \+ 1\)/.test(src));
+  check("and it still says to do only the current one",
+    /do only this one/.test(src),
+    "showing the plan must not become an invitation to run ahead");
+  check("they are marked as not-yet",
+    /do not start these yet/.test(src));
+}
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

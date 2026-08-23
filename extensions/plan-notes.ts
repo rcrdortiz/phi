@@ -292,6 +292,11 @@ function briefing(ctx: { cwd: string }): string {
 		.filter((s) => s.done)
 		.map((s) => `- ${s.text}`)
 		.join("\n");
+	const pendingList = steps
+		.slice(index + 1)
+		.filter((s) => !s.done)
+		.map((s, i) => `${index + 2 + i}. ${s.text}`)
+		.join("\n");
 	const archived = archivedCount(ctx);
 
 	return [
@@ -302,6 +307,20 @@ function briefing(ctx: { cwd: string }): string {
 		step.text,
 		"",
 		doneList ? `Recently done:\n${doneList}` : "",
+		// The steps still to come, named but not invited.
+		//
+		// They used to be withheld, on the reasoning that "do only this one" keeps
+		// the model on the current step. The cost of hiding them was worse than
+		// the risk: observed live, a session spent a long stretch guessing at them
+		// ("steps 2-5 presumably are: apply fixes, verify..."), then read PLAN.md
+		// through the shell to find out, and was told off by a steer claiming the
+		// file was already in context. It was not. Only the current step and the
+		// finished ones were.
+		//
+		// Titles only, and the instruction above still says to do one. A step list
+		// is a handful of tokens; a model reasoning about what it cannot see is
+		// not.
+		pendingList ? `Still to come, in order (do not start these yet):\n${pendingList}` : "",
 		archived ? `(${archived} earlier step(s) archived in ${DONE_FILE} — read it before revising the plan.)` : "",
 		"",
 		notes ? `## Findings so far (from ${NOTES_FILE})\n${notes}` : "",

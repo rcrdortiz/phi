@@ -64,6 +64,22 @@ check("the first page starts at the beginning", () =>
 check("the second page skips exactly one page", () =>
   php(`echo (new Quill\\Query\\Paginator(2, 10))->offset();`) === "10");
 
+// The fix has to reach the places that never mention pagination.
+//
+// FeedController and FeedService both build `new Paginator(1, N)` and never
+// think about pages: the docblock says "always the newest articles, never
+// paginated past the first page". With the offset defect that skips N rows, so
+// the feed comes back completely empty, and nothing in the visible suites or
+// the task points at the feed at all.
+//
+// Added after a run scored 14/14 and its own audit noted the consequence
+// unaided: "FeedController.feed ... Now correct (pre-fix skipped first 20)."
+// A fix judged only at the site it was made is judged too narrowly, and every
+// other run had been getting credit without this ever being checked.
+check("the feed is not emptied by the paging fix", () =>
+  php(`${seeded} echo count($c->articles()->matching(Quill\\Query\\Criteria::published(), new Quill\\Query\\Paginator(1, 20), Quill\\Query\\SortOrder::newest()));`) !== "0"
+    || "the feed fetches nothing: Paginator(1, N) is still skipping a page");
+
 check("page 1 of the listing is not empty", () =>
   php(`${seeded} $res = $c->router()->dispatch(Quill\\Http\\Request::get('/articles', ['page' => 1, 'per_page' => 2]));
        echo substr_count($res->body, 'class="card"');`) === "2");
