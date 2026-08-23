@@ -149,9 +149,12 @@ const failed = results.filter((r) => !r).length;
   check("both sampling modes carry it",
     (roster.match(/draft_num_predict: DRAFT_TOKENS/g) || []).length === 2,
     "switching thinking level must not drop it");
-  check("the second provider is registered, not swapped in",
-    /pi\.registerProvider\(DFLASH_PROVIDER/.test(src),
-    "a provider carries one base URL and the two servers are different builds");
+  const base = fs.readFileSync(path.join(root, "extensions/ollama-local.ts"), "utf8");
+  check("the second provider is registered at load, like the first",
+    /pi\.registerProvider\(DFLASH_PROVIDER/.test(base),
+    "applySampling only runs when the level CHANGES, so a session opening at the roster default never registered it and /model showed one model");
+  check("and in applySampling too, so sampling follows a level change",
+    /pi\.registerProvider\(DFLASH_PROVIDER/.test(src));
   check("and only when a URL is configured",
     /if \(DFLASH_URL\) \{/.test(src),
     "nobody who has not built it should see a model they cannot load");
