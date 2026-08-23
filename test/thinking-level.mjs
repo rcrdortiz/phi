@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 import mod from "../extensions/thinking-level.ts";
 import { MODELS, toPiModel } from "../lib/ollama-models.ts";
 
@@ -135,5 +138,27 @@ check("cycling reports the new level", /Thinking: high/.test(notes.join(" ")), n
 }
 
 const failed = results.filter((r) => !r).length;
+
+// --- the DFlash2 build, alongside the released one ------------------------
+{
+  const src = fs.readFileSync(path.join(root, "extensions/thinking-level.ts"), "utf8");
+  const roster = fs.readFileSync(path.join(root, "lib/ollama-models.ts"), "utf8");
+  check("draft_num_predict is in the sampling params",
+    /draft_num_predict: DRAFT_TOKENS/.test(roster),
+    "Ollama zeroes it when DraftPath is empty, which it is for a baked-in drafter, and says nothing");
+  check("both sampling modes carry it",
+    (roster.match(/draft_num_predict: DRAFT_TOKENS/g) || []).length === 2,
+    "switching thinking level must not drop it");
+  check("the second provider is registered, not swapped in",
+    /pi\.registerProvider\(DFLASH_PROVIDER/.test(src),
+    "a provider carries one base URL and the two servers are different builds");
+  check("and only when a URL is configured",
+    /if \(DFLASH_URL\) \{/.test(src),
+    "nobody who has not built it should see a model they cannot load");
+  check("its sampling moves with the level too",
+    /DFLASH_MODELS\.map\(\(m\) => toPiModel\(m, level\)\)/.test(src),
+    "otherwise switching model leaves the wrong temperature behind");
+}
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

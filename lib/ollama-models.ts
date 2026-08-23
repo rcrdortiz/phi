@@ -19,9 +19,24 @@
  * loops. Since the thinking level is now changed live with Shift+Tab, sampling
  * has to follow it rather than being baked into a separate model variant.
  */
+/**
+ * draft_num_predict is not optional, whatever the defaults say.
+ *
+ * Ollama defaults it to 4, then zeroes it in server/routes.go when the model
+ * has no separate DraftPath. A drafter baked into the model by `ollama create`
+ * leaves DraftPath empty, so the runner loads the draft head, the server turns
+ * speculation off, and nothing says so: the drafter appears in the logs, no
+ * speculative-decode stats are ever emitted, and decode runs at plain-model
+ * speed. Measured on the same prompt seconds apart, setting it explicitly took
+ * decode from 26.3 to 37.9 tok/s.
+ *
+ * Harmless on a model without a drafter, which ignores it.
+ */
+const DRAFT_TOKENS = Number(process.env.PI_DRAFT_NUM_PREDICT ?? 4);
+
 export const SAMPLING = {
-	instruct: { temperature: 0.7, top_p: 0.8, top_k: 20, presence_penalty: 1.5 },
-	thinking: { temperature: 1.0, top_p: 0.95, top_k: 20 },
+	instruct: { temperature: 0.7, top_p: 0.8, top_k: 20, presence_penalty: 1.5, draft_num_predict: DRAFT_TOKENS },
+	thinking: { temperature: 1.0, top_p: 0.95, top_k: 20, draft_num_predict: DRAFT_TOKENS },
 } as const;
 
 export function samplingFor(level: string) {
@@ -30,6 +45,35 @@ export function samplingFor(level: string) {
 
 export const PROVIDER = "ollama-local";
 export const BASE_URL = `${process.env.PI_OLLAMA_URL ?? "http://localhost:11434"}/v1`;
+
+/**
+ * A second Ollama, built from the DFlash2 PR, on its own port.
+ *
+ * Registered separately rather than swapped in, because a provider carries one
+ * base URL and the two servers are different builds: the released one on 11434
+ * and a local build of pull/17865 on 11435. Keeping both means /model switches
+ * between them in a live session, which is the only way to compare them on this
+ * machine, where a stopwatch has proved useless (the first sustained request
+ * runs at roughly twice the steady-state rate, so wall-clock A/Bs have returned
+ * +12% and -21% for the same question).
+ *
+ * Absent unless PI_DFLASH_URL is set, so nobody who has not built it sees a
+ * model they cannot load.
+ */
+export const DFLASH_URL = process.env.PI_DFLASH_URL ? `${process.env.PI_DFLASH_URL}/v1` : undefined;
+export const DFLASH_PROVIDER = "ollama-dflash";
+export const DFLASH_MODELS: LocalModel[] = [
+	{
+		id: "qwen38-dflash2",
+		vision: true,
+		name: "Qwen3.8 27B (DFlash2)",
+		reasoning: true,
+		contextWindow: 65536,
+		maxTokens: 16384,
+		weightsGb: 17,
+		defaultThinking: "medium",
+	},
+];
 
 export interface LocalModel {
 	id: string;
