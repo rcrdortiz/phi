@@ -106,6 +106,29 @@ const CEILING_FRACTION = Number(process.env.PI_CEILING_FRACTION ?? 0.7);
 const MAX_SAFE_DEPTH = Number(process.env.PI_MAX_SAFE_DEPTH ?? 36000);
 
 /**
+ * Whether compaction may interrupt a turn that is still running.
+ *
+ * Not in `--print`. Compaction aborts the turn it fires in, and a print run is
+ * one turn: runPrintMode awaits a single session.prompt(), and the moment that
+ * resolves, aborted or not, it reads the last message and returns. The resume
+ * that repairs an interrupted turn is a NEW turn issued from onDone, and the
+ * process is already leaving by then. Measured on quill: the run compacted at
+ * 32,647 tokens, the turn aborted, the error was rewritten to a clean stop, and
+ * it exited having edited nothing, with one user message in the whole session.
+ *
+ * Standing down means running deeper, which is survivable and measured: pi
+ * reached 61,373 tokens on the same task and scored better than every phi run.
+ * Losing the run is not survivable. Interactive sessions are unaffected, since
+ * there the resume lands and this has always worked.
+ *
+ * Env: PI_PRINT_COMPACT=1 restores it, for testing the resume path itself.
+ */
+export function midRunCompactionAllowed(): boolean {
+	if (process.env.PI_PRINT_COMPACT === "1") return true;
+	return !(process.argv.includes("--print") || process.argv.includes("-p"));
+}
+
+/**
  * How much of the trigger a single turn's growth may claim back.
  *
  * The trigger is only checked at turn_end, because that is the one boundary

@@ -27,7 +27,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { compactAtTokens, compactionBusy, compactionNearby, observeContext, recentlyCompacted, requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
+import { compactAtTokens, compactionBusy, compactionNearby, midRunCompactionAllowed, observeContext, recentlyCompacted, requestCompaction, reserveTokens, trackExternalCompactions } from "../lib/compaction.ts";
 import { DEBUG, flag } from "../lib/debug.ts";
 import { STATE_DIR, migrateStateDir, statePath } from "../lib/state-dir.ts";
 
@@ -49,6 +49,8 @@ const EXIT_HANDOFF = process.env.PI_EXIT_HANDOFF !== "0";
  * every turn.
  */
 const RECORD_MESSAGE_END = flag("PHI_DEBUG_MESSAGE_END", DEBUG);
+
+
 
 /** The first unfinished step in the plan, if there is one. */
 /**
@@ -355,6 +357,12 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 		// while the session is still small.
 		observeContext(u.tokens);
 		const trigger = compactAtTokens(u.contextWindow);
+		// See PRINT_MODE: compacting here aborts the one turn the run has, and
+		// the resume cannot be delivered before the process exits.
+		if (!midRunCompactionAllowed()) {
+			c.ui.setStatus?.(STATUS_KEY, `ctx ${short(u.tokens)} (print: watchdog off)`);
+			return undefined;
+		}
 		// The built-in footer counts against the model's window, which is nearly
 		// twice the depth we actually run to. Show the number that decides when
 		// the context is thrown away.
@@ -401,10 +409,18 @@ export default function autoHandoffExtension(pi: ExtensionAPI) {
 					return;
 				}
 				resumes++;
+				// followUp, not steer, and never bare. Bare throws "Agent is already
+				// processing" whenever the agent is still streaming, which is
+				// exactly when a resume is most needed: observed live on quill,
+				// where the step-boundary resume errored out mid-run. steer would
+				// cut into the turn in flight and redirect it; followUp queues the
+				// message so the current work finishes and the next step starts
+				// after it, which is what "continue" means here.
 				pi.sendUserMessage(
 					step
 						? `Context was compacted mid-step. Continue with: ${step}`
 						: `Context was compacted mid-task. Carry on with what you were doing; the summary above says where you had got to.`,
+					{ deliverAs: "followUp" } as never,
 				);
 			},
 		});

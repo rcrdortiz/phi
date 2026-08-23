@@ -19,7 +19,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { expectCompaction, requestCompaction } from "../lib/compaction.ts";
+import { expectCompaction, midRunCompactionAllowed, requestCompaction } from "../lib/compaction.ts";
 import { EXPIRING_CATEGORY, NOTES_MAX_CHARS, NOTE_MAX_CHARS, duplicateOf, enforceBudget, gcNotes, narrationReason, pruneExpiring, trimNote } from "../lib/notes.ts";
 import { Type } from "../lib/schema.ts";
 import * as fs from "node:fs";
@@ -330,8 +330,11 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			autoCount++;
 			// Always triggers a turn, so the next step starts without the user
 			// having to type "continue".
+			// See auto-handoff's resume: bare sendUserMessage throws while the agent
+			// is streaming, and a step boundary is reached mid-run by definition.
 			pi.sendUserMessage(
 				`Continue with step ${reset.index + 1} of ${reset.total}: ${reset.text}`,
+				{ deliverAs: "followUp" } as never,
 			);
 		};
 
@@ -339,6 +342,10 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		// ExtensionCommandContext, which only slash-command handlers receive.
 		// Compaction is the reachable equivalent, and the before_agent_start
 		// briefing re-establishes the plan either way.
+		// Same reason the size watchdog stands down in print mode: this fires
+		// mid-run, and an aborted print turn cannot be resumed before the process
+		// exits. See midRunCompactionAllowed.
+		if (!midRunCompactionAllowed()) return undefined;
 		const started = requestCompaction(ctx, `Step ${reset.index} finished`, {
 			// A step boundary is a semantic trigger, not a size one, and it fires
 			// mid-run where pi does not act at all. Standing down here is how a

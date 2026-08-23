@@ -9,7 +9,7 @@ process.env.PI_COMPACT_MIN_GAP_MS = "0";
 process.env.PI_KEEP_RECENT_TOKENS = "9800";
 const { requestCompaction, resetCompactionState, trackExternalCompactions, keepRecentTokens,
   recommendedKeepRecentTokens, compactAtTokens, observeContext, prefillCeiling,
-  observedTurnGrowth, overshootAllowance, resetTurnGrowth } =
+  observedTurnGrowth, overshootAllowance, resetTurnGrowth, midRunCompactionAllowed } =
   await import("../lib/compaction.ts");
 
 const results = [];
@@ -303,6 +303,38 @@ check("a compaction's drop is not counted as growth", observedTurnGrowth() === 0
   `growth=${observedTurnGrowth()}`);
 
 resetTurnGrowth();
+
+// --- mid-run compaction must not fire in print mode -------------------------
+// Compaction aborts the turn it fires in, and a print run is a single turn:
+// runPrintMode awaits one session.prompt() and returns as soon as it resolves,
+// aborted or not. The resume is a new turn and never lands. Measured on quill:
+// the run compacted at 32,647 tokens and exited having edited nothing.
+{
+  const argv = process.argv;
+  const env = process.env.PI_PRINT_COMPACT;
+  try {
+    process.argv = ["node", "pi", "--print", "do the thing", "--approve"];
+    delete process.env.PI_PRINT_COMPACT;
+    check("a --print run does not compact mid-turn", midRunCompactionAllowed() === false,
+      "this is what made three of four quill runs score the untouched baseline");
+
+    process.argv = ["node", "pi", "-p", "do the thing"];
+    check("the -p short form counts too", midRunCompactionAllowed() === false);
+
+    process.env.PI_PRINT_COMPACT = "1";
+    check("the escape hatch restores it", midRunCompactionAllowed() === true,
+      "needed to test the resume path itself");
+
+    delete process.env.PI_PRINT_COMPACT;
+    process.argv = ["node", "pi"];
+    check("an interactive session still compacts", midRunCompactionAllowed() === true,
+      "there the resume lands, and this has always worked");
+  } finally {
+    process.argv = argv;
+    if (env === undefined) delete process.env.PI_PRINT_COMPACT; else process.env.PI_PRINT_COMPACT = env;
+  }
+}
+
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

@@ -7,6 +7,7 @@ process.env.PI_KEEP_RECENT_TOKENS = "9800";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 import mod from "../extensions/auto-handoff.ts";
 import { resetCompactionState, compactAtTokens, keepRecentTokens } from "../lib/compaction.ts";
 import { STATE_DIR, statePath } from "../lib/state-dir.ts";
@@ -286,5 +287,26 @@ check("recording is off unless asked for",
 }
 
 const failed = results.filter((r) => !r).length;
+
+// --- a resume must be queued, not fired bare ------------------------------
+// Bare sendUserMessage throws "Agent is already processing. Specify
+// streamingBehavior ('steer' or 'followUp')" whenever the agent is streaming,
+// which is exactly when a resume happens. Observed live on quill: the
+// step-boundary resume errored out mid-run and the step never started.
+{
+  const src = fs.readFileSync(path.join(root, "extensions/auto-handoff.ts"), "utf8");
+  const plan = fs.readFileSync(path.join(root, "extensions/plan-notes.ts"), "utf8");
+  const queued = (text) => {
+    const calls = [...text.matchAll(/pi\.sendUserMessage\(([\s\S]*?)\n\t*\);/g)];
+    return calls.length > 0 && calls.every((c) => /deliverAs:\s*"followUp"/.test(c[1]));
+  };
+  check("the compaction resume is queued as followUp", queued(src),
+    "bare throws while streaming, which is when a resume is needed");
+  check("the step-boundary resume is queued as followUp", queued(plan),
+    "a step boundary is reached mid-run by definition");
+  check("neither resume steers", !/deliverAs:\s*"steer"/.test(src + plan),
+    "steer cuts into the turn in flight; followUp lets it finish");
+}
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);
