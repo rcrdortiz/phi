@@ -51,7 +51,21 @@ import { BASE_URL } from "../lib/ollama-models.ts";
 import { STATE_DIR } from "../lib/state-dir.ts";
 
 const ENABLED = process.env.PHI_LEAN_SUMMARY === "1";
-const MAX_TOKENS = Number(process.env.PHI_LEAN_MAX_TOKENS ?? 900);
+/**
+ * Hard ceiling, deliberately well above the target in the prompt.
+ *
+ * max_tokens truncates mid-sentence, and the tail is the most valuable part:
+ * the Context section holds the unverified edits and what to do next. A
+ * truncated note also passes the usability guard, because it is long and does
+ * not open like a continuation, so it would fail silently.
+ *
+ * The prompt asks for a length instead, and the ceiling only exists to stop a
+ * runaway. It was 900, and a summary reached 859: close enough to bind on the
+ * next one. Soft targets bind weakly here, which is the reason for having a
+ * ceiling at all: the prompt said "under 300 words" and that same summary ran
+ * to roughly 640.
+ */
+const MAX_TOKENS = Number(process.env.PHI_LEAN_MAX_TOKENS ?? 1600);
 /** Below this, it is not a summary of a compaction's worth of work. */
 const MIN_SUMMARY_CHARS = Number(process.env.PHI_LEAN_MIN_CHARS ?? 400);
 
@@ -72,8 +86,9 @@ export const LEAN_PROMPT = [
 	"Keep exact file paths, function names, error messages and numbers: those are what would be expensive",
 	"to rediscover. Leave out the narrative of how the work got here.",
 	"",
-	"No headings. Under 300 words, and at least a short paragraph: if you find yourself with almost nothing",
-	"to say, describe the current state of the code and the last thing that was run instead of stopping short.",
+	"Aim for about 400 words. Go over only if leaving something out would cost the next agent real work, and",
+	"never pad to reach it: if you have less to say, say less. At minimum describe the state of the code and",
+	"the last thing that was run.",
 ].join("\n");
 
 /** phi's durable state only exists once a plan or notes file has content. */
@@ -208,9 +223,14 @@ export default function leanSummaryExtension(pi: ExtensionAPI) {
 			});
 			if (!r.ok) return undefined;
 			const j = (await r.json()) as {
-				choices?: { message?: { content?: string } }[];
+				choices?: { message?: { content?: string }; finish_reason?: string }[];
 				usage?: { prompt_tokens?: number; completion_tokens?: number };
 			};
+			// Hitting the ceiling means the note was cut mid-sentence, and the tail
+			// is where the unverified edits and next steps live. Let pi write a
+			// whole summary rather than keeping a truncated one, which would pass
+			// every other check here.
+			if (j.choices?.[0]?.finish_reason === "length") return undefined;
 			const summary = j.choices?.[0]?.message?.content;
 			if (!usable(summary)) return undefined;
 

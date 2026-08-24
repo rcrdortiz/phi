@@ -99,7 +99,21 @@ check("nothing to summarise -> pi compacts",
 check("names the files that make it safe", /PLAN\.md/.test(LEAN_PROMPT) && /NOTES\.md/.test(LEAN_PROMPT));
 check("asks for what those files do not hold",
   /just attempted/.test(LEAN_PROMPT) && /in flight/.test(LEAN_PROMPT));
-check("asks for no headings, unlike pi's nine sections", /No headings/.test(LEAN_PROMPT));
+// It used to say "No headings", which contradicted phi's own customInstructions:
+// those ask for the three handover sections, and that is where the useful
+// Constraints / Dead ends / Context structure in real summaries comes from. The
+// prompt should not fight the instructions appended to it. What it must still do
+// is keep pi's nine-section checkpoint format out.
+for (const piSection of ["## Goal", "## Key Decisions", "## Critical Context", "## Next Steps"]) {
+  check(`does not ask for pi's "${piSection}"`, !LEAN_PROMPT.includes(piSection));
+}
+// A soft target rather than a hard one: the ceiling truncates mid-sentence and
+// the tail carries the unverified edits, so the prompt asks and max_tokens only
+// catches a runaway. Soft targets bind weakly here, which is why both exist:
+// the prompt said "under 300 words" while a summary ran to roughly 640.
+check("states a length target the model can act on", /about 400 words/i.test(LEAN_PROMPT));
+check("permits going over when it matters", /Go over only if/i.test(LEAN_PROMPT));
+check("forbids padding to reach it", /never pad/i.test(LEAN_PROMPT));
 // The bug was position, not wording: the instruction sat in a system message
 // before the transcript, so the user turn ended on an assistant line and the
 // model continued it. pi puts its instruction after the conversation on purpose.
