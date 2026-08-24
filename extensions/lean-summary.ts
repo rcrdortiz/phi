@@ -34,6 +34,12 @@
  * it", and that is what happens on a bad response, a timeout, an abort, or no
  * plan and notes to lean on.
  *
+ * STATUS: experimental. Three live failures so far, each one downstream of the
+ * previous fix: the hook did not fire, then the model continued the conversation
+ * instead of summarising, then an incomplete Usage record crashed the session
+ * from the footer's render. All three passed their unit tests. Treat a green
+ * suite here as necessary and not sufficient, and prefer a scratch repo.
+ *
  * Env: PHI_LEAN_SUMMARY=1        use phi's summariser
  *      PHI_LEAN_MAX_TOKENS       cap on the summary (default 900)
  */
@@ -126,6 +132,26 @@ export function usable(summary: unknown, minChars = MIN_SUMMARY_CHARS): summary 
 	return true;
 }
 
+/**
+ * A complete pi Usage record.
+ *
+ * Every field, including the nested cost object. Returning just {input, output}
+ * crashed a live session: pi's addUsageToTotals reads usage.cost.total, and it
+ * does so from the footer's render, so the throw arrived AFTER the compaction
+ * had already succeeded and took the process down rather than falling back.
+ * Cost is zero because a local model has none; the roster prices it at zero too.
+ */
+export function leanUsage(input: number, output: number) {
+	return {
+		input,
+		output,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: input + output,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
+
 export default function leanSummaryExtension(pi: ExtensionAPI) {
 	if (!ENABLED) return;
 	let announced = false;
@@ -201,10 +227,7 @@ export default function leanSummaryExtension(pi: ExtensionAPI) {
 					summary,
 					firstKeptEntryId: prep.firstKeptEntryId,
 					tokensBefore: prep.tokensBefore ?? 0,
-					usage: {
-						input: j.usage?.prompt_tokens ?? 0,
-						output: j.usage?.completion_tokens ?? 0,
-					},
+					usage: leanUsage(j.usage?.prompt_tokens ?? 0, j.usage?.completion_tokens ?? 0),
 					details: { leanSummary: true },
 				},
 			} as never;

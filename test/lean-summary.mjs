@@ -17,7 +17,7 @@ const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
 
 process.env.PHI_LEAN_SUMMARY = "1";
-const { default: mod, LEAN_PROMPT, hasDurableState, transcript, usable } =
+const { default: mod, LEAN_PROMPT, hasDurableState, transcript, usable, leanUsage } =
   await import("../extensions/lean-summary.ts");
 
 // --- it must register on the hook that reaches compaction ------------------
@@ -107,6 +107,25 @@ check("tells the model not to continue the conversation",
   /Do not continue the conversation/i.test(LEAN_PROMPT),
   "the prompt now trails the transcript, so it must say what it is looking at");
 check("refers to the transcript as above it", /transcript above/i.test(LEAN_PROMPT));
+
+
+// --- the usage record pi renders -----------------------------------------
+// Returning {input, output} crashed a live session. pi's addUsageToTotals reads
+// usage.cost.total, from the FOOTER's render, so the throw landed after the
+// compaction had already succeeded and killed the process instead of falling
+// back. Every field pi's Usage declares has to be present.
+{
+  const u = leanUsage(1200, 648);
+  for (const f of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"]) {
+    check(`usage carries ${f}`, typeof u[f] === "number");
+  }
+  check("usage carries a cost object", u.cost && typeof u.cost === "object");
+  for (const f of ["input", "output", "cacheRead", "cacheWrite", "total"]) {
+    check(`cost carries ${f}`, typeof u.cost[f] === "number", "cost.total is the one that crashed it");
+  }
+  check("totalTokens is the sum", u.totalTokens === 1848);
+  check("cost is zero for a local model", u.cost.total === 0);
+}
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
