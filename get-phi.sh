@@ -267,7 +267,10 @@ changed = False
 # window that is most of the 28,000 trigger: compacting reclaims almost nothing.
 # Measured live, a compaction at 31,126 tokens left about 29,500, so the session
 # stayed above the trigger, asked to compact on every turn, and handed the next
-# cache miss 26,000 tokens to re-prefill. 9800 is 35% of the trigger.
+# cache miss 26,000 tokens to re-prefill. 6000 is a few turns of real work.
+# Lowered from 9800, which was 61% of the 16,138-token floor a compaction lands
+# on here: most of what compacting "reclaimed" was recent conversation coming
+# straight back in, paying twice for what the summary already holds.
 # httpIdleTimeoutMs is 300000 by default, and 5 min is the largest value pi's
 # own settings picker offers, but the setting itself takes any millisecond
 # count. It matters because a prefix-cache miss re-prefills the whole context,
@@ -290,7 +293,7 @@ for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX
              ("theme", "phi-purple"), ("tuiMode", "fullscreen"), ("quietStartup", True),
              ("fullscreenExitOutput", "resume-hint"),
              ("httpIdleTimeoutMs", 500000),
-             ("compaction", {"keepRecentTokens": 9800, "reserveTokens": 16384}),
+             ("compaction", {"keepRecentTokens": 6000, "reserveTokens": 16384}),
              ("defaultThinkingLevel", "medium")):
     if not s.get(k):
         s[k] = v; changed = True

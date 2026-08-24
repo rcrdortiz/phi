@@ -45,13 +45,25 @@ import { STATE_DIR } from "./state-dir.ts";
  * out most of the gain. It answers a different question anyway, one about
  * continuity rather than depth. How much of the immediate past does the model
  * need to carry on coherently, given the summary already carries the rest?
- * 9,800 tokens is a few turns of real work and does not change because the
+ * 6,000 tokens is a few turns of real work and does not change because the
  * session is allowed to run deeper before compacting.
+ *
+ * Lowered from 9,800. That was 61% of the 16,138-token floor a compaction
+ * actually lands on here, so most of what a compaction "reclaimed" was recent
+ * conversation being carried straight back in. The summary already holds the
+ * older context; keeping nearly ten thousand tokens of raw turns on top of it
+ * pays twice for the same information.
+ *
+ * 6,000 is a step, not a floor that has been proven safe. The risk is a run
+ * that needs more immediate history than the summary preserves, which shows up
+ * as the model losing the thread right after a compaction rather than as an
+ * error. If that happens, raise it rather than assuming the summary is at
+ * fault.
  *
  * It must also match settings.json, since pi is what enforces it. See
  * keepRecentTokens, which reads back what pi will really do.
  */
-const KEEP_RECENT_TOKENS = Number(process.env.PI_KEEP_RECENT_RECOMMENDED ?? 9800);
+const KEEP_RECENT_TOKENS = Number(process.env.PI_KEEP_RECENT_RECOMMENDED ?? 6000);
 
 /**
  * Our watchdog fires BELOW pi's own trigger, and that gap is load-bearing.

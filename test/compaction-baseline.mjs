@@ -226,8 +226,8 @@ check("the ceiling still binds before the raised safe depth",
   check("with no setting, keepRecentTokens reports pi's default and not ours",
     keepRecentTokens(65536) === 20000,
     "reporting our own preference here is what hid the problem");
-  check("phi's recommendation is a fraction of the trigger, not of the window",
-    recommendedKeepRecentTokens(65536) === 9800);
+  check("phi's recommendation is a fixed count, not a fraction of the window",
+    recommendedKeepRecentTokens(65536) === 6000);
   check("pi's default would leave nothing for a compaction to reclaim",
     keepRecentTokens(65536) > compactAtTokens(65536) * 0.5,
     "20000 against a 28000 trigger");
@@ -287,8 +287,14 @@ check("the trigger never exceeds what a cache miss can recover from",
 // keepRecent answers a question about continuity, not about depth. Scaling it
 // with the trigger would have cancelled most of the gain from raising one.
 check("raising the trigger does not raise what is kept",
-  recommendedKeepRecentTokens(65536) === 9800 && recommendedKeepRecentTokens(32768) === 9800,
+  recommendedKeepRecentTokens(65536) === 6000 && recommendedKeepRecentTokens(32768) === 6000,
   "it used to be 35% of the trigger, which quietly made it scale");
+// Lowered from 9,800, which was 61% of the 16,138-token floor a compaction
+// lands on here: most of what compacting reclaimed was recent conversation
+// coming straight back in. It must stay well under that floor to be worth doing.
+check("what is kept is a minority of the post-compaction floor",
+  recommendedKeepRecentTokens(65536) < 16138 * 0.5,
+  "keeping more than half the floor pays twice for what the summary holds");
 
 // --- the trigger learns what a turn costs ----------------------------------
 // The check only runs at turn_end, so depth keeps climbing until the turn ends.

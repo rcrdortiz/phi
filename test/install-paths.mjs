@@ -72,7 +72,7 @@ check("exiting fullscreen leaves the scrollback alone",
 // per-call override. Left unset, pi keeps 20000 on a 64K window and compaction
 // reclaims almost nothing.
 check("the installer seeds pi's compaction numbers",
-  /"compaction", \{"keepRecentTokens": 9800/.test(script),
+  /"compaction", \{"keepRecentTokens": 6000/.test(script),
   "pi's 20000 default is sized for a 128K window");
 
 // `pi -v` prints pi's version, which under this name is the wrong answer.
