@@ -46,9 +46,12 @@ import { STATE_DIR } from "../lib/state-dir.ts";
 
 const ENABLED = process.env.PHI_LEAN_SUMMARY === "1";
 const MAX_TOKENS = Number(process.env.PHI_LEAN_MAX_TOKENS ?? 900);
+/** Below this, it is not a summary of a compaction's worth of work. */
+const MIN_SUMMARY_CHARS = Number(process.env.PHI_LEAN_MIN_CHARS ?? 400);
 
 export const LEAN_PROMPT = [
-	"You are writing a handover note for an agent that will continue this work with the conversation gone.",
+	"The transcript above is a conversation that is about to be discarded. Write a handover note for an",
+	"agent that will continue this work without it. Do not continue the conversation, and do not reply to it.",
 	"",
 	`Do NOT restate any of the following. It is on disk and re-injected into every turn, so repeating it`,
 	"costs time and changes nothing:",
@@ -63,8 +66,8 @@ export const LEAN_PROMPT = [
 	"Keep exact file paths, function names, error messages and numbers: those are what would be expensive",
 	"to rediscover. Leave out the narrative of how the work got here.",
 	"",
-	"No headings. Under 300 words. If nothing outside the plan and the notes is worth carrying, say that in",
-	"one line rather than padding.",
+	"No headings. Under 300 words, and at least a short paragraph: if you find yourself with almost nothing",
+	"to say, describe the current state of the code and the last thing that was run instead of stopping short.",
 ].join("\n");
 
 /** phi's durable state only exists once a plan or notes file has content. */
@@ -100,9 +103,27 @@ export function transcript(messages: unknown[]): string {
 	return out.join("\n\n");
 }
 
-/** True when the response looks like a usable summary rather than an empty or error body. */
-export function usable(summary: unknown): summary is string {
-	return typeof summary === "string" && summary.trim().length >= 40;
+/**
+ * Is this a summary, or did the model just carry on talking?
+ *
+ * The bar started at 40 characters, which only rejects an empty body. A model
+ * that continues the transcript returns a fluent sentence or two, sails past
+ * that, and replaces the session's memory with a non sequitur. That happened on
+ * the first live run: 110 characters of "Let me verify the split depth math..."
+ * stood in for 30,000 tokens.
+ *
+ * So: long enough to be a summary of real work, and not written in the voice of
+ * someone still doing it. First person future ("let me", "I will", "next I")
+ * is what continuation looks like; a handover note describes what happened.
+ */
+const CONTINUATION = /^\s*(let me\b|i'?ll\b|i will\b|i'?m going to\b|next,? i\b|now i\b|okay,? so\b|alright\b)/i;
+
+export function usable(summary: unknown, minChars = MIN_SUMMARY_CHARS): summary is string {
+	if (typeof summary !== "string") return false;
+	const t = summary.trim();
+	if (t.length < minChars) return false;
+	if (CONTINUATION.test(t)) return false;
+	return true;
 }
 
 export default function leanSummaryExtension(pi: ExtensionAPI) {
@@ -141,10 +162,14 @@ export default function leanSummaryExtension(pi: ExtensionAPI) {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					model,
-					messages: [
-						{ role: "system", content: prompt },
-						{ role: "user", content: body },
-					],
+					// The instruction goes AFTER the transcript, in the same user turn.
+					// pi does this deliberately: "Serialize conversation to text so model
+					// doesn't try to continue it". The first version put it in a system
+					// message before the transcript, the user turn therefore ended on an
+					// assistant line, and the model continued the conversation instead of
+					// summarising it. It returned one sentence, which passed a 40 character
+					// usability check and replaced 30,000 tokens of a live session.
+					messages: [{ role: "user", content: `<transcript>\n${body}\n</transcript>\n\n${prompt}` }],
 					// Off, for the same reason phi turns it off for pi's summariser:
 					// summarising is reading and writing down, and deliberating first
 					// is charged at the decode rate, which is the whole cost.

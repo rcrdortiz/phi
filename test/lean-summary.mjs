@@ -47,10 +47,30 @@ check("drops thinking blocks",
 check("skips empty messages", transcript([{ role: "user", content: "  " }, { role: "user", content: "x" }]) === "[user] x");
 
 // --- what counts as a usable summary --------------------------------------
-check("a long enough string is usable", usable("x".repeat(50)));
+// This guard is the last thing between a bad model response and the session's
+// memory being replaced. On the first live run it let through 110 characters of
+// "Let me verify the split depth math..." in place of 30,000 tokens, because the
+// bar was 40 characters and only rejected an empty body.
+const REAL = "The bomb split logic in pang.js:254 uses pminy/pmaxy and is already Y-aware, so C1 needed only the "
+  + "up/down keys wired into newGame() and the clamped vertical motion in play(). Tests are at 105/105 after four "
+  + "vertical-movement checks were added: home line, down, up, and above. index.html maps ArrowUp/KeyW to up and "
+  + "ArrowDown/KeyS to down. renderBomb() still needs its sprite path verified against the atlas, which is the next "
+  + "unstarted piece. Nothing is mid-edit and no command was left running.";
+check("a real handover note is usable", usable(REAL));
 check("an empty string is not", !usable(""));
-check("a stub is not", !usable("ok"), "a two character summary would silently erase the session");
 check("a non-string is not", !usable({ summary: "no" }));
+check("too short is not", !usable("Done."), "a stub would silently erase the session");
+check("the continuation that broke it is rejected",
+  !usable("Let me verify the split depth math so I can pin the potential count formula precisely before writing a plan."),
+  "the model carried on talking instead of summarising, and it read as fluent prose");
+check("a LONG continuation is rejected too", !usable("Let me " + "x".repeat(600)),
+  "length alone cannot tell a summary from someone still working");
+for (const opener of ["I'll start by", "Now I need to", "Alright, so", "Okay so next", "I will check"]) {
+  check(`rejects an opener of "${opener}"`, !usable(opener + " " + "y".repeat(500)));
+}
+check("a note that merely mentions the word let is fine",
+  usable("The tests let the bomb fall through when r=30. " + REAL),
+  "the check anchors on the opening, not on the word appearing anywhere");
 
 // --- the handler falls back rather than guessing ---------------------------
 const h = handlers["session_before_compact"];
@@ -80,6 +100,13 @@ check("names the files that make it safe", /PLAN\.md/.test(LEAN_PROMPT) && /NOTE
 check("asks for what those files do not hold",
   /just attempted/.test(LEAN_PROMPT) && /in flight/.test(LEAN_PROMPT));
 check("asks for no headings, unlike pi's nine sections", /No headings/.test(LEAN_PROMPT));
+// The bug was position, not wording: the instruction sat in a system message
+// before the transcript, so the user turn ended on an assistant line and the
+// model continued it. pi puts its instruction after the conversation on purpose.
+check("tells the model not to continue the conversation",
+  /Do not continue the conversation/i.test(LEAN_PROMPT),
+  "the prompt now trails the transcript, so it must say what it is looking at");
+check("refers to the transcript as above it", /transcript above/i.test(LEAN_PROMPT));
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
