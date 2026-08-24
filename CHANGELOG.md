@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.27.0 (2026-08-24)
+
 **Added: phi can write its own compaction summary, off by default.** pi asks the
 summariser for nine sections: Goal, Constraints & Preferences, Progress, Key
 Decisions, Next Steps, Critical Context. For stock pi that is right, because
