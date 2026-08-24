@@ -16,6 +16,75 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: finishing a plan step no longer compacts.** It used to, every time,
+with `force: true` so the size check could not stand it down. Measured across 38
+real compactions, that produced a second population firing at 17,000 to 22,000
+tokens, about half of all compactions, against a post-compaction floor near
+12,000. Each cost a summary of roughly 1,725 tokens plus a full re-prefill,
+about 145 seconds, to reclaim five to ten thousand tokens of headroom at a depth
+where decode is still near its best and memory is nowhere near its limit. The
+depth watchdog still compacts when depth is the real problem, and the
+per-turn briefing re-establishes the plan either way. What is given up: the
+step-boundary compaction carried tailored instructions to keep what the next
+step needs and drop the narrative of the last one, so narrative now survives
+until the depth trigger fires with generic ones. If that is wrong the symptom is
+drift or repeated work late in a long plan. `PI_PLAN_STEP_COMPACT=1` restores it.
+
+**Changed: the last session to exit hands the model back.** A two hour
+keep_alive is right while you are working and wrong the moment you stop, and
+this model is 27.6 GB on a machine you also use for everything else. Measured
+during a benchmark run, peak memory reached 37.95 GiB and the machine went 14 GB
+into swap, at which point decode collapsed from 36 tokens a second to 9 at the
+same context depth. Only the last session releases it: if phi cannot tell
+whether another session is running it holds the memory, because evicting a model
+another session is mid-turn on costs that session a full reload.
+`PHI_RELEASE_ON_EXIT=0` keeps it resident.
+
+**Changed: compaction keeps 6,000 recent tokens, was 9,800.** 9,800 was 61% of
+the floor a compaction actually lands on here, so most of what compacting
+reclaimed was recent conversation being carried straight back in, paying twice
+for what the summary already holds. This one is a step rather than a floor that
+has been proven safe: the risk is a run needing more immediate history than the
+summary preserves, which shows up as the model losing the thread right after a
+compaction rather than as an error. Raise it rather than blaming the summariser.
+
+**Changed: updates install themselves, and report versions.** The confirm prompt
+existed on the grounds that replacing the binary someone is running is not a
+decision to make for them. That does not hold: both installs write to disk and
+neither touches the running process, so the session keeps the versions it
+started with either way. The prompt asked permission for something that could
+not affect the outcome. What is still true is that nothing is live until a
+restart, which is what the box now says. "3 commits behind" is also gone in
+favour of "phi 0.25.0 to 0.26.0", falling back to the commit count between
+releases where both sides carry the same version and a range would say nothing.
+`PHI_AUTO_UPDATE=0` restores the ask.
+
+**Added: a stance per thinking level, and xhigh.** `reasoning_effort` turns out
+not to be a budget. It selects one English sentence prepended to the system
+message, and nothing in the path caps reasoning by token count, so length can be
+asked for but never enforced. Ollama also folds its eight values onto the
+template's three: minimal and low are the same setting, medium sends no sentence
+at all, and high, xhigh, ultra and max are identical. Each level now appends its
+own stance, which is what makes minimal differ from low and high from xhigh. The
+low end is written as process instructions rather than as a persona, because a
+persona shapes the code that gets written and not just the reasoning. Measured
+on a 238 cell graded grid: no detectable accuracy difference between any effort
+or stance at n around 15, while cost varies about 3x in tokens. That is "no
+difference detectable" and not "no difference", since 216 of 238 cells scored
+perfect and the prompts were near ceiling. `PI_REASONING_STANCE=0` sends none.
+
+**Fixed: the abort at a compaction says what it is.** At a step boundary the
+screen read plan_next, then a red "Error: This operation was aborted", then the
+compaction spinner, with nothing connecting the error to the compaction. The
+announcement now goes first and says what the cancellation buys.
+
+**Note on validation.** Four of the changes above alter how a session runs and
+none has been exercised by a full benchmark run. They are argued from
+measurements of the machine and of past sessions, not from a session that lived
+under them. Take the update, but if something feels wrong late in a long plan,
+the two to reach for first are `PI_PLAN_STEP_COMPACT=1` and a higher
+`keepRecentTokens`.
+
 ## 0.25.0 (2026-08-23)
 
 **Changed: a plan describes outcomes, and can be expanded rather than
