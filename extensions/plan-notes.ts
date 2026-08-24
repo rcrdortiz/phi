@@ -500,7 +500,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			`Call this once at the start of any task that needs more than one edit.`,
 		promptSnippet: `Write ${PLAN_FILE}: break the task into small ordered steps`,
 		promptGuidelines: [
-			`Use plan_write before starting multi-step work, so progress survives a context reset.`,
+			`Use plan_write before starting multi-step work, so progress survives a compaction.`,
 			`After writing a plan, tell the user what you found and what the plan is, then let them respond before starting step 1. Investigation that only exists in your context is investigation the user cannot correct.`,
 			`Keep each step small enough to finish and verify on its own.`,
 			// Phase-shaped plans read well and do not survive contact with the work.
@@ -737,15 +737,21 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "plan_next",
 		renderResult: collapsedRenderer(),
-		label: "Finish step, reset context",
+		label: "Finish step",
 		description:
-			`Mark the current step done and START A FRESH SESSION for the next one. ` +
-			`Everything not written to ${PLAN_FILE} or ${NOTES_FILE} is discarded, so record findings with note_add FIRST. ` +
-			`This is what keeps context small — call it after each completed step.`,
-		promptSnippet: `Complete the current step and reset context for the next one`,
+			`Mark the current step done and move to the next one. ` +
+			`Only ${PLAN_FILE} and ${NOTES_FILE} survive a compaction, so record anything worth keeping with note_add first. ` +
+			`Call it as soon as the current step is verified.`,
+		promptSnippet: `Mark the current step done and move to the next`,
 		promptGuidelines: [
 			`Call plan_next only after the current step is actually verified (tests run, output checked).`,
-			`Call note_add before plan_next for anything worth carrying forward — the conversation is discarded.`,
+			`Call note_add before plan_next for anything worth carrying forward. Only the plan and the notes survive a compaction.`,
+			// The model used to reason itself in circles here, because the old
+			// description promised a session reset that never happened: it would
+			// weigh whether to also start the next step in the same turn, and
+			// whether to pretend its context had been purged. It has not been, and
+			// it does not need to decide. End the turn.
+			`After plan_next returns, end your turn. The next step is started for you, so do not begin it in the same response.`,
 		],
 		parameters: Type.Object({
 			summary: Type.Optional(

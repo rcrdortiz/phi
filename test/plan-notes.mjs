@@ -70,6 +70,28 @@ const plan = fs.readFileSync(path.join(DIR, STATE_DIR, "PLAN.md"), "utf8");
 check("plan still records the completed step", /- \[x\] one/.test(plan), plan.trim().split("\n").slice(-2).join(" / "));
 
 fs.rmSync(DIR, { recursive: true, force: true });
+
+// --- what plan_next tells the model it does -------------------------------
+// It used to say "START A FRESH SESSION", "everything not written is
+// discarded", and "this is what keeps context small". None of that was ever
+// literally true (a real newSession is not reachable from a tool), and since
+// step boundaries stopped compacting, none of it is even approximately true.
+// A session was observed reasoning in circles about whether to pretend its
+// context had been purged and whether to start the next step in the same turn.
+{
+  const d = tools.plan_next.description + " " + (tools.plan_next.promptGuidelines ?? []).join(" ")
+    + " " + (tools.plan_next.promptSnippet ?? "") + " " + (tools.plan_next.label ?? "");
+  check("plan_next does not promise a fresh session", !/fresh session|new session/i.test(d), d.slice(0, 90));
+  check("plan_next does not claim the conversation is discarded",
+    !/is discarded|are discarded/i.test(d), d.slice(0, 90));
+  check("plan_next does not claim it resets context", !/reset context/i.test(d));
+  // What IS true, and the reason note_add still has to come first.
+  check("it still says only the plan and notes survive a compaction",
+    /survive a compaction/i.test(d), d.slice(0, 120));
+  // The circular reasoning was about what to do next, so say it.
+  check("it says to end the turn afterwards", /end your turn/i.test(d));
+}
+
 const failed = results.filter((r) => !r).length;
 
 // --- plan_write must not stall, and must not be fussy --------------------
