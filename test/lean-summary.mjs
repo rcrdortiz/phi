@@ -1,72 +1,85 @@
-// The summary is the session's memory, so the two things that matter are that
-// this fires on exactly pi's summarisation call and nothing else, and that it
-// stands down when phi has no durable state to lean on.
+// The summary is the session's memory, so what matters is that this hooks the
+// path that actually fires, and that every failure falls back to pi rather than
+// substituting something worse.
+//
+// The first version of this extension hooked before_provider_request, which
+// never fires for a compaction: sdk.js forwards transformHeaders into streamFn
+// but not onPayload. It passed seventeen tests that all called its pure
+// rewriting function directly, and failed on the first real run. So the first
+// assertion here is about which event is registered, and the rest drive the
+// handler rather than its helpers.
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { LEAN_PROMPT, isSummarisationPrompt, hasDurableState, rewritePayload } from "../extensions/lean-summary.ts";
 import { STATE_DIR } from "../lib/state-dir.ts";
 
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
 
-// --- detection ------------------------------------------------------------
-const PI_INITIAL = "The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal";
-const PI_UPDATE = "Update the existing structured summary with new information. RULES:\n- PRESERVE all existing information";
-check("recognises pi's initial summarisation prompt", isSummarisationPrompt(PI_INITIAL));
-check("recognises pi's update prompt", isSummarisationPrompt(PI_UPDATE),
-  "the update prompt is the one that says PRESERVE everything, so it ratchets");
-check("does not fire on an ordinary turn",
-  !isSummarisationPrompt("Please summarize what this function does and add a test."),
-  "the word summarize alone must not trigger a payload rewrite");
+process.env.PHI_LEAN_SUMMARY = "1";
+const { default: mod, LEAN_PROMPT, hasDurableState, transcript, usable } =
+  await import("../extensions/lean-summary.ts");
 
-// --- rewriting ------------------------------------------------------------
-{
-  const payload = { model: "m", messages: [
-    { role: "user", content: "unrelated" },
-    { role: "user", content: PI_INITIAL },
-  ]};
-  const out = rewritePayload(payload);
-  check("replaces the summarisation message", out?.messages[1].content === LEAN_PROMPT);
-  check("leaves other messages alone", out?.messages[0].content === "unrelated");
-  check("the lean prompt names the files that make it safe",
-    /PLAN\.md/.test(LEAN_PROMPT) && /NOTES\.md/.test(LEAN_PROMPT));
-  check("and asks for what those files do not hold",
-    /just attempted/.test(LEAN_PROMPT) && /in flight/.test(LEAN_PROMPT));
-}
-{
-  // phi's own customInstructions are appended by pi as "Additional focus:".
-  // They aim the summary at the next step, so they must survive the swap.
-  const payload = { model: "m", messages: [
-    { role: "user", content: PI_INITIAL + "\n\nAdditional focus: The next step is: two." },
-  ]};
-  const out = rewritePayload(payload);
-  check("keeps phi's own Additional focus", /Additional focus: The next step is: two\./.test(out.messages[0].content));
-  check("but drops pi's template", !/## Goal/.test(out.messages[0].content));
-}
-{
-  const payload = { model: "m", messages: [
-    { role: "user", content: [{ type: "text", text: PI_INITIAL }] },
-  ]};
-  check("handles block-shaped content", rewritePayload(payload)?.messages[0].content[0].text === LEAN_PROMPT);
-}
-check("returns undefined when nothing matched, so the payload passes through",
-  rewritePayload({ model: "m", messages: [{ role: "user", content: "hello" }] }) === undefined);
-check("survives a payload with no messages", rewritePayload({ model: "m" }) === undefined);
-check("survives a null payload", rewritePayload(null) === undefined);
+// --- it must register on the hook that reaches compaction ------------------
+const handlers = {};
+mod({ on: (e, h) => (handlers[e] = h), registerTool: () => {}, registerCommand: () => {} });
+check("registers session_before_compact", typeof handlers["session_before_compact"] === "function",
+  "before_provider_request never fires for a compaction; that was the original bug");
+check("does not rely on before_provider_request", handlers["before_provider_request"] === undefined);
 
-// --- the guard ------------------------------------------------------------
+// --- the guard -------------------------------------------------------------
+const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "lean-"));
+check("stands down with no durable state", !hasDurableState(DIR),
+  "with no plan or notes, pi's full template is the correct thing to send");
+fs.mkdirSync(path.join(DIR, STATE_DIR), { recursive: true });
+fs.writeFileSync(path.join(DIR, STATE_DIR, "NOTES.md"), "");
+check("an empty notes file is not durable state", !hasDurableState(DIR));
+fs.writeFileSync(path.join(DIR, STATE_DIR, "NOTES.md"), "- something worth keeping\n");
+check("fires once notes have content", hasDurableState(DIR));
+
+// --- transcript flattening -------------------------------------------------
+check("flattens string content", transcript([{ role: "user", content: "hello" }]) === "[user] hello");
+check("flattens block content",
+  transcript([{ role: "assistant", content: [{ type: "text", text: "a" }, { type: "text", text: "b" }] }]) === "[assistant] a\nb");
+check("drops thinking blocks",
+  !/secret/.test(transcript([{ role: "assistant", content: [{ type: "thinking", text: "secret" }, { type: "text", text: "kept" }] }])),
+  "thinking is the bulk of the tokens and is not part of a replayed context");
+check("skips empty messages", transcript([{ role: "user", content: "  " }, { role: "user", content: "x" }]) === "[user] x");
+
+// --- what counts as a usable summary --------------------------------------
+check("a long enough string is usable", usable("x".repeat(50)));
+check("an empty string is not", !usable(""));
+check("a stub is not", !usable("ok"), "a two character summary would silently erase the session");
+check("a non-string is not", !usable({ summary: "no" }));
+
+// --- the handler falls back rather than guessing ---------------------------
+const h = handlers["session_before_compact"];
+const ctxNoState = { cwd: fs.mkdtempSync(path.join(os.tmpdir(), "bare-")), model: { id: "m" } };
+check("no durable state -> pi compacts",
+  (await h({ preparation: { firstKeptEntryId: "a", messagesToSummarize: [{ role: "user", content: "hi" }] } }, ctxNoState)) === undefined);
+const ctx = { cwd: DIR, model: { id: "m" } };
+check("no firstKeptEntryId -> pi compacts",
+  (await h({ preparation: { messagesToSummarize: [{ role: "user", content: "hi" }] } }, ctx)) === undefined);
+check("no model -> pi compacts",
+  (await h({ preparation: { firstKeptEntryId: "a", messagesToSummarize: [{ role: "user", content: "hi" }] } }, { cwd: DIR })) === undefined);
+check("nothing to summarise -> pi compacts",
+  (await h({ preparation: { firstKeptEntryId: "a", messagesToSummarize: [] } }, ctx)) === undefined);
+// Unreachable server: the fetch throws, and a thrown handler must not lose the compaction.
 {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lean-"));
-  check("stands down with no durable state", !hasDurableState(dir),
-    "with no plan or notes, pi's full template is the correct thing to send");
-  fs.mkdirSync(path.join(dir, STATE_DIR), { recursive: true });
-  fs.writeFileSync(path.join(dir, STATE_DIR, "NOTES.md"), "");
-  check("an empty notes file is not durable state", !hasDurableState(dir));
-  fs.writeFileSync(path.join(dir, STATE_DIR, "NOTES.md"), "- something worth keeping\n");
-  check("fires once notes have content", hasDurableState(dir));
-  check("undefined cwd stands down", !hasDurableState(undefined));
+  const prev = process.env.PI_OLLAMA_URL;
+  const dead = await import("../extensions/lean-summary.ts?dead");
+  check("an unreachable model -> pi compacts",
+    (await h({ preparation: { firstKeptEntryId: "a", messagesToSummarize: [{ role: "user", content: "hi" }] },
+      signal: AbortSignal.abort() }, ctx)) === undefined,
+    "an aborted or failed call must fall through, never substitute a worse summary");
+  void prev; void dead;
 }
+
+// --- the prompt ------------------------------------------------------------
+check("names the files that make it safe", /PLAN\.md/.test(LEAN_PROMPT) && /NOTES\.md/.test(LEAN_PROMPT));
+check("asks for what those files do not hold",
+  /just attempted/.test(LEAN_PROMPT) && /in flight/.test(LEAN_PROMPT));
+check("asks for no headings, unlike pi's nine sections", /No headings/.test(LEAN_PROMPT));
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

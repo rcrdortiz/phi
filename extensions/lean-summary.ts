@@ -1,76 +1,73 @@
 /**
  * lean-summary — stop the compaction summary regenerating what is already on disk.
  *
- * pi's summariser asks for a nine section checkpoint: Goal, Constraints &
- * Preferences, Progress (Done / In Progress / Blocked), Key Decisions, Next
- * Steps, Critical Context. For stock pi that is right, because nothing else
- * survives a compaction.
+ * pi asks the summariser for nine sections: Goal, Constraints & Preferences,
+ * Progress (Done / In Progress / Blocked), Key Decisions, Next Steps, Critical
+ * Context. For stock pi that is right, because nothing else survives a
+ * compaction. phi keeps the plan in PLAN.md and PLAN-DONE.md and findings in
+ * NOTES.md, and plan-notes re-injects both into the system prompt on EVERY
+ * turn, so seven of those nine are regenerated at the decode rate to say what
+ * phi is about to read off disk anyway.
  *
- * phi is not stock pi. The plan lives in PLAN.md and PLAN-DONE.md, findings live
- * in NOTES.md, and plan-notes re-injects both into the system prompt on EVERY
- * turn. So seven of those nine sections are regenerated from a conversation the
- * model is about to lose, at the decode rate, to say what phi is about to read
- * off disk anyway. Measured across 40 real compactions: a median summary of
- * ~1,700 output tokens, and at the ~16.5 tok/s decode rate seen at compaction
- * depth that is roughly 105 seconds, which is essentially the whole cost of a
- * compaction. Prefill is cached and free at the default thinking level.
+ * pi's update prompt makes it compound: it says "PRESERVE all existing
+ * information from the previous summary", and feeds the previous summary back
+ * in verbatim. Measured across 22 compactions paired with recorded durations,
+ * corr(summary tokens, seconds) = 0.90, and one session at a flat ~38K depth
+ * went 12,950 -> 14,238 -> 16,900 -> 20,369 characters and 287s -> 407s ->
+ * 556s -> 607s. Ten minutes to rewrite what it had already written. A session
+ * that never ratcheted held at 47-56s.
  *
- * pi's UPDATE prompt makes it worse over a long session: it says "PRESERVE all
- * existing information from the previous summary", so the sections ratchet
- * upward. Two of the 40 summaries carried the entire nine section block twice,
- * verbatim.
+ * WHY THIS HOOK. The obvious approach, rewriting the request in
+ * before_provider_request, does not work, and it fails silently. Compaction
+ * calls `streamFn` directly, and sdk.js forwards `transformHeaders` into it but
+ * NOT `onPayload`, which is a sibling field. So an extension can rewrite headers
+ * on a summarisation call and never its body. The first version of this file did
+ * exactly that, passed seventeen tests that all called the pure function
+ * directly, and produced a summary carrying all nine of pi's sections on the
+ * first real run.
  *
- * customInstructions cannot fix this. pi appends it as "Additional focus:" on
- * top of the template, so every instruction phi has ever passed about dropping
- * narrative was arguing with a format it could not remove. before_provider_request
- * can replace the payload outright, which is the only hook that reaches it.
+ * session_before_compact is the hook that reaches it: return a `compaction` and
+ * pi uses it instead of running its own.
  *
- * The risk is asymmetric and worth naming: the summary IS the session's memory.
- * If the plan and the notes turn out not to hold something the narrative did, it
- * is lost silently and shows up later as the model repeating work. Two guards:
- * this only fires when a plan or notes file actually exists, and it is off by
- * default so it can be measured against the current behaviour rather than
- * assumed better.
+ * The summary IS the session's memory, so every failure path here falls back to
+ * pi rather than substituting something worse. Returning undefined means "you do
+ * it", and that is what happens on a bad response, a timeout, an abort, or no
+ * plan and notes to lean on.
  *
- * Env: PHI_LEAN_SUMMARY=1  use the lean prompt
+ * Env: PHI_LEAN_SUMMARY=1        use phi's summariser
+ *      PHI_LEAN_MAX_TOKENS       cap on the summary (default 900)
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { BASE_URL } from "../lib/ollama-models.ts";
 import { STATE_DIR } from "../lib/state-dir.ts";
 
 const ENABLED = process.env.PHI_LEAN_SUMMARY === "1";
-
-/** Distinctive of pi's summarisation prompt, and of nothing else it sends. */
-const MARKERS = ["Create a structured context checkpoint summary", "Update the existing structured summary"];
+const MAX_TOKENS = Number(process.env.PHI_LEAN_MAX_TOKENS ?? 900);
 
 export const LEAN_PROMPT = [
-	"The messages above are a conversation to summarise, for an agent that will carry on the work.",
+	"You are writing a handover note for an agent that will continue this work with the conversation gone.",
 	"",
-	"Do NOT restate any of the following. It is written to disk and re-injected into every turn, so",
-	"repeating it here costs time and changes nothing:",
+	`Do NOT restate any of the following. It is on disk and re-injected into every turn, so repeating it`,
+	"costs time and changes nothing:",
 	`- the goal, and every plan step, finished or pending (${STATE_DIR}/PLAN.md, ${STATE_DIR}/PLAN-DONE.md)`,
 	`- decisions, constraints and gotchas already recorded (${STATE_DIR}/NOTES.md)`,
 	"",
 	"Write only what those files do not already hold:",
-	"- what was just attempted and how it turned out",
-	"- the state of any edit or command left in flight",
+	"- what was just attempted, and how it turned out",
+	"- the state of any edit, command or test left in flight",
 	"- anything discovered that has not been written down yet",
 	"",
-	"Preserve exact file paths, function names, error messages and numbers: those are what would be",
-	"expensive to rediscover. Leave out the narrative of how the work reached this point.",
+	"Keep exact file paths, function names, error messages and numbers: those are what would be expensive",
+	"to rediscover. Leave out the narrative of how the work got here.",
 	"",
-	"Aim for under 400 words. If nothing outside the plan and the notes is worth carrying, say that in",
+	"No headings. Under 300 words. If nothing outside the plan and the notes is worth carrying, say that in",
 	"one line rather than padding.",
 ].join("\n");
 
-/** Does this look like pi's summarisation call rather than an ordinary turn? */
-export function isSummarisationPrompt(text: string): boolean {
-	return MARKERS.some((m) => text.includes(m));
-}
-
-/** phi's durable state only exists once a plan or notes file has been written. */
+/** phi's durable state only exists once a plan or notes file has content. */
 export function hasDurableState(cwd: string | undefined): boolean {
 	if (!cwd) return false;
 	return ["PLAN.md", "PLAN-DONE.md", "NOTES.md"].some((f) => {
@@ -82,59 +79,113 @@ export function hasDurableState(cwd: string | undefined): boolean {
 	});
 }
 
-/**
- * Swap pi's template for the lean one, in place, inside a provider payload.
- *
- * Returns the payload only when something was replaced, so a normal turn passes
- * through untouched and pi keeps its own behaviour.
- */
-export function rewritePayload(payload: unknown, prompt = LEAN_PROMPT): unknown | undefined {
-	const body = payload as { messages?: { role?: string; content?: unknown }[] } | undefined;
-	if (!Array.isArray(body?.messages)) return undefined;
-	let hit = false;
-	for (const m of body.messages) {
-		if (typeof m?.content === "string") {
-			if (!isSummarisationPrompt(m.content)) continue;
-			// Keep any "Additional focus:" phi appended; it is our own text and it
-			// is the part aimed at the next step.
-			const focus = /\n\nAdditional focus: ([\s\S]*)$/.exec(m.content)?.[1];
-			m.content = focus ? `${prompt}\n\nAdditional focus: ${focus}` : prompt;
-			hit = true;
-		} else if (Array.isArray(m?.content)) {
-			for (const part of m.content as { type?: string; text?: string }[]) {
-				if (typeof part?.text !== "string" || !isSummarisationPrompt(part.text)) continue;
-				const focus = /\n\nAdditional focus: ([\s\S]*)$/.exec(part.text)?.[1];
-				part.text = focus ? `${prompt}\n\nAdditional focus: ${focus}` : prompt;
-				hit = true;
-			}
+/** Flatten pi's message shapes into a transcript the summariser can read. */
+export function transcript(messages: unknown[]): string {
+	const out: string[] = [];
+	for (const m of messages ?? []) {
+		const msg = m as { role?: string; content?: unknown };
+		const role = msg?.role ?? "unknown";
+		let text = "";
+		if (typeof msg?.content === "string") text = msg.content;
+		else if (Array.isArray(msg?.content)) {
+			text = (msg.content as { type?: string; text?: string }[])
+				// Thinking is not part of what a replayed context contains, and it is
+				// the bulk of the tokens. Summarising it is paying twice for it.
+				.filter((p) => p?.type !== "thinking" && typeof p?.text === "string")
+				.map((p) => p.text)
+				.join("\n");
 		}
+		if (text.trim()) out.push(`[${role}] ${text.trim()}`);
 	}
-	return hit ? body : undefined;
+	return out.join("\n\n");
+}
+
+/** True when the response looks like a usable summary rather than an empty or error body. */
+export function usable(summary: unknown): summary is string {
+	return typeof summary === "string" && summary.trim().length >= 40;
 }
 
 export default function leanSummaryExtension(pi: ExtensionAPI) {
 	if (!ENABLED) return;
-	// Say it once per session. A prototype that swaps a prompt silently cannot be
-	// told apart from one that never fired, which is the whole thing under test.
 	let announced = false;
-	pi.on("before_provider_request", async (event, ctx) => {
-		// Without a plan or notes on disk there is nothing else carrying the
-		// context, and pi's full template is the correct thing to send.
-		if (!hasDurableState((ctx as { cwd?: string })?.cwd)) return undefined;
+
+	pi.on("session_before_compact", async (event, ctx) => {
+		const c = ctx as { cwd?: string; model?: { id?: string }; ui?: { notify?: (m: string, k: string) => void } };
+		// Without a plan or notes there is nothing else carrying the context, and
+		// pi's full template is the correct thing to send.
+		if (!hasDurableState(c?.cwd)) return undefined;
+
+		const e = event as {
+			preparation?: {
+				firstKeptEntryId?: string;
+				messagesToSummarize?: unknown[];
+				turnPrefixMessages?: unknown[];
+				tokensBefore?: number;
+			};
+			customInstructions?: string;
+			signal?: AbortSignal;
+		};
+		const prep = e.preparation;
+		const model = c?.model?.id;
+		if (!prep?.firstKeptEntryId || !model) return undefined;
+
+		// Both lists, so an in-flight turn is not silently dropped: pi would have
+		// summarised turnPrefixMessages separately.
+		const body = transcript([...(prep.messagesToSummarize ?? []), ...(prep.turnPrefixMessages ?? [])]);
+		if (!body.trim()) return undefined;
+
 		try {
-			const out = rewritePayload((event as { payload?: unknown }).payload);
-			if (out && !announced) {
+			const prompt = e.customInstructions ? `${LEAN_PROMPT}\n\nAlso: ${e.customInstructions}` : LEAN_PROMPT;
+			const r = await fetch(`${BASE_URL}/chat/completions`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model,
+					messages: [
+						{ role: "system", content: prompt },
+						{ role: "user", content: body },
+					],
+					// Off, for the same reason phi turns it off for pi's summariser:
+					// summarising is reading and writing down, and deliberating first
+					// is charged at the decode rate, which is the whole cost.
+					reasoning_effort: "none",
+					max_tokens: MAX_TOKENS,
+					temperature: 0.7,
+					stream: false,
+				}),
+				signal: e.signal,
+			});
+			if (!r.ok) return undefined;
+			const j = (await r.json()) as {
+				choices?: { message?: { content?: string } }[];
+				usage?: { prompt_tokens?: number; completion_tokens?: number };
+			};
+			const summary = j.choices?.[0]?.message?.content;
+			if (!usable(summary)) return undefined;
+
+			if (!announced) {
 				announced = true;
-				(ctx as { ui?: { notify?: (m: string, k: string) => void } })?.ui?.notify?.(
-					"Lean summary active: pi's nine-section template replaced for this compaction. " +
-						"Unset PHI_LEAN_SUMMARY to compare.",
+				c?.ui?.notify?.(
+					`Lean summary: phi summarised this compaction itself (${summary.length} chars). ` +
+						`Unset PHI_LEAN_SUMMARY to compare against pi's template.`,
 					"info",
 				);
 			}
-			return out;
+			return {
+				compaction: {
+					summary,
+					firstKeptEntryId: prep.firstKeptEntryId,
+					tokensBefore: prep.tokensBefore ?? 0,
+					usage: {
+						input: j.usage?.prompt_tokens ?? 0,
+						output: j.usage?.completion_tokens ?? 0,
+					},
+					details: { leanSummary: true },
+				},
+			} as never;
 		} catch {
-			// A summary written by pi's template is a slow compaction. A thrown
-			// handler is a failed request, which is a lost turn.
+			// Abort, timeout, bad JSON: pi runs its own compaction. A slower
+			// compaction is a slower compaction; a lost one loses the session.
 			return undefined;
 		}
 	});
