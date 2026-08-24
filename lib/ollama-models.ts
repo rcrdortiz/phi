@@ -155,8 +155,25 @@ export function toPiModel(m: LocalModel, level?: string, where?: { provider: str
 		maxTokens: m.maxTokens,
 		// Wires pi's thinking scale to Ollama's reasoning_effort, so Shift+Tab
 		// changes it live instead of it being fixed per model. A level mapped to
-		// null is hidden from the cycle; xhigh and max only appear if mapped,
-		// and Qwen3.8 has no distinct behaviour beyond high, so they are left out.
+		// null is hidden from the cycle.
+		//
+		// What these values actually do, read out of the model's own chat
+		// template: reasoning_effort selects one English sentence that is
+		// prepended to the system message. There is no token budget anywhere in
+		// the path. The template accepts three values, and Ollama folds its
+		// wider scale onto them before rendering:
+		//
+		//   none                  thinking off, no sentence
+		//   minimal, low       -> low    "keep your thinking brief and focused"
+		//   medium             -> (none) no sentence at all, the neutral default
+		//   high, xhigh, ultra,
+		//   max                -> xhigh  "think carefully, validate assumptions"
+		//
+		// So natively minimal and low are the same setting, and so are high and
+		// xhigh. They are kept as separate levels because thinking-level.ts adds
+		// a distinct stance per level to the system prompt, which is what makes
+		// them differ. Verified by asking the model to report the value it was
+		// given, across four seeds per level.
 		// Sampling matched to the active thinking level, or the model's default.
 		samplingParams: samplingFor(level ?? m.defaultThinking),
 		thinkingLevelMap: {
@@ -165,6 +182,7 @@ export function toPiModel(m: LocalModel, level?: string, where?: { provider: str
 			low: "low",
 			medium: "medium",
 			high: "high",
+			xhigh: "xhigh",
 		},
 	};
 }

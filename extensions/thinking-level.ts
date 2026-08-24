@@ -15,8 +15,12 @@
  *     machine is tight, since more thinking means more tokens and a KV cache
  *     that grows faster
  *
- * `/effort [off|low|medium|high]` sets it without reaching for the keyboard
- * shortcut, and reports the current level with no argument.
+ * `/effort [off|minimal|low|medium|high|xhigh]` sets it without reaching for the
+ * keyboard shortcut, and reports the current level with no argument.
+ *
+ * Each level also appends a stance to the system prompt (see STANCE below),
+ * which is what makes minimal differ from low and high differ from xhigh: the
+ * model's own reasoning_effort sentence does not distinguish those pairs.
  *
  * Env: PI_THINKING_DEFAULTS=0  keep the current level when switching models
  */
@@ -33,11 +37,75 @@ void samplingFor;
 /** What each level costs, measured on "Is 1009 prime?" against qwen3.8. */
 const COST: Record<string, string> = {
 	off: "no deliberation — ~10 completion tokens on a simple question",
-	minimal: "light deliberation",
+	minimal: "act, do not deliberate — for mechanical edits",
 	low: "light deliberation — ~357 tokens on the same question",
-	medium: "more deliberation — ~377 tokens, barely above low",
-	high: "most deliberation, slowest to first answer",
+	medium: "the model's own default — no stance is sent at this level",
+	high: "weighs tradeoffs and failure modes, slower to first answer",
+	xhigh: "adds product, design and data lenses — the expensive opinion",
 };
+
+/**
+ * A stance per thinking level, appended to the system prompt.
+ *
+ * reasoning_effort alone cannot carry this. It selects one of three fixed
+ * sentences baked into the model's chat template (see ollama-models.ts), so
+ * minimal and low are natively identical, as are high and xhigh. Appending our
+ * own line is what separates them, and it is the only lever available: nothing
+ * in Ollama caps reasoning by token count, so length can be asked for but not
+ * enforced.
+ *
+ * The template renders `reasoning_instructions + "\n\n" + systemPrompt`, so
+ * the model's own sentence arrives first and ours second. They must agree in
+ * direction; the wording below reinforces the native sentence rather than
+ * arguing with it.
+ *
+ * The low end is written as process instructions rather than as a persona.
+ * Personas sit in the system message and shape the deliverable, not just the
+ * reasoning, so "think like a junior" asks for worse code rather than for less
+ * deliberation. Seniority also correlates with brevity rather than against it:
+ * the engineer who recognises the pattern writes two lines, and the one who
+ * does not explores. Only the top end, where the goal is breadth rather than
+ * restraint, is framed by role.
+ *
+ * Env: PI_REASONING_STANCE=0  send no stance at any level
+ */
+const STANCE: Record<string, string> = {
+	minimal: [
+		"Reasoning stance: this is a mechanical task. Do not deliberate.",
+		"Identify the action and take it. If you find yourself weighing options,",
+		"you have misread the task.",
+	].join(" "),
+	low: [
+		"Reasoning stance: keep reasoning short. Commit to one approach and",
+		"execute it. Do not enumerate alternatives you are not going to take.",
+	].join(" "),
+	// medium sends nothing on purpose: it is the neutral baseline, and the
+	// template sends no sentence there either.
+	high: [
+		"Reasoning stance: reason like a staff engineer. Before committing, weigh",
+		"simplicity, blast radius, reversibility, and how this fails in",
+		"production. State the tradeoff you are making and why the alternative",
+		"loses.",
+	].join(" "),
+	xhigh: [
+		"Reasoning stance: reason like a staff engineer sitting with design,",
+		"product and data leads. Beyond the engineering tradeoffs, ask who the",
+		"user is, what breaks for them, what we would need to measure to know we",
+		"were right, and what we are choosing not to build. Surface disagreement",
+		"between those lenses rather than smoothing it over.",
+	].join(" "),
+};
+
+const STANCE_ON = process.env.PI_REASONING_STANCE !== "0";
+
+/** The levels /effort accepts, in cycle order. */
+const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
+
+/** The stance for a level, or undefined when the level sends none. */
+export function stanceFor(level: string): string | undefined {
+	if (!STANCE_ON) return undefined;
+	return STANCE[level];
+}
 
 function freeGb(): number | undefined {
 	if (process.platform !== "darwin") return undefined;
@@ -134,6 +202,16 @@ export default function thinkingLevelExtension(pi: ExtensionAPI) {
 		}
 	});
 
+	// Append the level's stance to the turn's system prompt. Done per turn
+	// rather than at level-change time so it follows Shift+Tab immediately and
+	// survives compaction, which rebuilds the prompt.
+	pi.on("before_agent_start", async (event, _ctx) => {
+		const stance = stanceFor(String(pi.getThinkingLevel()));
+		if (!stance) return undefined;
+		const base = (event as { systemPrompt?: string }).systemPrompt ?? "";
+		return { systemPrompt: base ? `${base}\n\n${stance}` : stance };
+	});
+
 	// Say what a change costs, and warn when the machine cannot afford it.
 	pi.on("thinking_level_select", async (event, ctx) => {
 		const level = String((event as { level?: string }).level ?? pi.getThinkingLevel());
@@ -148,9 +226,9 @@ export default function thinkingLevelExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("effort", {
-		description: "Show or set thinking level (off | low | medium | high)",
+		description: "Show or set thinking level (off | minimal | low | medium | high | xhigh)",
 		getArgumentCompletions: (prefix: string) =>
-			["off", "low", "medium", "high"]
+			LEVELS
 				.filter((l) => l.startsWith(prefix.trim()))
 				.map((l) => ({ value: l, label: l })),
 		handler: async (args, ctx) => {
@@ -171,8 +249,8 @@ export default function thinkingLevelExtension(pi: ExtensionAPI) {
 				);
 				return;
 			}
-			if (!["off", "minimal", "low", "medium", "high"].includes(want)) {
-				ctx.ui.notify(`Unknown level "${want}". Use off, low, medium or high.`, "error");
+			if (!LEVELS.includes(want)) {
+				ctx.ui.notify(`Unknown level "${want}". Use ${LEVELS.join(", ")}.`, "error");
 				return;
 			}
 			try {

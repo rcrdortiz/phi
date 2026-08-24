@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
-import mod from "../extensions/thinking-level.ts";
+import mod, { stanceFor } from "../extensions/thinking-level.ts";
 import { MODELS, toPiModel } from "../lib/ollama-models.ts";
 
 const results = [];
@@ -122,19 +122,55 @@ check("cycling reports the new level", /Thinking: high/.test(notes.join(" ")), n
   check("an unknown model is left alone", lvl === other, `level=${lvl}`);
 }
 
-// "high" is the top of the scale this model actually has. Mapping pi's xhigh
-// and max would add levels indistinguishable from high.
+// xhigh is on the scale even though Ollama folds it onto the same template
+// sentence as high. What separates them is the stance thinking-level.ts appends
+// to the system prompt, so the level has to exist for that stance to be
+// reachable. max stays off: it would fold onto xhigh and carry no stance.
 {
   const top = toPiModel(MODELS[0]);
   const mapped = Object.keys(top.thinkingLevelMap ?? {});
-  check("the map stops at high", mapped.includes("high") && !mapped.includes("xhigh") && !mapped.includes("max"),
+  check("the map runs to xhigh", mapped.includes("high") && mapped.includes("xhigh"),
     mapped.join(", "));
+  check("and stops there", !mapped.includes("max"), mapped.join(", "));
   // Not the top of the scale. A sweep of off/low/medium/high scored 18-20 of 23
   // at every level, inside a +-2 noise floor, and output tokens did not track
   // the level (r = +0.17, n = 11). Nothing distinguished them, so the default is
   // the cheap end until something does. It still has to BE on the scale.
   check("the roster default is a level the map offers",
     mapped.includes(MODELS[0].defaultThinking), `${MODELS[0].defaultThinking} vs ${mapped.join(", ")}`);
+}
+
+
+// The stance is the only thing separating levels the model treats identically.
+// Ollama folds minimal onto low and xhigh onto high before rendering the chat
+// template, so without a distinct stance those pairs are the same setting.
+{
+  const stances = Object.fromEntries(
+    ["off", "minimal", "low", "medium", "high", "xhigh"].map((l) => [l, stanceFor(l)]));
+  check("medium sends no stance", stances.medium === undefined,
+    "it is the neutral baseline; the template sends no sentence there either");
+  check("off sends no stance", stances.off === undefined);
+  for (const l of ["minimal", "low", "high", "xhigh"]) {
+    check(`${l} sends a stance`, typeof stances[l] === "string" && stances[l].length > 0);
+  }
+  check("minimal and low differ", stances.minimal !== stances.low);
+  check("high and xhigh differ", stances.high !== stances.xhigh);
+  // The low end is deliberately not a persona: a persona sits in the system
+  // message and shapes the code that gets written, not just the reasoning.
+  const lowEnd = `${stances.minimal} ${stances.low}`.toLowerCase();
+  check("the low end asks for less deliberation, not less skill",
+    !/junior|less experienced|beginner|novice/.test(lowEnd), lowEnd.slice(0, 90));
+  // Every stance must agree in direction with the template sentence that
+  // arrives before it, or the two instructions argue with each other.
+  check("minimal and low ask for brevity",
+    /do not deliberate/i.test(stances.minimal) && /keep reasoning short/i.test(stances.low));
+  check("high and xhigh ask for breadth",
+    /tradeoff/i.test(stances.high) && /product/i.test(stances.xhigh));
+  // A stance the map cannot reach is dead text.
+  const mapped = Object.keys(toPiModel(MODELS[0]).thinkingLevelMap ?? {});
+  for (const l of ["minimal", "low", "high", "xhigh"]) {
+    check(`${l} is reachable from the map`, mapped.includes(l));
+  }
 }
 
 const failed = results.filter((r) => !r).length;
