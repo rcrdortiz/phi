@@ -16,6 +16,57 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: phi can write its own compaction summary, off by default.** pi asks the
+summariser for nine sections: Goal, Constraints & Preferences, Progress, Key
+Decisions, Next Steps, Critical Context. For stock pi that is right, because
+nothing else survives a compaction. phi keeps the plan in PLAN.md and PLAN-DONE.md
+and findings in NOTES.md and re-injects both every turn, so seven of the nine were
+being regenerated at the decode rate to say what phi reads off disk anyway. Worse,
+pi's update prompt says "PRESERVE all existing information from the previous
+summary" and feeds the previous summary back in, so it compounds. Measured across
+22 compactions paired with their durations, corr(summary tokens, seconds) = 0.90,
+and one session at a flat 38,000 token depth went 12,950 to 20,369 characters and
+287 to 607 seconds, mostly rewriting itself.
+
+With `PHI_LEAN_SUMMARY=1` phi writes the note instead: what was just attempted,
+what is in flight, what was discovered and not yet written down. Measured in the
+same repo at the same depth, three consecutive compactions came out at 2,220,
+2,579 and 1,987 characters in 219, 210 and 142 seconds, against 9,399 characters
+in 262 seconds for pi's template. Sizes move with content instead of climbing.
+
+Read this before turning it on. It ignores the previous summary entirely, so
+nothing carries across more than one compaction and anything not written to
+PLAN.md or NOTES.md is gone. That is the bet: the plan and the notes are the
+memory. It is off by default because it broke three times during development,
+each failure downstream of the previous fix and each one passing its unit tests
+first. The hook it originally used never fires for a compaction. Then the model
+continued the conversation instead of summarising it, and a 40 character
+usability check let a single sentence stand in for 30,000 tokens of a live
+session. Then an incomplete usage record crashed a session from the footer's
+render, after the compaction had already succeeded. All three are fixed and
+tested; the header records them so a green suite is not mistaken for proof.
+
+**Fixed: a pasted line-number gutter no longer corrupts a file.** view_lines
+renders "12|code". When the model copied that into an edit, syntax-checked files
+reverted with a clear error, but markdown and plain text wrote "2|some text" into
+the file and reported success. Now stripped in replace_lines and edit_block when
+every line carries a consecutive number matching the range being replaced, and
+the strip is reported rather than done silently, because a pipe-delimited file
+whose first column is row numbers is genuinely indistinguishable from a gutter.
+
+**Fixed: plan_next no longer promises a session reset.** It said "START A FRESH
+SESSION" and "everything not written is discarded", neither of which was ever
+literally true and neither of which is true at all now that step boundaries do
+not compact. A session was observed reasoning in circles about whether to pretend
+its context had been purged and whether to start the next step in the same turn.
+It now says what happens, and says to end the turn because the next step is
+started for you.
+
+**Changed: thinking blocks are collapsed in the TUI.** Thinking is roughly three
+quarters of output here and one block has reached ten thousand tokens, so the
+transcript was mostly deliberation you had already waited through. ctrl+t expands
+it per message without changing the setting.
+
 ## 0.26.0 (2026-08-24)
 
 **Changed: finishing a plan step no longer compacts.** It used to, every time,
