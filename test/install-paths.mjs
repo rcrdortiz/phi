@@ -71,6 +71,13 @@ check("exiting fullscreen leaves the scrollback alone",
 // from settings.json and nothing else can change it: CompactOptions has no
 // per-call override. Left unset, pi keeps 20000 on a 64K window and compaction
 // reclaims almost nothing.
+// Thinking is about three quarters of output here and a block can reach ten
+// thousand tokens, so the transcript is mostly deliberation unless this is set.
+// ctrl+t (app.thinking.toggle) still reveals it per message.
+check("the installer collapses thinking blocks",
+  /"hideThinkingBlock", True/.test(script),
+  "ctrl+t toggles it back without changing the setting");
+
 check("the installer seeds pi's compaction numbers",
   /"compaction", \{"keepRecentTokens": 6000/.test(script),
   "pi's 20000 default is sized for a 128K window");

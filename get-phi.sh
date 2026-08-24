@@ -258,6 +258,11 @@ changed = False
 # failures worth caring about have been judgement rather than knowledge and
 # deliberation is the lever most likely to move those. Shift+Tab lowers it live
 # when a task does not warrant it.
+# hideThinkingBlock collapses the model's reasoning in the TUI. On this setup
+# thinking is roughly three quarters of the output, and a single block can run
+# to ten thousand tokens, so leaving it expanded means the transcript is mostly
+# deliberation you have already waited through. ctrl+t shows it again, per
+# message, without changing the setting.
 # fullscreenExitOutput defaults to "transcript", which prints the entire session
 # into the scrollback on the way out: the boot box, every tool call, every
 # banner. Quitting should hand the terminal back the way it was found, so this
@@ -294,6 +299,7 @@ for k, v in (("defaultProvider", "ollama-local"), ("defaultModel", "qwen3.8-4MLX
              ("fullscreenExitOutput", "resume-hint"),
              ("httpIdleTimeoutMs", 500000),
              ("compaction", {"keepRecentTokens": 6000, "reserveTokens": 16384}),
+             ("hideThinkingBlock", True),
              ("defaultThinkingLevel", "medium")):
     if not s.get(k):
         s[k] = v; changed = True
