@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
-import mod, { resetReadRun } from "../extensions/smart-edit.ts";
+import mod, { resetReadRun, stripEchoedGutter } from "../extensions/smart-edit.ts";
 
 // The fixture is written here rather than read from disk, and its irregular
 // indentation IS the test: 2, 3 and 5 spaces, with a closing brace at 2. That
@@ -132,6 +132,31 @@ check("the bar is kept", /^\d+\|/m.test(r.content[0].text),
 }
 
 fs.writeFileSync(FILE, ORIGINAL);
+
+// --- an echoed view_lines gutter must not reach the file -------------------
+// view_lines renders "12|code". The model pastes it back into new_text, and on
+// a syntax-checked file the check reverted it, but markdown and text have no
+// check: "2|some text" was written and reported as a successful replace.
+{
+  const g = (t, start) => stripEchoedGutter(t, start);
+  check("strips a gutter matching the replaced range",
+    g("2|const b = 99;", 2).text === "const b = 99;" && g("2|x", 2).stripped);
+  check("strips a multi-line gutter", g("5|a\n6|b\n7|c", 5).text === "a\nb\nc");
+  check("leaves text with no gutter alone", !g("const b = 99;", 2).stripped);
+  check("leaves a gutter starting at the wrong line alone",
+    !g("9|const b = 99;", 2).stripped,
+    "numbers that do not match the range being replaced are content, not a gutter");
+  check("leaves non-consecutive numbers alone", !g("2|a\n7|b", 2).stripped,
+    "a gutter is always consecutive");
+  check("leaves a markdown table alone", !g("| a | b |\n| c | d |", 1).stripped);
+  // The honest limit: a pipe-delimited file whose first column is consecutive
+  // row numbers is indistinguishable from a gutter, which is why the result
+  // message says when it stripped.
+  check("a consecutive-numbered CSV is the known false positive",
+    g("1|alpha\n2|beta", 1).stripped,
+    "reported in the tool result so it is recoverable");
+}
+
 const failed = results.filter((x) => !x.pass).length;
 
 // --- the line-free experiment ---------------------------------------------
@@ -240,3 +265,4 @@ const failed = results.filter((x) => !x.pass).length;
 
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);
+

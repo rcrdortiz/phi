@@ -369,6 +369,31 @@ function readMany(ctx: { cwd: string }, files: string[], refresh: boolean) {
 	};
 }
 
+/**
+ * Strip a view_lines gutter the model has pasted back into replacement text.
+ *
+ * view_lines renders "12|code" and the model sometimes copies that straight
+ * into new_text. On a syntax-checked file the check catches it and reverts, so
+ * the cost is one wasted call. On markdown, text, or anything else without one,
+ * "2|some text" is written into the file and reported as a successful replace:
+ * silent corruption, and of exactly the thing the gutter exists to help with.
+ *
+ * Only strips when EVERY line carries a number and those numbers run
+ * consecutively, optionally from an expected start. That is what an echoed
+ * gutter looks like; a CSV or a markdown table with pipes does not have
+ * consecutive line numbers matching the range being replaced, so it survives.
+ */
+export function stripEchoedGutter(text: string, startLine?: number): { text: string; stripped: boolean } {
+	if (!text) return { text, stripped: false };
+	const lines = text.split("\n");
+	const parsed = lines.map((l) => /^(\d+)\|(.*)$/.exec(l));
+	if (parsed.some((m) => m === null)) return { text, stripped: false };
+	const nums = parsed.map((m) => Number(m![1]));
+	for (let i = 1; i < nums.length; i++) if (nums[i] !== nums[i - 1] + 1) return { text, stripped: false };
+	if (startLine !== undefined && nums[0] !== startLine) return { text, stripped: false };
+	return { text: parsed.map((m) => m![2]).join("\n"), stripped: true };
+}
+
 export default function smartEditExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "edit_block",
@@ -438,7 +463,7 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			const start = hits[0];
 			const count = trimmedNeedle.length;
 			const baseIndent = indentOf(lines[start]);
-			const replacement = reindent(params.new_text.split("\n"), baseIndent);
+			const replacement = reindent(stripEchoedGutter(params.new_text).text.split("\n"), baseIndent);
 
 			const updated = [...lines.slice(0, start), ...replacement, ...lines.slice(start + count)];
 			try {
@@ -528,7 +553,8 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 					isError: true,
 				};
 			}
-			const replacement = params.new_text === "" ? [] : params.new_text.split("\n");
+			const pasted = stripEchoedGutter(params.new_text, Math.floor(params.start_line));
+			const replacement = pasted.text === "" ? [] : pasted.text.split("\n");
 			const updated = [...lines.slice(0, s - 1), ...replacement, ...lines.slice(e)];
 			try {
 				writeChecked(file, updated, before);
@@ -541,6 +567,11 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 						type: "text",
 						text:
 							`Replaced lines ${s}-${e} of ${params.file} with ${replacement.length} line(s).` +
+							// Said out loud rather than done quietly: the strip is a heuristic,
+							// and a pipe-delimited file whose first column happens to be
+							// consecutive row numbers looks identical to an echoed gutter.
+							// Naming it is what makes that case recoverable.
+							(pasted.stripped ? ` Stripped the line-number gutter from new_text; pass the code alone next time.` : "") +
 							callersFor(ctx.cwd, params.file, updated, s),
 					},
 				],
