@@ -55,16 +55,30 @@ check("a machine with no model is told what to run", /no model yet/.test(noModel
   "the first thing a new install needs");
 
 // --- updates: the box reports a phase, it does not print a command ------
-const avail = { checked: true, phase: "available", pi: { current: "1.0.0", latest: "1.1.0" }, phi: { behind: 3 } };
+const avail = { checked: true, phase: "available", pi: { current: "1.0.0", latest: "1.1.0" },
+  phi: { behind: 3, from: "0.25.0", to: "0.26.0" } };
 const shown = renderBox(78, { ...base, model: "m", updates: avail }).join("\n");
-check("names what is out of date", /pi 1\.0\.0 to 1\.1\.0/.test(shown) && /phi 3 commit\(s\) behind/.test(shown));
+// A commit count answers "how much changed"; a version range answers whether it
+// matters, which is the question actually being asked.
+check("names what is out of date, as versions",
+  /pi 1\.0\.0 \u2192 1\.1\.0/.test(shown) && /phi 0\.25\.0 \u2192 0\.26\.0/.test(shown), shown);
+// Between releases both sides carry the same version, and "0.25.0 to 0.25.0"
+// would say nothing. That is the only case where the count is the honest report.
+const unreleased = renderBox(78, { ...base, model: "m",
+  updates: { ...avail, phi: { behind: 3, from: "0.25.0", to: "0.25.0" } } }).join("\n");
+check("falls back to the commit count when the version has not moved",
+  /phi 3 commit\(s\) behind/.test(unreleased) && !/0\.25\.0 \u2192 0\.25\.0/.test(unreleased), unreleased);
+const nover = renderBox(78, { ...base, model: "m",
+  updates: { ...avail, phi: { behind: 2 } } }).join("\n");
+check("and when no version could be read at all",
+  /phi 2 commit\(s\) behind/.test(nover), nover);
 check("offers /update rather than a command to copy",
   /\/update to install/.test(shown) && !/npm i -g/.test(shown),
   "copying a command is the friction this replaces");
 
 const phases = {
   installing: /installing/,
-  installed: /update installed.*restart pi to apply/s,
+  installed: /\u2713 update installed.*restart to update/s,
   failed: /update failed/,
   declined: /\/update to install/,
 };

@@ -30,6 +30,9 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 const ENABLED = process.env.PHI_BOOT !== "0";
 const CHECK_UPDATES = process.env.PHI_UPDATE_CHECK !== "0";
+// Updates land on disk and never touch the running process, so installing them
+// needs no permission. Set to 0 to be asked first.
+const AUTO_UPDATE = process.env.PHI_AUTO_UPDATE !== "0";
 /**
  * How often to look again, for a session that stays open.
  *
@@ -212,7 +215,7 @@ export type UpdatePhase = "checking" | "idle" | "available" | "installing" | "in
 
 export interface UpdateState {
 	pi?: { current: string; latest: string };
-	phi?: { behind: number };
+	phi?: { behind: number; from?: string; to?: string };
 	checked: boolean;
 	phase: UpdatePhase;
 	error?: string;
@@ -235,16 +238,53 @@ export async function checkPi(current: string): Promise<UpdateState["pi"]> {
 	}
 }
 
-/** How many commits the installed phi clone is behind its remote. */
+/** The version in a package.json at some git revision, or undefined. */
+async function versionAt(repoDir: string, rev: string): Promise<string | undefined> {
+	try {
+		const { stdout } = await run("git", ["-C", repoDir, "show", rev + ":package.json"], { timeout: 10000 });
+		const v = JSON.parse(stdout).version;
+		return typeof v === "string" && v ? v : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * How far the installed phi clone is behind its remote.
+ *
+ * A commit count answers "how much changed", which is not the question anyone
+ * asks about an update. "0.25.0 to 0.26.0" says whether it matters. The count
+ * is still carried, because between releases the two versions are identical and
+ * a range of one version to itself would say nothing at all: that is when the
+ * count is the only honest thing to show.
+ */
 export async function checkPhi(repoDir: string): Promise<UpdateState["phi"]> {
 	try {
 		await run("git", ["-C", repoDir, "fetch", "--quiet", "origin"], { timeout: 20000 });
 		const { stdout } = await run("git", ["-C", repoDir, "rev-list", "--count", "HEAD..@{u}"], { timeout: 10000 });
 		const behind = Number(stdout.trim());
-		return Number.isFinite(behind) && behind > 0 ? { behind } : undefined;
+		if (!Number.isFinite(behind) || behind <= 0) return undefined;
+		const [from, to] = await Promise.all([versionAt(repoDir, "HEAD"), versionAt(repoDir, "@{u}")]);
+		return { behind, from, to };
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * One line naming what is out of date, in versions where versions differ.
+ *
+ * Shared by the box and the notification so they can never disagree about what
+ * is being installed.
+ */
+export function describeUpdates(u: Pick<UpdateState, "pi" | "phi">): string {
+	const phi = u.phi
+		? u.phi.from && u.phi.to && u.phi.from !== u.phi.to
+			? "phi " + u.phi.from + " \u2192 " + u.phi.to
+			: "phi " + u.phi.behind + " commit(s) behind"
+		: "";
+	const pi = u.pi ? "pi " + u.pi.current + " \u2192 " + u.pi.latest : "";
+	return [pi, phi].filter(Boolean).join("  \u00b7  ");
 }
 
 /**
@@ -343,10 +383,7 @@ export function renderBox(width: number, o: BoxOptions): string[] {
 	line(o.paint("accent", "/speed") + "           decode rate, so a stall is visible");
 	line(o.paint("accent", "/notes-gc") + "        trim notes that have outgrown their welcome");
 
-	const what = [
-		o.updates.pi ? "pi " + o.updates.pi.current + " to " + o.updates.pi.latest : "",
-		o.updates.phi ? "phi " + o.updates.phi.behind + " commit(s) behind" : "",
-	].filter(Boolean).join("  \u00b7  ");
+	const what = describeUpdates(o.updates);
 
 	switch (o.updates.phase) {
 		case "checking":
@@ -364,7 +401,7 @@ export function renderBox(width: number, o: BoxOptions): string[] {
 			break;
 		case "installed":
 			line();
-			line(o.paint("success", "update installed") + o.paint("dim", "  \u00b7  restart pi to apply"));
+			line(o.paint("success", "\u2713 update installed") + o.paint("dim", "  \u00b7  restart to update"));
 			break;
 		case "failed":
 			line();
@@ -412,7 +449,7 @@ export default function bootScreenExtension(pi: ExtensionAPI) {
 			// Cleared so a second /update does not offer what was just installed.
 			updates.pi = undefined;
 			updates.phi = undefined;
-			ctx.ui.notify("Update installed. Restart pi to apply it.", "info");
+			ctx.ui.notify("\u2713 Update installed \u00b7 Restart to update", "info");
 		} else {
 			updates.phase = "failed";
 			updates.error = r.error;
@@ -512,20 +549,37 @@ export default function bootScreenExtension(pi: ExtensionAPI) {
 				updates.phase = updates.pi || updates.phi ? (declined ? "declined" : "available") : "idle";
 				invalidate?.();
 			}
-			if (!prompt || !(a || b) || typeof c.ui.confirm !== "function") return;
+			if (!prompt || !(a || b)) return;
 
-			// Ask rather than update silently. Replacing the binary someone is
-			// running is not a decision to make on their behalf, and the answer
-			// may reasonably be "not in the middle of this".
-			const what = [
-				a ? "pi " + a.current + " to " + a.latest : "",
-				b ? "phi is " + b.behind + " commit(s) behind" : "",
-			].filter(Boolean).join("\n");
-			const yes = await c.ui.confirm("Update available", what + "\n\nInstall now? It applies when pi restarts.");
-			if (!yes) {
-				updates.phase = "declined";
-				invalidate?.();
-				return;
+			/**
+			 * Install without asking, then say so.
+			 *
+			 * This used to open a confirm on the grounds that replacing the
+			 * binary someone is running is not a decision to make for them. The
+			 * risk it was guarding against does not exist: both installs write to
+			 * disk and neither touches the running process, because node has
+			 * already loaded pi and these extensions. The session carries on with
+			 * exactly the versions it started with either way. So the prompt was
+			 * asking permission for something that could not affect the answer,
+			 * and the only real cost was a modal in front of the prompt on every
+			 * start.
+			 *
+			 * What is still true is that the change is not live until a restart,
+			 * so the box says that rather than implying it already applied.
+			 *
+			 * PHI_AUTO_UPDATE=0 restores the ask.
+			 */
+			if (!AUTO_UPDATE) {
+				if (typeof c.ui.confirm !== "function") return;
+				const yes = await c.ui.confirm(
+					"Update available",
+					describeUpdates({ pi: a, phi: b }) + "\n\nInstall now? It applies when pi restarts.",
+				);
+				if (!yes) {
+					updates.phase = "declined";
+					invalidate?.();
+					return;
+				}
 			}
 			await install(c);
 		};
