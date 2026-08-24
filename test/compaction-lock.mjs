@@ -1,6 +1,10 @@
 // The lock exists so two sources of compaction cannot collide. Since
 // auto-handoff no longer compacts on a threshold, the remaining sources are
-// plan-notes (step boundaries), pi itself (size), and /handoff (you).
+// plan-notes (step boundaries, off by default now), pi itself (size), and
+// /handoff (you). These tests use the step boundary as a convenient way to put
+// a compaction in flight, so they opt it back on: what is under test is the
+// lock, not whether a step boundary should compact.
+process.env.PI_PLAN_STEP_COMPACT = "1";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";

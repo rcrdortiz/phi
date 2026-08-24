@@ -34,17 +34,31 @@ async function scenario(label, ctxExtras, expect) {
   expect({ toolOk, notes, r });
 }
 
-// 1. A completed step compacts (newSession is not reachable from a tool or an
-// event handler — it exists only on ExtensionCommandContext).
+// 1. A completed step advances the plan WITHOUT compacting. Measured across 38
+// real compactions, the step boundary produced a second population firing at
+// 17,000-22,000 tokens against a ~12,000 floor: ~145s spent to reclaim five to
+// ten thousand tokens, at a depth where nothing was wrong. The depth watchdog
+// still compacts when depth is the actual problem.
 let compacted = null;
 await scenario("step boundary", { compact: (o) => (compacted = o) },
   ({ toolOk }) => {
     check("plan_next no longer throws from the tool context", toolOk);
-    check("a finished step triggers compaction", compacted !== null);
-    check("the summary is aimed at the next step",
-      /next step is: two/i.test(compacted?.customInstructions ?? ""),
-      (compacted?.customInstructions ?? "").slice(0, 70));
+    check("a finished step does not compact", compacted === null,
+      "the briefing re-establishes the plan every turn, compaction is not what orients it");
   });
+
+// 1b. The old behaviour is still reachable, and still aims its summary at the
+// next step: that instruction is the whole reason it was worth doing.
+process.env.PI_PLAN_STEP_COMPACT = "1";
+let forced = null;
+await scenario("step boundary, opted in", { compact: (o) => (forced = o) },
+  () => {
+    check("PI_PLAN_STEP_COMPACT=1 restores the compaction", forced !== null);
+    check("and the summary is still aimed at the next step",
+      /next step is: two/i.test(forced?.customInstructions ?? ""),
+      (forced?.customInstructions ?? "").slice(0, 70));
+  });
+delete process.env.PI_PLAN_STEP_COMPACT;
 
 // 2. No compaction available -> degrades quietly rather than erroring.
 await scenario("no compact API", {}, ({ notes }) =>

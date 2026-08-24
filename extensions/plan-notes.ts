@@ -57,6 +57,36 @@ const PLAN_GATE = process.env.PI_PLAN_GATE !== "0";
 const MAX_AUTO = Number(process.env.PI_PLAN_MAX_AUTO ?? 25);
 
 /**
+ * Whether finishing a step compacts the context.
+ *
+ * It used to, unconditionally, with force:true so the size check could not stand
+ * it down. Measured across 38 real compactions, that produced a whole second
+ * population firing at 17,000-22,000 tokens, roughly half of all compactions,
+ * against a post-compaction floor near 12,000. Each one cost a summary (~1,725
+ * output tokens) plus a full re-prefill, about 145s, to reclaim five to ten
+ * thousand tokens of headroom at a depth where decode is still near its best
+ * and peak memory is nowhere near the knee.
+ *
+ * The depth watchdog already compacts when depth is actually the problem, and
+ * the before_agent_start briefing re-establishes the plan on every turn, which
+ * is what made a wiped context safe in the first place. It orients the model
+ * whether or not a compaction happened.
+ *
+ * What is given up: the step-boundary compaction carried tailored instructions
+ * ("keep what the next step needs, drop the narrative"), so narrative from
+ * earlier steps now survives until the depth trigger fires with its generic
+ * instructions.
+ *
+ * PI_PLAN_STEP_COMPACT=1 restores it.
+ *
+ * Read at call time rather than captured at import, so a test can set it
+ * without controlling module load order. Same reason keepRecentTokens does.
+ */
+export function stepCompact(): boolean {
+	return process.env.PI_PLAN_STEP_COMPACT === "1";
+}
+
+/**
  * A step, and whether anyone has started it.
  *
  * `[ ]` waiting, `[o]` the step work last happened on, `[x]` done. The middle
@@ -382,6 +412,12 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 		// Same reason the size watchdog stands down in print mode: this fires
 		// mid-run, and an aborted print turn cannot be resumed before the process
 		// exits. See midRunCompactionAllowed.
+		// Advancing the plan is the part that matters; the compaction was the
+		// expensive half and the briefing does the orienting either way.
+		if (!stepCompact()) {
+			carryOn();
+			return undefined;
+		}
 		if (!midRunCompactionAllowed()) return undefined;
 		const started = requestCompaction(ctx, `Step ${reset.index} finished`, {
 			// A step boundary is a semantic trigger, not a size one, and it fires
@@ -759,7 +795,7 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			// below runs with the mode's full context, so it can do the swap.
 			// Say a compaction is coming as soon as it is scheduled. It happens at
 			// the end of this turn, and the abort in between belongs to it.
-			expectCompaction();
+			if (stepCompact()) expectCompaction();
 			pendingReset = {
 				index: next.index,
 				total: steps.length,
@@ -770,7 +806,9 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 				content: [
 					{
 						type: "text",
-						text: `Step ${index + 1} done. Next: step ${next.index + 1} of ${steps.length} — ${next.step.text}. Context is compacted when this turn ends.`,
+						text:
+							`Step ${index + 1} done. Next: step ${next.index + 1} of ${steps.length} — ${next.step.text}.` +
+							(stepCompact() ? " Context is compacted when this turn ends." : ""),
 					},
 				],
 				details: { completed: index, next: next.index },
