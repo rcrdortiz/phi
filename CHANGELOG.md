@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.26.0 (2026-08-24)
+
 **Changed: finishing a plan step no longer compacts.** It used to, every time,
 with `force: true` so the size check could not stand it down. Measured across 38
 real compactions, that produced a second population firing at 17,000 to 22,000
