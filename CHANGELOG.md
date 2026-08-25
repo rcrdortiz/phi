@@ -16,6 +16,33 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: a lean summary no longer gets cut off at the token cap.** Fifteen
+compactions on a real task showed the ceiling was set at the working range
+rather than above it: output ran 515 to 900 tokens against a 900 cap, and two
+were truncated mid-sentence. Both cuts landed in the Context section, which is
+where the unverified edits and the pointers to what is already in NOTES.md live,
+so it lost the most useful part and did so silently, since a truncated note is
+long and reads normally.
+
+Three changes. The ceiling moves to 1600 and stops being the mechanism. The
+prompt asks for about 400 words instead, with permission to go over when leaving
+something out would cost the next agent real work, and an instruction never to
+pad to reach it. And `finish_reason: "length"` now falls back to pi, because a
+whole summary from pi's template beats a truncated one from ours.
+
+Keeping a ceiling at all is deliberate: soft targets bind weakly here. The
+prompt already said "under 300 words" while the summary that hit the cap ran to
+roughly 640.
+
+Also dropped "No headings" from that prompt. It contradicted phi's own
+customInstructions, which ask for the three handover sections, and those are
+where the Constraints / Dead ends / Context structure comes from.
+
+For reference, the same fifteen compactions at 37,000 to 42,000 tokens of depth:
+median 700 output tokens in 85 to 233 seconds, sizes oscillating rather than
+climbing. pi's template on the same repo and the same work: median 2,786 tokens,
+and a run that reached 5,755 tokens and 607 seconds by its fourth compaction.
+
 ## 0.27.0 (2026-08-24)
 
 **Added: phi can write its own compaction summary, off by default.** pi asks the
