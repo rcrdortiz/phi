@@ -16,6 +16,27 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Changed: phi writes its own compaction summary by default.** It was added in
+0.27.0 behind `PHI_LEAN_SUMMARY=1`. Fifteen compactions across a real task, at
+37,000 to 42,000 tokens of depth, came in at a median of 700 output tokens in 85
+to 233 seconds, with sizes oscillating rather than climbing. pi's template on the
+same repo and the same work: a median of 2,786 tokens, and a chain that reached
+5,755 tokens and 607 seconds by its fourth compaction at flat depth, because its
+update prompt is instructed to preserve everything from the previous summary.
+
+`PHI_LEAN_SUMMARY=0` restores pi's nine-section template.
+
+Read this before taking the update. phi's summary ignores the previous one, so
+nothing carries across more than one compaction: anything not written to
+PLAN.md or NOTES.md is gone. The bet is that the plan and the notes are the
+memory, and phi re-injects both into every turn. Fifteen compactions did not
+falsify it, but the failure mode would read as ordinary confusion, the model
+re-deriving something it settled earlier, rather than as a compaction fault. If
+a session starts doing that, `PHI_LEAN_SUMMARY=0` is the first thing to try.
+
+It stands down on its own when there is no plan or notes file with content, and
+falls back to pi on a truncated response, a bad body, a timeout or an abort.
+
 ## 0.27.1 (2026-08-25)
 
 **Fixed: a lean summary no longer gets cut off at the token cap.** Fifteen
