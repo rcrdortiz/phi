@@ -16,6 +16,29 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Added: guidance to write code that costs less to re-read.** The expensive part
+of a session is not reading code, it is the deliberation reading triggers.
+Thinking is roughly three quarters of output tokens on this setup, and one block
+has reached 37,505 characters. Most of it is the model reconstructing what the
+code did not state: what can reach this parameter, whether this can be null,
+whether an odd-looking line is a bug. Every "let me double check" is a fact
+nobody wrote down.
+
+So the injected guidance targets re-derivation rather than byte count. Say why
+not what. Comment anything that looks wrong but is right, or it gets
+re-investigated on every read. Record a failed approach beside the code that
+replaced it. Put units in names. State invariants where they are assumed. Prefer
+one obvious reading to a general mechanism with several. And because the obvious
+failure of "comment more" is comment rot, it asks for durable facts only: a
+stale comment costs more than no comment.
+
+141 words, about 220 prompt tokens, charged once per session in practice because
+the system prompt is cached after the first turn.
+
+This is an experiment and is not established. Judge it by thinking tokens per
+turn on comparable work with `PHI_WRITE_GUIDANCE=0` and without; the session logs
+already record what is needed.
+
 ## 0.28.1 (2026-08-25)
 
 **Fixed: a finished plan no longer hijacks the next task.** phi's summary tells
