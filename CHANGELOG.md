@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.28.1 (2026-08-25)
+
 **Fixed: a finished plan no longer hijacks the next task.** phi's summary tells
 the summariser not to restate the goal, because the goal is in PLAN.md. The check
 for that was whether PLAN.md had content, and a plan whose every step is ticked
