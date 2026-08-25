@@ -92,6 +92,26 @@ fs.rmSync(DIR, { recursive: true, force: true });
   check("it says to end the turn afterwards", /end your turn/i.test(d));
 }
 
+
+// --- investigation belongs in the plan ------------------------------------
+// It used to happen before plan_write, which put it in the one place nothing
+// survives: the conversation. A compaction threw it away, the plan described
+// only the fixing, and a resumed session investigated again from nothing.
+{
+  const g = (tools.plan_write.promptGuidelines ?? []).join(" ") + " " + tools.plan_write.description;
+  check("tells the model to plan before investigating", /BEFORE investigating|before investigating/.test(g));
+  check("gives investigation an outcome shape",
+    /is identified and recorded/.test(g),
+    "an outcome can be finished and checked; an activity cannot");
+  check("requires an investigation step to end in a note", /investigation step ends with note_add/i.test(g),
+    "a finding only in context is erased by the next compaction");
+  // The anti-phase rule still has to hold, or the old failure comes back: a
+  // five-step read/read/identify/fix/verify plan that the model did all at once.
+  check("still forbids planning by phase", /Do not plan by phase/.test(g));
+  check("and distinguishes the two explicitly", /not planning by phase/i.test(g),
+    "one scoped investigation step is allowed; read-everything-then-fix-everything is not");
+}
+
 const failed = results.filter((r) => !r).length;
 
 // --- plan_write must not stall, and must not be fussy --------------------

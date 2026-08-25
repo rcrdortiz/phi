@@ -101,7 +101,7 @@ export function stepCompact(): boolean {
  * pang.js that had been asked for in chat. Naming it for what it measures keeps
  * the next session from trusting it further than it deserves.
  */
-type Step = { done: boolean; active?: boolean; text: string };
+export type Step = { done: boolean; active?: boolean; text: string };
 
 // ---------------------------------------------------------------- files
 
@@ -129,7 +129,7 @@ function writeFileSafe(p: string, contents: string): void {
 	fs.writeFileSync(p, contents, "utf8");
 }
 
-function parsePlan(text: string): Step[] {
+export function parsePlan(text: string): Step[] {
 	const steps: Step[] = [];
 	for (const line of text.split("\n")) {
 		const m = /^\s*[-*]\s*\[([ xXoO])\]\s*(.+?)\s*$/.exec(line);
@@ -497,11 +497,18 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			`Each step must name the OUTCOME that will be true when it is done, not the activity it consists of: ` +
 			`"Paginator::offset() returns 0 for page 1, verified by a runtime check" rather than "look at the paginator". ` +
 			`A step whose outcome cannot be checked cannot be finished, only abandoned. ` +
-			`Call this once at the start of any task that needs more than one edit.`,
+			`Call this at the START of any task that needs more than one edit, before investigating rather than after: if the work needs investigation first, that is step 1 and its outcome is a recorded finding.`,
 		promptSnippet: `Write ${PLAN_FILE}: break the task into small ordered steps`,
 		promptGuidelines: [
 			`Use plan_write before starting multi-step work, so progress survives a compaction.`,
 			`After writing a plan, tell the user what you found and what the plan is, then let them respond before starting step 1. Investigation that only exists in your context is investigation the user cannot correct.`,
+			// Investigation used to happen BEFORE plan_write, which put it in the
+			// one place nothing survives: the conversation. A compaction then threw
+			// it away, and the plan that followed described only the fixing, so a
+			// resumed session had to investigate again from nothing. Making it step
+			// one is what lets it be split, resumed, and seen by the user.
+			`Write the plan BEFORE investigating, not after. When the work needs investigation first, that is step 1, stated as what it will produce: "the cause of the double render is identified and recorded with note_add" rather than "investigate the double render". Investigation done before plan_write survives nothing.`,
+			`An investigation step ends with note_add. A finding that is only in your context is not an outcome, because nothing can verify it and a compaction erases it.`,
 			`Keep each step small enough to finish and verify on its own.`,
 			// Phase-shaped plans read well and do not survive contact with the work.
 			// Observed live: a five-step plan of "read the PHP", "read the TS",
@@ -511,7 +518,8 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			// sequential plan against work already finished, and a compaction
 			// resumed it into re-reading files it had already read.
 			`State each step as the outcome that will be true, not the activity: "the feed returns the newest articles, checked against the seed" rather than "review the feed code". Outcomes can be verified and cannot be half-done; activities can always be done again.`,
-			`Do not plan by phase ("read everything", then "fix everything"). Investigation and its fix belong in the same step, because a plan that separates them is one the work will not follow, and every later step then has to be reconciled against work already finished.`,
+			`Do not plan by phase ("read everything", then "fix everything"). Beyond a single leading investigation step, investigation and its fix belong together, because a plan that separates them is one the work will not follow, and every later step then has to be reconciled against work already finished.`,
+			`One scoped investigation step is not planning by phase. The difference is whether the step has an outcome of its own: "the three callers of render() are known and recorded" can be finished and checked, while "read the codebase" cannot, and the model will do it alongside the fix regardless.`,
 			`If the agreed direction changes, call plan_write again with the revised steps BEFORE continuing — never keep working against a plan that no longer matches what was agreed.`,
 			// The failure this prevents: a step turns out to hold several distinct
 			// outcomes, the model does all of them in one pass, and the plan then
