@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.27.1 (2026-08-25)
+
 **Fixed: a lean summary no longer gets cut off at the token cap.** Fifteen
 compactions on a real task showed the ceiling was set at the working range
 rather than above it: output ran 515 to 900 tokens against a 900 cap, and two
