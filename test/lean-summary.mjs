@@ -41,13 +41,32 @@ check("does not rely on before_provider_request", handlers["before_provider_requ
 
 // --- the guard -------------------------------------------------------------
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "lean-"));
-check("stands down with no durable state", !hasDurableState(DIR),
-  "with no plan or notes, pi's full template is the correct thing to send");
+const plan = (body) => fs.writeFileSync(path.join(DIR, STATE_DIR, "PLAN.md"), body);
+check("stands down with no plan at all", !hasDurableState(DIR),
+  "pi's template captures the goal, which is the right thing when nothing else holds it");
 fs.mkdirSync(path.join(DIR, STATE_DIR), { recursive: true });
-fs.writeFileSync(path.join(DIR, STATE_DIR, "NOTES.md"), "");
-check("an empty notes file is not durable state", !hasDurableState(DIR));
+
+// Notes hold findings, never the goal. A summary that omits the goal on the
+// strength of notes omits it entirely.
 fs.writeFileSync(path.join(DIR, STATE_DIR, "NOTES.md"), "- something worth keeping\n");
-check("fires once notes have content", hasDurableState(DIR));
+check("notes alone are not enough", !hasDurableState(DIR),
+  "NOTES.md never holds the goal");
+
+plan("# Plan\n\n**Goal:** ship it\n\n- [ ] one\n- [ ] two\n");
+check("an active plan is durable state", hasDurableState(DIR));
+
+plan("# Plan\n\n**Goal:** ship it\n\n- [x] one\n- [ ] two\n");
+check("a partly done plan is still active", hasDurableState(DIR));
+
+// The case that broke a live session: every step ticked, so the goal in the file
+// is the FINISHED one, while the new task's goal exists only in the conversation
+// about to be discarded.
+plan("# Plan\n\n**Goal:** the previous task\n\n- [x] one\n- [x] two\n");
+check("a SPENT plan stands down", !hasDurableState(DIR),
+  "a completed plan is a file with content and the wrong goal; this is the bug that lost a session");
+
+plan("# Plan\n\n**Goal:** nothing yet\n");
+check("a plan with no steps stands down", !hasDurableState(DIR));
 
 // --- transcript flattening -------------------------------------------------
 check("flattens string content", transcript([{ role: "user", content: "hello" }]) === "[user] hello");

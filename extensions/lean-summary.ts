@@ -63,6 +63,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { BASE_URL } from "../lib/ollama-models.ts";
 import { STATE_DIR } from "../lib/state-dir.ts";
+import { parsePlan, planIsSpent } from "./plan-notes.ts";
 
 const ENABLED = process.env.PHI_LEAN_SUMMARY !== "0";
 /**
@@ -105,16 +106,34 @@ export const LEAN_PROMPT = [
 	"the last thing that was run.",
 ].join("\n");
 
-/** phi's durable state only exists once a plan or notes file has content. */
+/**
+ * Is there a plan describing the work happening NOW?
+ *
+ * This has to be an ACTIVE plan, with steps still to do, and not merely a plan
+ * file with bytes in it. A spent plan, every step ticked, is exactly the case
+ * that broke a live session: the guard saw content, the lean prompt told the
+ * summariser not to restate the goal because "it is in PLAN.md", and the goal in
+ * PLAN.md was the FINISHED one. The new task's goal existed only in the
+ * conversation being discarded, so it was dropped, the briefing re-injected the
+ * old goal, and the agent resumed a plan it had already completed.
+ *
+ * Notes alone are not enough either. NOTES.md holds findings, never the goal, so
+ * a summary that omits the goal on the strength of notes omits it entirely.
+ *
+ * No active plan means pi's template, which captures the goal itself. That is
+ * the correct behaviour for new work, and for a session that never plans at all.
+ */
 export function hasDurableState(cwd: string | undefined): boolean {
 	if (!cwd) return false;
-	return ["PLAN.md", "PLAN-DONE.md", "NOTES.md"].some((f) => {
-		try {
-			return fs.statSync(path.join(cwd, STATE_DIR, f)).size > 0;
-		} catch {
-			return false;
-		}
-	});
+	let planText = "";
+	try {
+		planText = fs.readFileSync(path.join(cwd, STATE_DIR, "PLAN.md"), "utf8");
+	} catch {
+		return false;
+	}
+	const steps = parsePlan(planText);
+	if (!steps.length) return false;
+	return !planIsSpent(steps);
 }
 
 /** Flatten pi's message shapes into a transcript the summariser can read. */
