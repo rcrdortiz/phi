@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.29.0 (2026-08-25)
+
 **Added: guidance to write code that costs less to re-read.** The expensive part
 of a session is not reading code, it is the deliberation reading triggers.
 Thinking is roughly three quarters of output tokens on this setup, and one block
