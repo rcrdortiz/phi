@@ -16,6 +16,28 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: a finished plan no longer hijacks the next task.** phi's summary tells
+the summariser not to restate the goal, because the goal is in PLAN.md. The check
+for that was whether PLAN.md had content, and a plan whose every step is ticked
+has content. So starting new work in a repo with a completed plan dropped the new
+goal from the summary, the briefing re-injected the old one, and the agent
+resumed a plan it had already finished. The check now requires an ACTIVE plan,
+with steps still to do. Without one, pi's template is used, which captures the
+goal itself.
+
+Notes are no longer sufficient on their own for the same reason: NOTES.md holds
+findings and never the goal.
+
+**Changed: investigation belongs in the plan, as step one.** It used to happen
+before plan_write, which put it in the one place nothing survives, the
+conversation. A compaction threw it away, the plan described only the fixing, and
+a resumed session investigated again from nothing. It was also invisible to the
+user, who could not correct a wrong reading before it hardened into a plan.
+plan_write now asks for the plan first, with investigation as step 1 stated as
+what it produces ("the cause of the double render is identified and recorded")
+and ending in a note_add. Planning by phase is still refused, and the guidance
+now spells out the difference rather than leaving it to be inferred.
+
 ## 0.28.0 (2026-08-25)
 
 **Changed: phi writes its own compaction summary by default.** It was added in
