@@ -16,16 +16,28 @@ import { STATE_DIR } from "../lib/state-dir.ts";
 const results = [];
 const check = (l, p, d = "") => { results.push(p); console.log(`${p ? "PASS" : "FAIL"}  ${l}${d ? "\n        " + d : ""}`); };
 
-process.env.PHI_LEAN_SUMMARY = "1";
+delete process.env.PHI_LEAN_SUMMARY;   // default is on
 const { default: mod, LEAN_PROMPT, hasDurableState, transcript, usable, leanUsage } =
   await import("../extensions/lean-summary.ts");
 
 // --- it must register on the hook that reaches compaction ------------------
 const handlers = {};
 mod({ on: (e, h) => (handlers[e] = h), registerTool: () => {}, registerCommand: () => {} });
-check("registers session_before_compact", typeof handlers["session_before_compact"] === "function",
-  "before_provider_request never fires for a compaction; that was the original bug");
+check("registers session_before_compact with no env set", typeof handlers["session_before_compact"] === "function",
+  "on by default since 0.28.0; before_provider_request never fires for a compaction, which was the original bug");
 check("does not rely on before_provider_request", handlers["before_provider_request"] === undefined);
+
+// The off switch has to work, because it is the first thing to reach for if a
+// session starts re-deriving things it settled before a compaction.
+{
+  process.env.PHI_LEAN_SUMMARY = "0";
+  const off = {};
+  const fresh = await import("../extensions/lean-summary.ts?off");
+  fresh.default({ on: (e, h) => (off[e] = h), registerTool: () => {}, registerCommand: () => {} });
+  check("PHI_LEAN_SUMMARY=0 registers nothing", off["session_before_compact"] === undefined,
+    "pi's template is the fallback, and it must be reachable");
+  delete process.env.PHI_LEAN_SUMMARY;
+}
 
 // --- the guard -------------------------------------------------------------
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "lean-"));

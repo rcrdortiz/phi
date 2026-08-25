@@ -34,13 +34,27 @@
  * it", and that is what happens on a bad response, a timeout, an abort, or no
  * plan and notes to lean on.
  *
- * STATUS: experimental. Three live failures so far, each one downstream of the
- * previous fix: the hook did not fire, then the model continued the conversation
- * instead of summarising, then an incomplete Usage record crashed the session
- * from the footer's render. All three passed their unit tests. Treat a green
- * suite here as necessary and not sufficient, and prefer a scratch repo.
+ * ON BY DEFAULT since 0.28.0, on the evidence of fifteen compactions across a
+ * real task: median 700 output tokens in 85 to 233 seconds, sizes oscillating
+ * rather than climbing, against pi's median of 2,786 tokens on the same repo and
+ * a run that reached 5,755 tokens and 607 seconds by its fourth compaction.
  *
- * Env: PHI_LEAN_SUMMARY=1        use phi's summariser
+ * What that evidence does NOT cover, and the reason to reach for the off switch
+ * first if a session starts behaving oddly: this ignores previousSummary, so
+ * nothing carries across more than one compaction. Anything not written to
+ * PLAN.md or NOTES.md is gone. The bet is that the plan and the notes are the
+ * memory. Its failure mode is the model re-deriving something settled earlier,
+ * which reads as ordinary confusion rather than as a compaction fault.
+ *
+ * It broke three times during development, each failure downstream of the
+ * previous fix, and each one passed its unit tests first: the hook it originally
+ * used never fires for a compaction; then the model continued the conversation
+ * instead of summarising it, and a 40 character usability check let one sentence
+ * stand in for 30,000 tokens of a live session; then an incomplete Usage record
+ * crashed a session from the footer's render, after the compaction had already
+ * succeeded. All fixed and tested. A green suite here has twice not been proof.
+ *
+ * Env: PHI_LEAN_SUMMARY=0        go back to pi's nine-section template
  *      PHI_LEAN_MAX_TOKENS       cap on the summary (default 900)
  */
 
@@ -50,7 +64,7 @@ import * as path from "node:path";
 import { BASE_URL } from "../lib/ollama-models.ts";
 import { STATE_DIR } from "../lib/state-dir.ts";
 
-const ENABLED = process.env.PHI_LEAN_SUMMARY === "1";
+const ENABLED = process.env.PHI_LEAN_SUMMARY !== "0";
 /**
  * Hard ceiling, deliberately well above the target in the prompt.
  *
