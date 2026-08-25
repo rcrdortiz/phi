@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.28.0 (2026-08-25)
+
 **Changed: phi writes its own compaction summary by default.** It was added in
 0.27.0 behind `PHI_LEAN_SUMMARY=1`. Fifteen compactions across a real task, at
 37,000 to 42,000 tokens of depth, came in at a median of 700 output tokens in 85
