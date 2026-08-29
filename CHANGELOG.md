@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.30.0 (2026-08-29)
+
 **Fixed: the read cache no longer outlives the context it describes.** The
 view_lines cache answers "already shown above, scroll up" against the
 conversation, and it was only ever invalidated when a file was written. A
