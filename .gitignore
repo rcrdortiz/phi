@@ -1,5 +1,6 @@
 node_modules/
 *.log
+.DS_Store
 
 # Benchmark results: a data file that churns every run, and every developer's
 # copy differs. The tasks and the harness are worth versioning; the scores are
