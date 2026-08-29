@@ -527,6 +527,11 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			// and keeps the plan a true record of where things stand.
 			`When the step you are on turns out to contain more than one outcome, expand it: call plan_write with that step replaced by the finer outcomes, every other step repeated verbatim. Do that instead of finishing all of it in a single pass, so a compaction lands between outcomes rather than in the middle of one.`,
 			`An expansion must stay inside the step it replaces. If a substep duplicates or contradicts a later step, the plan is wrong rather than too coarse: revise the whole thing instead.`,
+			// The acceptance criteria are the one thing every later step and every
+			// post-compaction session needs verbatim: what "done" means, how it is
+			// checked, and what the checker misses. The notes file is re-injected
+			// every turn, so a note is the only home that survives a context reset.
+			`Before starting step 1, record the acceptance criteria with note_add (category "decision"): the output path, the exact counts or gates, the verification command, and anything that command does NOT check. That note is what makes "done" survive a compaction.`,
 			`Completed steps beyond the most recent three live in ${DONE_FILE}. Read it before rewriting a plan, so finished work is not scheduled again.`,
 			`Steps that still apply should be repeated verbatim in the revision; their completed state is preserved automatically.`,
 		],
@@ -624,6 +629,11 @@ export default function planNotesExtension(pi: ExtensionAPI) {
 			`note_add records what would be expensive to rediscover: a constraint, a gotcha, a decision and its reason. Not what you just did — step summaries belong in plan_next.`,
 			`Use category "${EXPIRING_CATEGORY}" for anything only true right now ("3 tests still fail"), so it expires instead of rotting into a false statement.`,
 			`Step-scoped findings are the common case, not the exception. A permanent note is a claim that a future session, on unrelated work, still needs this.`,
+			// Quoted file text in a note is the rot class lib/notes.ts documents:
+			// true when written, false after the next edit, and still fed to every
+			// session. An anchor (something to grep for) stays cheap to follow and
+			// cannot rot into a wrong quote, only into a dead pointer.
+			`To point at a place in a file, record an anchor to find it by (a grep-able signature, a symbol name, a heading), never quoted file text: a quote goes stale the moment the file changes, and a later session will trust it over the file.`,
 		],
 		parameters: Type.Object({
 			category: Type.String({ description: CATEGORIES.join("|") }),
