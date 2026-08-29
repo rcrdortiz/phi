@@ -72,6 +72,19 @@ check("and it re-caches under the new stamp", cache.covered("f.js", B, 100, 400)
 cache.invalidate("f.js");
 check("an explicit edit drops it immediately", !cache.covered("f.js", B, 100, 400));
 
+// hasSeen tells a failed edit match apart from a stale one: any lines at the
+// current stamp count, because the question is "has the model seen this file
+// as it is on disk at all", not "was this exact range delivered".
+const c3 = new ReadCache();
+check("hasSeen is false for a file never read", !c3.hasSeen("h.js", A));
+c3.record("h.js", A, 10, 20);
+check("hasSeen is true after any read, whatever the range", c3.hasSeen("h.js", A));
+check("hasSeen is false once the file's bytes changed", !c3.hasSeen("h.js", B),
+  "the model saw an older file, so its memory of the text is stale");
+c3.clear();
+check("clear() forgets everything", !c3.hasSeen("h.js", A),
+  "a compaction rewrites the conversation the cache describes");
+
 // Non-contiguous coverage must not report a gap as covered.
 const c2 = new ReadCache();
 c2.record("g.js", A, 1, 100);

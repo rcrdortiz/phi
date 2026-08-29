@@ -426,11 +426,27 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 			const hits = findBlock(lines, needle);
 
 			if (hits.length === 0) {
+				// A miss on a file the model has never seen at its current bytes is
+				// not a near-miss, it is a guess: old_text was reconstructed from
+				// memory or a compaction summary, and both drift from disk. Observed
+				// live: a session burned several edit_block retries on prose quoted
+				// from a stale summary. Saying which failure this is turns the next
+				// call into a read instead of another guess. Attached to the failure
+				// result rather than stated in guidelines, because that is the only
+				// placement that has changed behaviour (see nudgeForRun).
+				const unseen = !readCache.hasSeen(file, stampOf(file));
 				return {
 					content: [
 						{
 							type: "text",
-							text: `No match for that block in ${params.file}.${closest(lines, needle)}`,
+							text:
+								`No match for that block in ${params.file}.` +
+								(unseen
+									? `\nYou have not viewed this file since it last changed, so old_text came from ` +
+										`memory or a summary rather than from disk. view_lines the region and copy ` +
+										`the text from that result, then retry.`
+									: "") +
+								closest(lines, needle),
 						},
 					],
 					isError: true,
@@ -900,4 +916,15 @@ export default function smartEditExtension(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => retireBuiltins(ctx.ui.notify));
 	// session_start does not fire in --print mode; this covers those runs.
 	pi.on("before_agent_start", async () => retireBuiltins());
+
+	// The cache answers "already shown above, scroll up" against the
+	// conversation, and a compaction rewrites the conversation: lines the
+	// summary dropped were still marked as delivered, so the refusal pointed
+	// the model at text that was no longer in its context, and it obliged by
+	// reconstructing the lines from the summary instead of from disk. That is
+	// the exact reconstruct-from-memory failure the unseen hint above exists
+	// to name. A fresh session gets a fresh cache for the same reason: the
+	// module-level singleton outlives the conversation it describes.
+	pi.on("session_compact", async () => readCache.clear());
+	pi.on("session_start", async () => readCache.clear());
 }

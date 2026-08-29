@@ -157,8 +157,6 @@ fs.writeFileSync(FILE, ORIGINAL);
     "reported in the tool result so it is recoverable");
 }
 
-const failed = results.filter((x) => !x.pass).length;
-
 // --- the line-free experiment ---------------------------------------------
 // replace_lines is the only tool that needs a gutter: 727 reads paid for it
 // across 47 sessions, 40 replace_lines calls used it, against 174 edit_block
@@ -263,6 +261,55 @@ const failed = results.filter((x) => !x.pass).length;
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// --- the unseen hint and the compaction-cleared cache -----------------------
+// A no-match on a file the model has never seen at its current bytes means
+// old_text was reconstructed from memory or a compaction summary. And the
+// cache's "already shown above, scroll up" is only true while the conversation
+// still holds the lines: a compaction rewrites the conversation, so it must
+// also reset the cache, or the refusal itself sends the model back to guessing.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phi-unseen-"));
+  fs.writeFileSync(path.join(dir, "long.js"), Array.from({ length: 100 }, (_, i) => `const v${i + 1} = ${i + 1};`).join("\n"));
+
+  const tools = {};
+  const handlers = {};
+  mod({
+    registerTool: (t) => (tools[t.name] = t),
+    registerCommand: () => {},
+    on: (e, h) => (handlers[e] ??= []).push(h),
+  });
+  const ctx = { cwd: dir, ui: { notify: () => {} } };
+  const miss = () => tools.edit_block.execute("x", { file: "long.js", old_text: "nothing like this exists", new_text: "y" }, null, null, ctx);
+  const view = () => tools.view_lines.execute("x", { file: "long.js", start_line: 1, end_line: 100 }, null, null, ctx);
+
+  resetReadRun();
+  let r = await miss();
+  check("a miss on an unread file says to read, not to retry",
+    r.isError === true && /not viewed this file/.test(r.content[0].text),
+    "the matched text can only have come from memory or a summary");
+
+  await view();
+  r = await miss();
+  check("after a read the same miss is a near-miss, not a guess",
+    r.isError === true && !/not viewed this file/.test(r.content[0].text),
+    "the hint must name one specific failure or it becomes noise");
+
+  r = await view();
+  check("a large re-read is suppressed while the context still holds it",
+    /already shown above/.test(r.content[0].text));
+
+  for (const h of handlers.session_compact ?? []) await h({}, ctx);
+  r = await view();
+  check("session_compact clears the cache so the re-read is served",
+    /^1\|const v1/m.test(r.content[0].text),
+    "after a compaction 'scroll up' points at text that is no longer there");
+  check("the extension hooks session_compact and session_start",
+    (handlers.session_compact ?? []).length > 0 && (handlers.session_start ?? []).length > 0);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+const failed = results.filter((x) => !x.pass).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);
 

@@ -277,6 +277,17 @@ export class ReadCache {
 		return true;
 	}
 
+	/** True when ANY lines of `file` have been delivered since its bytes last
+	 *  changed. Coarser than covered() on purpose: it exists to tell a failed
+	 *  edit match apart from a stale one. No entry at the current stamp means
+	 *  the model has never seen the file as it is on disk, so the text it
+	 *  matched against came from memory or a compaction summary, and the fix
+	 *  is to read, not to guess again. */
+	hasSeen(file: string, stamp: CacheStamp): boolean {
+		const e = this.seen.get(file);
+		return !!e && e.stamp.size === stamp.size && e.stamp.mtimeMs === stamp.mtimeMs && e.lines.size > 0;
+	}
+
 	/** Drop a file entirely — call after an edit, before mtime is even consulted. */
 	invalidate(file: string): void {
 		this.seen.delete(file);
