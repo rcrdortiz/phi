@@ -16,6 +16,36 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: the read cache no longer outlives the context it describes.** The
+view_lines cache answers "already shown above, scroll up" against the
+conversation, and it was only ever invalidated when a file was written. A
+compaction rewrites the conversation, so lines the summary dropped stayed marked
+as delivered, and the refusal pointed the model at text no longer in its
+context. It obliged by reconstructing the lines from the compaction summary
+instead of from disk: observed live, a session burned several edit_block retries
+on prose quoted from a stale summary before finding the real text. The cache is
+now cleared on session_compact and on session_start, since the module-level
+singleton also survived into fresh sessions.
+
+**Added: a failed edit_block match says when the model is guessing.** A
+no-match on a file the model has never seen at its current bytes is not a
+near-miss, it is a reconstruction from memory or a summary, and the fix is to
+read rather than to retry. The error now says so, and only in that case: after
+a genuine read, a miss keeps the ordinary closest-lines reply. Attached to the
+failure result rather than stated in guidelines, because that is the only
+placement that has changed behaviour here.
+
+**Added: two note guidelines, both aimed at what survives a compaction.**
+plan_write now asks for the task's acceptance criteria to be recorded with
+note_add before step 1: the output path, the exact counts or gates, the
+verification command, and what that command does not check. NOTES.md is
+re-injected every turn, so this is the one home where "done" survives a context
+reset instead of being re-derived after each one. And note_add now asks for
+anchors instead of quoted file text when pointing at a place in a file: a
+grep-able signature or a symbol name stays cheap to follow, while a quote goes
+stale at the next edit and a later session will trust it over the file. That is
+the same rot class the notes lifetime rules already document.
+
 ## 0.29.0 (2026-08-25)
 
 **Added: guidance to write code that costs less to re-read.** The expensive part
