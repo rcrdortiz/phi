@@ -16,6 +16,8 @@ public API. phi has no API.
 
 ## Unreleased
 
+## 0.30.1 (2026-09-11)
+
 **Fixed: the update check could crash the session.** The boot box redraws
 itself when a background version check finishes, and it did so by asking pi to
 invalidate every component on screen. That is pi's resize-and-retheme hammer,
