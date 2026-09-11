@@ -16,6 +16,16 @@ public API. phi has no API.
 
 ## Unreleased
 
+**Fixed: the update check could crash the session.** The boot box redraws
+itself when a background version check finishes, and it did so by asking pi to
+invalidate every component on screen. That is pi's resize-and-retheme hammer,
+and it assumes the whole tree can take it. Mid-turn the tree holds whatever the
+model is rendering, and on newer pi builds a tool-call box can contain a child
+with no invalidate method, so the check landing at the wrong moment killed the
+process with "this.child.invalidate is not a function". The box now asks for a
+plain repaint instead, which is all it ever needed, and the call is guarded so a
+timer-driven check can never end a session again.
+
 ## 0.30.0 (2026-08-29)
 
 **Fixed: the read cache no longer outlives the context it describes.** The

@@ -495,7 +495,29 @@ export default function bootScreenExtension(pi: ExtensionAPI) {
 		if (c.mode !== "tui" || typeof c.ui.setHeader !== "function") return undefined;
 
 		c.ui.setHeader((tui, theme) => {
-			invalidate = () => tui.invalidate();
+			/**
+			 * Ask for a repaint, nothing more.
+			 *
+			 * This used to call tui.invalidate(), which walks every mounted
+			 * component and tells it to drop its render cache. That is the
+			 * hammer pi reaches for on a resize or theme change, and it assumes
+			 * every node in the tree implements invalidate. The tree at the
+			 * moment a background check lands is whatever the model is doing
+			 * right then, and on newer pi builds a tool-call box can hold a
+			 * child that does not (MouseRegion.invalidate threw "this.child
+			 * .invalidate is not a function" and took the process down). The
+			 * header keeps no cache, so a plain requestRender redraws it just
+			 * as well without touching anyone else's state. The try/catch is
+			 * belt and braces: a version check firing from a timer must never
+			 * be the thing that ends a session.
+			 */
+			invalidate = () => {
+				try {
+					tui.requestRender();
+				} catch {
+					/* a stale header beats a dead session */
+				}
+			};
 			return {
 				render(width: number) {
 					return renderBox(width, {
